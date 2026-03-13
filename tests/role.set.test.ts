@@ -1,37 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import express from 'express'
-import * as http from 'node:http'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 import { createTestGroupDb } from './helpers/test-db.js'
-import { createTestContext, seedMember } from './helpers/mock-server.js'
+import { buildTestServer, seedMember } from './helpers/mock-server.js'
 import roleSetHandler from '../src/api/role/set.js'
-import { xrpcErrorHandler } from '../src/api/error-handler.js'
-
-// ---------------------------------------------------------------------------
-// HTTP integration helpers
-// ---------------------------------------------------------------------------
-
-async function buildTestServer(groupDb: Kysely<GroupDatabase>) {
-  const { ctx } = await createTestContext({
-    groupDbs: { get: () => groupDb, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
-  })
-  const app = express()
-  app.use(express.json())
-  roleSetHandler(app, ctx)
-  app.use(xrpcErrorHandler({ info: () => {}, error: () => {}, warn: () => {}, debug: () => {} } as any))
-  const server = http.createServer(app)
-  return new Promise<{ url: string; close: () => Promise<void> }>((resolve) => {
-    server.listen(0, () => {
-      const addr = server.address() as http.AddressInfo
-      resolve({
-        url: `http://127.0.0.1:${addr.port}`,
-        close: () => new Promise((res, rej) => server.close((err) => err ? rej(err) : res())),
-      })
-    })
-  })
-}
 
 async function roleSet(url: string, memberDid: string, role: string) {
   const res = await fetch(`${url}/xrpc/org.groupds.role.set`, {
@@ -56,7 +29,7 @@ describe('role.set — last-owner protection', () => {
     groupDb = await createTestGroupDb()
     // createTestContext mock auth always returns callerDid = 'did:plc:testuser'
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
-    ;({ url, close } = await buildTestServer(groupDb))
+    ;({ url, close } = await buildTestServer(groupDb, roleSetHandler))
   })
 
   afterEach(async () => {

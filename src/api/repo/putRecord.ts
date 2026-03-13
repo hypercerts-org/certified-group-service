@@ -30,7 +30,11 @@ export default function (app: Express, ctx: AppContext) {
 
       if (authorRow) {
         if (authorRow.author_did !== callerDid) {
-          throw new ForbiddenError('Can only update records you created')
+          const reason = 'Can only update records you created'
+          await ctx.audit.logAuditEvent(groupDb, callerDid, 'putOwnRecord', 'denied', {
+            collection: input.collection, rkey: input.rkey, reason,
+          })
+          throw new ForbiddenError(reason)
         }
         operation = 'putOwnRecord'
       } else {
