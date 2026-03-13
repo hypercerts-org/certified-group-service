@@ -1,19 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import express from 'express'
+import request from 'supertest'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 import { createTestGroupDb } from './helpers/test-db.js'
-import { buildTestServer, seedMember, seedAuthorship } from './helpers/mock-server.js'
+import { createTestContext, seedMember, seedAuthorship, silentLogger } from './helpers/mock-server.js'
 import putRecordHandler from '../src/api/repo/putRecord.js'
-
-async function putRecord(url: string, body: Record<string, unknown>) {
-  const res = await fetch(`${url}/xrpc/com.atproto.repo.putRecord`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test' },
-    body: JSON.stringify(body),
-  })
-  const resBody = await res.json()
-  return { status: res.status, body: resBody }
-}
+import { xrpcErrorHandler } from '../src/api/error-handler.js'
 
 // The mock auth verifier always returns callerDid='did:plc:testuser', groupDid='did:plc:testgroup'
 const GROUP_DID = 'did:plc:testgroup'
@@ -25,31 +18,37 @@ const RECORD_URI = `at://${GROUP_DID}/${COLLECTION}/${RKEY}`
 
 describe('putRecord — non-author rejection audit logging', () => {
   let groupDb: Kysely<GroupDatabase>
-  let url: string
-  let close: () => Promise<void>
+  let app: express.Express
 
   beforeEach(async () => {
     groupDb = await createTestGroupDb()
     await seedMember(groupDb, CALLER_DID, 'member')
     // Seed a record authored by a different user
     await seedAuthorship(groupDb, RECORD_URI, OTHER_AUTHOR, COLLECTION)
-    ;({ url, close } = await buildTestServer(groupDb, putRecordHandler))
+    const { ctx } = await createTestContext({
+      groupDbs: { get: () => groupDb, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
+    })
+    app = express()
+    app.use(express.json())
+    putRecordHandler(app, ctx)
+    app.use(xrpcErrorHandler(silentLogger as any))
   })
 
   afterEach(async () => {
-    await close()
     await groupDb.destroy()
   })
 
   it('returns 403 and writes a denied audit row when caller is not the record author', async () => {
-    const { status } = await putRecord(url, {
-      repo: GROUP_DID,
-      collection: COLLECTION,
-      rkey: RKEY,
-      record: { $type: COLLECTION, text: 'hello' },
-    })
+    const res = await request(app)
+      .post('/xrpc/com.atproto.repo.putRecord')
+      .send({
+        repo: GROUP_DID,
+        collection: COLLECTION,
+        rkey: RKEY,
+        record: { $type: COLLECTION, text: 'hello' },
+      })
 
-    expect(status).toBe(403)
+    expect(res.status).toBe(403)
 
     const auditRows = await groupDb
       .selectFrom('group_audit_log')

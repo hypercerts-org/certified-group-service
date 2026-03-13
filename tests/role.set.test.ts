@@ -1,20 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import express from 'express'
+import request from 'supertest'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 import { createTestGroupDb } from './helpers/test-db.js'
-import { buildTestServer, seedMember } from './helpers/mock-server.js'
+import { createTestContext, seedMember, silentLogger } from './helpers/mock-server.js'
 import roleSetHandler from '../src/api/role/set.js'
-
-async function roleSet(url: string, memberDid: string, role: string) {
-  const res = await fetch(`${url}/xrpc/app.certified.group.role.set`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test' },
-    body: JSON.stringify({ memberDid, role }),
-  })
-  const body = await res.json()
-  return { status: res.status, body }
-}
+import { xrpcErrorHandler } from '../src/api/error-handler.js'
+import type { AppContext } from '../src/context.js'
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -22,59 +16,73 @@ async function roleSet(url: string, memberDid: string, role: string) {
 
 describe('role.set — last-owner protection', () => {
   let groupDb: Kysely<GroupDatabase>
-  let url: string
-  let close: () => Promise<void>
+  let app: express.Express
 
   beforeEach(async () => {
     groupDb = await createTestGroupDb()
     // createTestContext mock auth always returns callerDid = 'did:plc:testuser'
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
-    ;({ url, close } = await buildTestServer(groupDb, roleSetHandler))
+    const { ctx } = await createTestContext({
+      groupDbs: { get: () => groupDb, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
+    })
+    app = express()
+    app.use(express.json())
+    roleSetHandler(app, ctx)
+    app.use(xrpcErrorHandler(silentLogger as any))
   })
 
   afterEach(async () => {
-    await close()
     await groupDb.destroy()
   })
 
   it('successfully demotes an owner when another owner remains', async () => {
     await seedMember(groupDb, 'did:plc:victim', 'owner')
 
-    const { status, body } = await roleSet(url, 'did:plc:victim', 'member')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:victim', role: 'member' })
 
-    expect(status).toBe(200)
-    expect(body).toMatchObject({ memberDid: 'did:plc:victim', role: 'member' })
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ memberDid: 'did:plc:victim', role: 'member' })
   })
 
   it('rejects demotion of the sole owner with LastOwnerDemotion', async () => {
     // testuser is the only owner
-    const { status, body } = await roleSet(url, 'did:plc:testuser', 'member')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:testuser', role: 'member' })
 
-    expect(status).toBe(400)
-    expect(body.error).toBe('LastOwnerDemotion')
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('LastOwnerDemotion')
   })
 
   it('promotes a non-owner member without the last-owner check', async () => {
     await seedMember(groupDb, 'did:plc:member1', 'member')
 
-    const { status, body } = await roleSet(url, 'did:plc:member1', 'admin')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:member1', role: 'admin' })
 
-    expect(status).toBe(200)
-    expect(body).toMatchObject({ memberDid: 'did:plc:member1', role: 'admin' })
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ memberDid: 'did:plc:member1', role: 'admin' })
   })
 
   it('rejects role change for unknown member with MemberNotFound', async () => {
-    const { status, body } = await roleSet(url, 'did:plc:nobody', 'member')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:nobody', role: 'member' })
 
-    expect(status).toBe(404)
-    expect(body.error).toBe('MemberNotFound')
+    expect(res.status).toBe(404)
+    expect(res.body.error).toBe('MemberNotFound')
   })
 
   it('rejects invalid role with InvalidRole', async () => {
-    const { status, body } = await roleSet(url, 'did:plc:testuser', 'superadmin')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:testuser', role: 'superadmin' })
 
-    expect(status).toBe(400)
-    expect(body.error).toBe('InvalidRole')
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('InvalidRole')
   })
 
   // ---------------------------------------------------------------------------
@@ -89,8 +97,12 @@ describe('role.set — last-owner protection', () => {
     // Because there are 3 owners, both demotions are individually valid, so both
     // should succeed — verifying the happy path is not broken.
     const [r1, r2] = await Promise.all([
-      roleSet(url, 'did:plc:victim1', 'member'),
-      roleSet(url, 'did:plc:victim2', 'member'),
+      request(app)
+        .post('/xrpc/app.certified.group.role.set')
+        .send({ memberDid: 'did:plc:victim1', role: 'member' }),
+      request(app)
+        .post('/xrpc/app.certified.group.role.set')
+        .send({ memberDid: 'did:plc:victim2', role: 'member' }),
     ])
     expect(r1.status).toBe(200)
     expect(r2.status).toBe(200)
@@ -107,11 +119,15 @@ describe('role.set — last-owner protection', () => {
   it('sequential demotions: demoting the last remaining owner is rejected', async () => {
     await seedMember(groupDb, 'did:plc:victim', 'owner')
     // testuser + victim = 2 owners. Demote victim, then try to demote testuser.
-    const r1 = await roleSet(url, 'did:plc:victim', 'member')
+    const r1 = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:victim', role: 'member' })
     expect(r1.status).toBe(200)
 
     // Only testuser remains as owner — demoting them must fail
-    const r2 = await roleSet(url, 'did:plc:testuser', 'member')
+    const r2 = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:testuser', role: 'member' })
     expect(r2.status).toBe(400)
     expect(r2.body.error).toBe('LastOwnerDemotion')
 

@@ -1,11 +1,7 @@
-import express from 'express'
-import * as http from 'node:http'
-import type { Express } from 'express'
 import type { AppContext } from '../../src/context.js'
 import type { Config } from '../../src/config.js'
 import { RbacChecker } from '../../src/rbac/check.js'
 import { AuditLogger } from '../../src/audit.js'
-import { xrpcErrorHandler } from '../../src/api/error-handler.js'
 import { createTestGlobalDb, createTestGroupDb } from './test-db.js'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase, GroupDatabase } from '../../src/db/schema.js'
@@ -81,29 +77,6 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
 }
 
 export const silentLogger = { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
-
-export async function buildTestServer(
-  groupDb: Kysely<GroupDatabase>,
-  register: (app: Express, ctx: AppContext) => void,
-): Promise<{ url: string; close: () => Promise<void> }> {
-  const { ctx } = await createTestContext({
-    groupDbs: { get: () => groupDb, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
-  })
-  const app = express()
-  app.use(express.json())
-  register(app, ctx)
-  app.use(xrpcErrorHandler(silentLogger as any))
-  const server = http.createServer(app)
-  return new Promise((resolve) => {
-    server.listen(0, () => {
-      const addr = server.address() as http.AddressInfo
-      resolve({
-        url: `http://127.0.0.1:${addr.port}`,
-        close: () => new Promise((res, rej) => server.close((err) => err ? rej(err) : res())),
-      })
-    })
-  })
-}
 
 export async function seedMember(
   groupDb: Kysely<GroupDatabase>,
