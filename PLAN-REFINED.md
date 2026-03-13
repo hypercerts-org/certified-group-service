@@ -2,9 +2,9 @@
 
 ## The Constraint, Restated
 
-The Group Gate is **interoperable infrastructure**. Your web app uses it, but so can any other atproto-aware client or web app — ones you don't control. If someone builds a different client and a user logs in via their ePDS (or any PDS), that client should be able to write to the group repo through the same RBAC mechanism.
+The Group Service is **interoperable infrastructure**. Your web app uses it, but so can any other atproto-aware client or web app — ones you don't control. If someone builds a different client and a user logs in via their ePDS (or any PDS), that client should be able to write to the group repo through the same RBAC mechanism.
 
-This means the Group Gate must be a **standalone atproto service** — like Ozone is for moderation — reachable via the standard `atproto-proxy` mechanism from any PDS.
+This means the Group Service must be a **standalone atproto service** — like Ozone is for moderation — reachable via the standard `atproto-proxy` mechanism from any PDS.
 
 No PDS modifications. App passwords for group PDS credentials. Credible exit for owners.
 
@@ -93,7 +93,7 @@ No PDS modifications. App passwords for group PDS credentials. Credible exit for
 Any atproto client (your app, third-party apps, CLI tools, bots)
        │
        │ OAuth session with user's PDS (ePDS or any other)
-       │ + atproto-proxy: did:plc:GROUP_DID#group_write
+       │ + atproto-proxy: did:plc:GROUP_DID#group_service
        │
        ▼
 ┌──────────────────┐
@@ -108,7 +108,7 @@ Any atproto client (your app, third-party apps, CLI tools, bots)
 │   jti = nonce    │
 │                  │
 │  Proxies request │
-│  to Group Gate│
+│  to Group Service│
 │  URL from group  │
 │  DID document    │
 └────────┬─────────┘
@@ -159,7 +159,7 @@ Any atproto client (your app, third-party apps, CLI tools, bots)
 ## Project Structure
 
 ```
-group-gate/
+group-service/
 ├── package.json
 ├── tsconfig.json
 ├── .env.example
@@ -238,7 +238,7 @@ group-gate/
 
 ## DID Document Setup
 
-The group account's DID document needs a service entry pointing to the Group Gate. This is how any PDS in the network discovers where to forward proxied requests.
+The group account's DID document needs a service entry pointing to the Group Service. This is how any PDS in the network discovers where to forward proxied requests.
 
 When the group account is created on the group's PDS (which is `did:plc`), a PLC operation adds a service entry:
 
@@ -255,9 +255,9 @@ When the group account is created on the group's PDS (which is `did:plc`), a PLC
       "type": "AtprotoPersonalDataServer",
       "endpoint": "https://pds.example.com"
     },
-    "group_write": {
-      "type": "GroupWriteService",
-      "endpoint": "https://group-gate.example.com"
+    "group_service": {
+      "type": "CertifiedGroupService",
+      "endpoint": "https://group-service.example.com"
     }
   },
   "prev": "<CID of previous operation>",
@@ -280,7 +280,7 @@ This is a one-time setup step. You need:
    # Returns array of operations — last one's CID is your "prev"
    ```
 
-3. **Build the new operation**: Copy all existing fields, add the `group_write` service entry, set `prev` to the CID of the most recent operation.
+3. **Build the new operation**: Copy all existing fields, add the `group_service` service entry, set `prev` to the CID of the most recent operation.
 
 4. **Sign it**:
    - Remove `sig` field
@@ -312,7 +312,7 @@ We should build a CLI script (`scripts/plc-add-service.ts`) that automates this.
 
 ### Standard NSIDs for CRUD Operations
 
-The Group Gate registers handlers for standard `com.atproto.repo.*` NSIDs. When a client uses `withProxy` to route through the Group Gate, the PDS proxies the standard XRPC calls. The Group Gate intercepts these, performs RBAC checks, and forwards the writes to the group's PDS. No custom lexicons are needed for CRUD — clients use normal `@atproto/api` typed methods out of the box:
+The Group Service registers handlers for standard `com.atproto.repo.*` NSIDs. When a client uses `withProxy` to route through the Group Service, the PDS proxies the standard XRPC calls. The Group Service intercepts these, performs RBAC checks, and forwards the writes to the group's PDS. No custom lexicons are needed for CRUD — clients use normal `@atproto/api` typed methods out of the box:
 
 ```
 com.atproto.repo.createRecord   — Intercepted: create a record in the group repo
@@ -321,9 +321,9 @@ com.atproto.repo.putRecord      — Intercepted: put (upsert) a record
 com.atproto.repo.uploadBlob     — Intercepted: upload a blob to the group repo
 ```
 
-The `lxm` claim in the service auth JWT will be the standard NSID (e.g., `com.atproto.repo.createRecord`). The Group Gate's `verifyJwt` accepts these standard NSIDs.
+The `lxm` claim in the service auth JWT will be the standard NSID (e.g., `com.atproto.repo.createRecord`). The Group Service's `verifyJwt` accepts these standard NSIDs.
 
-**Important**: The Group Gate verifies that the `repo` field in the request input matches `aud` (the group DID from the JWT). This prevents someone from using the proxy to write to a different repo.
+**Important**: The Group Service verifies that the `repo` field in the request input matches `aud` (the group DID from the JWT). This prevents someone from using the proxy to write to a different repo.
 
 ### Custom Lexicons (Namespace: `org.groupds.*`)
 
@@ -578,17 +578,17 @@ org.groupds.audit.query         — Query audit log (admin+)
 ## How Blobs Work Through the Proxy Chain
 
 ```
-Client  ──blob bytes──►  User's PDS  ──blob bytes──►  Group Gate  ──blob bytes──►  Group's PDS
+Client  ──blob bytes──►  User's PDS  ──blob bytes──►  Group Service  ──blob bytes──►  Group's PDS
                           (proxies)                    (RBAC check)                    (stores)
 ```
 
-The user's PDS forwards the raw request body (the blob bytes) to the Group Gate via `atproto-proxy`. The PDS doesn't interpret the body — it proxies it along with the service auth JWT in the `Authorization` header and the original `Content-Type`, `Content-Encoding`, and `Content-Length` headers.
+The user's PDS forwards the raw request body (the blob bytes) to the Group Service via `atproto-proxy`. The PDS doesn't interpret the body — it proxies it along with the service auth JWT in the `Authorization` header and the original `Content-Type`, `Content-Encoding`, and `Content-Length` headers.
 
-The Group Gate receives the blob bytes, verifies the JWT, checks RBAC, then forwards those bytes to the group's PDS using the group account's app password session via `com.atproto.repo.uploadBlob`.
+The Group Service receives the blob bytes, verifies the JWT, checks RBAC, then forwards those bytes to the group's PDS using the group account's app password session via `com.atproto.repo.uploadBlob`.
 
-This is the standard `com.atproto.repo.uploadBlob` NSID — no custom lexicon needed. The Group Gate registers a handler for this standard NSID.
+This is the standard `com.atproto.repo.uploadBlob` NSID — no custom lexicon needed. The Group Service registers a handler for this standard NSID.
 
-**Known inefficiency**: This is a triple-hop (client -> user's PDS -> Group Gate -> group's PDS) where the blob bytes traverse three network hops. For MVP this is the only option without PDS modifications. A future optimization could allow the client to upload to its own PDS first, then have the Group Gate fetch the blob via `com.atproto.sync.getBlob` (which is public/unauthenticated) and re-upload it to the group's PDS — reducing the data transferred through the proxy to just a blob reference.
+**Known inefficiency**: This is a triple-hop (client -> user's PDS -> Group Service -> group's PDS) where the blob bytes traverse three network hops. For MVP this is the only option without PDS modifications. A future optimization could allow the client to upload to its own PDS first, then have the Group Service fetch the blob via `com.atproto.sync.getBlob` (which is public/unauthenticated) and re-upload it to the group's PDS — reducing the data transferred through the proxy to just a blob reference.
 
 ### Blob Upload Implementation (Buffered)
 
@@ -643,10 +643,10 @@ export default function (server: Server, ctx: AppContext) {
 | Layer | Limit | Source |
 |-------|-------|--------|
 | User's PDS | Configured per-PDS (default ~100MB) | `PDS_BLOB_UPLOAD_LIMIT` |
-| Group Gate | **10MB default** (configurable per-group) | Our config |
+| Group Service | **10MB default** (configurable per-group) | Our config |
 | Group's PDS | Configured on the group's PDS (default ~100MB) | `PDS_BLOB_UPLOAD_LIMIT` |
 
-The Group Gate should enforce its own limit as the first line of defense. Check `Content-Length` header before streaming and abort if exceeded. Also track bytes streamed and abort mid-stream if the client lies about `Content-Length`.
+The Group Service should enforce its own limit as the first line of defense. Check `Content-Length` header before streaming and abort if exceeded. Also track bytes streamed and abort mid-stream if the client lies about `Content-Length`.
 
 ---
 
@@ -661,9 +661,9 @@ import { Agent } from '@atproto/api'
 const userAgent = new Agent(oauthSession)
 
 // Create a proxied client pointing at the group service
-const groupClient = userAgent.withProxy('group_write', GROUP_DID)
+const groupClient = userAgent.withProxy('group_service', GROUP_DID)
 
-// This goes: client → user's ePDS → Group Gate → group's PDS
+// This goes: client → user's ePDS → Group Service → group's PDS
 // Standard typed SDK methods work out of the box via withProxy
 await groupClient.com.atproto.repo.createRecord({
   repo: GROUP_DID,
@@ -682,7 +682,7 @@ A completely different app can do the same thing. They just need to:
 
 1. Know the group account's DID (public information)
 2. Authenticate their user via any PDS
-3. Set `atproto-proxy: did:plc:GROUP_DID#group_write`
+3. Set `atproto-proxy: did:plc:GROUP_DID#group_service`
 4. Call standard `com.atproto.repo.*` methods for CRUD, or `org.groupds.*` for group management
 
 ### Blob Upload From a Client
@@ -721,11 +721,11 @@ await groupClient.com.atproto.repo.createRecord({
 
 **Note on OAuth vs service auth:** The user authenticates to their PDS via OAuth (or app password). When the PDS proxies to another service, it signs a *new* JWT with the user's signing key — that's the service auth JWT. The OAuth token never leaves the PDS<->client relationship. The downstream service only ever sees the service auth JWT. This is specified in the atproto service auth spec and is how Ozone works today.
 
-When a client sets `atproto-proxy: did:plc:GROUP_DID#group_write`, the user's PDS:
+When a client sets `atproto-proxy: did:plc:GROUP_DID#group_service`, the user's PDS:
 
 1. Authenticates the user (via their OAuth session or app password)
 2. Signs a service auth JWT with the user's atproto signing key
-3. Forwards the request to the Group Gate URL (from the group DID doc)
+3. Forwards the request to the Group Service URL (from the group DID doc)
 
 The JWT contains:
 - `iss`: the user's DID
@@ -814,7 +814,7 @@ export class AuthVerifier {
 
 ### Repo Field Validation
 
-For `com.atproto.repo.createRecord`, `deleteRecord`, and `putRecord`, the Group Gate must verify that the `repo` field in the request body matches the `aud` (group DID) from the JWT. This prevents a caller from using the proxy to write to a different repo:
+For `com.atproto.repo.createRecord`, `deleteRecord`, and `putRecord`, the Group Service must verify that the `repo` field in the request body matches the `aud` (group DID) from the JWT. This prevents a caller from using the proxy to write to a different repo:
 
 ```typescript
 // In each repo handler, after auth verification:
@@ -872,12 +872,12 @@ export class NonceCache {
 
 - A user's PDS can act on behalf of that user (by design — same trust model as browser)
 - No other entity can forge requests as that user
-- The Group Gate independently verifies identity via DID resolution through `plc.directory`
+- The Group Service independently verifies identity via DID resolution through `plc.directory`
 - RBAC further restricts what each verified identity can do
 - JTI nonce prevents replay attacks within the 120s window
 - `lxm` claim in the JWT is verified against the actual endpoint NSID, preventing a JWT issued for one method from being used on another
 - The `repo` field in CRUD requests is validated against the `aud` (group DID) to prevent cross-repo writes
-- The Group Gate sits behind Railway's TLS termination; `trust proxy` is set so `req.ip` reflects the real client. All group PDS communication uses HTTPS (public URL)
+- The Group Service sits behind Railway's TLS termination; `trust proxy` is set so `req.ip` reflects the real client. All group PDS communication uses HTTPS (public URL)
 - Collection writes are currently unrestricted — any member can write to any NSID (e.g., `app.bsky.graph.block`). **Post-MVP**: add per-group collection allowlists (see open question). For MVP, document that group owners should only invite trusted members
 
 ---
@@ -1323,7 +1323,7 @@ import { z } from 'zod'
 export const configSchema = z.object({
   // Server
   port: z.coerce.number().default(3000),
-  publicHostname: z.string(), // e.g., group-gate.example.com
+  publicHostname: z.string(), // e.g., group-service.example.com
 
   // SQLite data directory (global database + per-group databases)
   dataDir: z.string().default('./data'),
@@ -1362,7 +1362,7 @@ export function loadConfig(): Config {
 
 ```env
 PORT=3000
-PUBLIC_HOSTNAME=group-gate.example.com
+PUBLIC_HOSTNAME=group-service.example.com
 
 # Directory for all SQLite files (global.sqlite + per-group files)
 # Must be on a persistent volume in Railway
@@ -1387,11 +1387,11 @@ LOG_LEVEL=info
 
 ### Recommended Stack: Everything on Railway
 
-Railway hosts the entire stack: Group Gate and the group's PDS — all in one project. All data (global SQLite + per-group SQLite files) lives on a single persistent volume. Railway has a [community-contributed Bluesky PDS template](https://railway.com/deploy/xBNJ1u) (by mkizka) that deploys `ghcr.io/bluesky-social/pds:0.4` with a persistent volume. No separate VPS needed. Note: the PDS image does not auto-update on Railway — you must redeploy manually to pick up new patch versions.
+Railway hosts the entire stack: Group Service and the group's PDS — all in one project. All data (global SQLite + per-group SQLite files) lives on a single persistent volume. Railway has a [community-contributed Bluesky PDS template](https://railway.com/deploy/xBNJ1u) (by mkizka) that deploys `ghcr.io/bluesky-social/pds:0.4` with a persistent volume. No separate VPS needed. Note: the PDS image does not auto-update on Railway — you must redeploy manually to pick up new patch versions.
 
 | Component | Provider | Plan | Monthly Cost |
 |-----------|----------|------|-------------|
-| **Group Gate** | Railway (Pro) | ~1 vCPU, 512MB-1GB + volume | ~$7-10/mo |
+| **Group Service** | Railway (Pro) | ~1 vCPU, 512MB-1GB + volume | ~$7-10/mo |
 | **Group's PDS** | Railway (Pro) | `ghcr.io/bluesky-social/pds:0.4` + volume | ~$5-7/mo |
 | **Domain** | Porkbun (registrar) + Cloudflare (DNS) | .com | ~$1/mo |
 | **Total** | | | **~$13-18/mo** |
@@ -1401,8 +1401,8 @@ Railway Pro is $20/mo which includes $20 of usage credit. At low traffic, everyt
 **Why everything on Railway:**
 - One platform, one dashboard, one bill — no juggling providers
 - No external database to manage — everything is SQLite on a persistent volume
-- Private networking between services (`*.railway.internal`) — the Group Gate talks to the group's PDS over the internal network, zero latency, no public internet round-trip
-- GitHub integration — push to `main` and the Group Gate auto-deploys
+- Private networking between services (`*.railway.internal`) — the Group Service talks to the group's PDS over the internal network, zero latency, no public internet round-trip
+- GitHub integration — push to `main` and the Group Service auto-deploys
 - Railway handles TLS automatically on custom domains
 - Community PDS template uses the official `ghcr.io/bluesky-social/pds` image — known-good configuration
 
@@ -1412,7 +1412,7 @@ Railway organizes things into **projects** with **services** inside them. Our pr
 
 ```
 Railway Project: "group-pds"
-├── Service: "group-gate"    ← Node.js app (from GitHub repo)
+├── Service: "group-service"    ← Node.js app (from GitHub repo)
 │   └── Volume: /app/data       ← global.sqlite + per-group SQLite files (persistent)
 └── Service: "pds"              ← Official PDS Docker image (from template)
     └── Volume: /pds            ← SQLite DB + blob storage (persistent)
@@ -1432,7 +1432,7 @@ Use the community Railway PDS template:
      ```bash
      openssl ecparam -name secp256k1 -genkey -noout | openssl ec -text -noout 2>/dev/null | grep priv -A 3 | tail -n +2 | tr -d '[:space:]:' | head -c 64
      ```
-4. **CRITICAL**: Save the rotation key somewhere safe (password manager). This is the key that controls the group account's DID. You need it for PLC operations (adding the `#group_write` service entry) and for credible exit.
+4. **CRITICAL**: Save the rotation key somewhere safe (password manager). This is the key that controls the group account's DID. You need it for PLC operations (adding the `#group_service` service entry) and for credible exit.
 5. Configure optional variables (email SMTP for account verification, etc.)
 6. Add a custom domain: Railway dashboard -> PDS service -> **Settings** -> **Networking** -> **Custom Domain** -> `pds.example.com`
 7. Add the CNAME in Cloudflare DNS
@@ -1454,28 +1454,28 @@ curl -X POST https://pds.example.com/xrpc/com.atproto.server.createSession \
   -d '{"identifier": "mygroup.pds.example.com", "password": "STRONG_PRIMARY_PASSWORD_SAVE_THIS"}'
 # → returns { "accessJwt": "...", "did": "did:plc:XXXXX", ... }
 
-# Create an app password for the Group Gate
+# Create an app password for the Group Service
 curl -X POST https://pds.example.com/xrpc/com.atproto.server.createAppPassword \
   -H "Authorization: Bearer ACCESS_JWT_FROM_ABOVE" \
   -H "Content-Type: application/json" \
-  -d '{"name": "group-gate"}'
-# → returns { "name": "group-gate", "password": "xxxx-xxxx-xxxx-xxxx" }
-# Save this app password — it goes into the Group Gate's ENCRYPTION_KEY-encrypted storage
+  -d '{"name": "group-service"}'
+# → returns { "name": "group-service", "password": "xxxx-xxxx-xxxx-xxxx" }
+# Save this app password — it goes into the Group Service's ENCRYPTION_KEY-encrypted storage
 ```
 
-#### 2. Add the Group Gate to the Same Project
+#### 2. Add the Group Service to the Same Project
 
 In the Railway dashboard for the project created by the PDS template:
 
-- Click **"+ New"** -> **"GitHub Repo"** -> select your `group-gate` repo -> this becomes the Group Gate
+- Click **"+ New"** -> **"GitHub Repo"** -> select your `group-service` repo -> this becomes the Group Service
 
-#### 3. Configure the Group Gate
+#### 3. Configure the Group Service
 
-In Railway dashboard -> "group-gate" service -> **Variables**:
+In Railway dashboard -> "group-service" service -> **Variables**:
 
 ```env
 PORT=3000
-PUBLIC_HOSTNAME=group-gate.example.com
+PUBLIC_HOSTNAME=group-service.example.com
 DATA_DIR=/app/data
 ENCRYPTION_KEY=<generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))">
 PLC_URL=https://plc.directory
@@ -1483,9 +1483,9 @@ DID_CACHE_TTL_MS=300000
 LOG_LEVEL=info
 ```
 
-**Important**: Add a persistent volume mounted at `/app/data` for the Group Gate. This is where global.sqlite and per-group SQLite files are stored. Without a persistent volume, all data is lost on redeploy.
+**Important**: Add a persistent volume mounted at `/app/data` for the Group Service. This is where global.sqlite and per-group SQLite files are stored. Without a persistent volume, all data is lost on redeploy.
 
-**Note on PDS URL**: The Group Gate talks to the group's PDS. Since both are on Railway's private network, the Group Gate can reach the PDS via its internal URL (e.g., `pds.railway.internal:3000`) for lower latency. However, for credible exit the group's PDS must also be publicly accessible — which it is via its custom domain. The Group Gate should use the **public URL** (`https://pds.example.com`) for PDS writes so the same app password session works identically whether the service is on Railway or anywhere else.
+**Note on PDS URL**: The Group Service talks to the group's PDS. Since both are on Railway's private network, the Group Service can reach the PDS via its internal URL (e.g., `pds.railway.internal:3000`) for lower latency. However, for credible exit the group's PDS must also be publicly accessible — which it is via its custom domain. The Group Service should use the **public URL** (`https://pds.example.com`) for PDS writes so the same app password session works identically whether the service is on Railway or anywhere else.
 
 #### 4. railway.toml
 
@@ -1543,7 +1543,7 @@ In Railway dashboard -> each service -> **Settings** -> **Networking** -> **Cust
 | Service | Custom Domain |
 |---------|--------------|
 | PDS (group's PDS) | `pds.example.com` |
-| Group Gate | `group-gate.example.com` |
+| Group Service | `group-service.example.com` |
 
 Railway gives you a CNAME target for each (e.g., `xxx-production-xxxx.up.railway.app`). Add these in Cloudflare DNS.
 
@@ -1556,10 +1556,10 @@ Global SQLite migrations run at server startup (in `main()` before `app.listen()
 | Record | Name | Value | Proxy |
 |--------|------|-------|-------|
 | CNAME | `pds` | `pds-production-xxxx.up.railway.app` | DNS only (grey cloud) |
-| CNAME | `group-gate` | `group-gate-production-xxxx.up.railway.app` | DNS only |
+| CNAME | `group-service` | `group-service-production-xxxx.up.railway.app` | DNS only |
 | TXT | `_atproto.mygroup` | `did=did:plc:XXXXX` | N/A |
 
-**Important**: Do NOT enable Cloudflare proxy (orange cloud) for the PDS or Group Gate. Railway handles TLS, and Cloudflare proxy can interfere with WebSocket connections and XRPC streaming.
+**Important**: Do NOT enable Cloudflare proxy (orange cloud) for the PDS or Group Service. Railway handles TLS, and Cloudflare proxy can interfere with WebSocket connections and XRPC streaming.
 
 ---
 
@@ -1811,7 +1811,7 @@ async function main() {
   app.use(xrpcErrorHandler(logger))
 
   const server = app.listen(config.port, () => {
-    logger.info({ port: config.port, groups: groupDids.size }, 'Group Gate started')
+    logger.info({ port: config.port, groups: groupDids.size }, 'Group Service started')
   })
 
   // Graceful shutdown — Railway sends SIGTERM before stopping containers
@@ -1837,13 +1837,13 @@ main().catch((err) => {
 
 ## Multi-Group Support
 
-One Group Gate instance manages multiple group accounts. Each group:
+One Group Service instance manages multiple group accounts. Each group:
 - Has its own `did:plc` on its own PDS (or shared PDS)
-- Has its own `#group_write` service entry pointing to this Group Gate
+- Has its own `#group_service` service entry pointing to this Group Service
 - Has its own row in the `groups` table (global SQLite) with encrypted app password
 - Has its own SQLite file with membership, audit log, and authorship tracking
 
-The Group Gate disambiguates by the `aud` claim in the service auth JWT.
+The Group Service disambiguates by the `aud` claim in the service auth JWT.
 
 ### PDS Agent Pool
 
@@ -1937,15 +1937,15 @@ export class PdsAgentPool {
 
 1. Owner creates account on the group's PDS with a strong primary password
 2. Owner retains the primary password and recovery email
-3. An app password is created (named `group-gate`)
-4. The Group Gate stores only the app password (AES-256-GCM encrypted)
-5. A PLC operation adds the `#group_write` service entry
+3. An app password is created (named `group-service`)
+4. The Group Service stores only the app password (AES-256-GCM encrypted)
+5. A PLC operation adds the `#group_service` service entry
 
 ### Exit Process
 
 1. Log in directly to the group's PDS with primary password
-2. Revoke the `group-gate` app password -> Group Gate loses write access
-3. Optionally: PLC operation removing `#group_write` -> no PDS will proxy anymore
+2. Revoke the `group-service` app password -> Group Service loses write access
+3. Optionally: PLC operation removing `#group_service` -> no PDS will proxy anymore
 4. Account is now a normal single-user account on the PDS
 5. All data persists, federation continues
 
@@ -1959,30 +1959,30 @@ export class PdsAgentPool {
 
 ## Relationship to Your Web App
 
-Your web app is just one client of the Group Gate.
+Your web app is just one client of the Group Service.
 
-**Recommendation: Option A — Group Gate is the source of truth for membership.**
+**Recommendation: Option A — Group Service is the source of truth for membership.**
 
-Your web app calls `org.groupds.member.add` / `org.groupds.member.remove` via `atproto-proxy` when admins manage membership. If your web app uses Better Auth for its own user accounts, that's fine — but group membership canonical state lives in the Group Gate's per-group SQLite. Any other app can query and manage membership via the same `org.groupds.*` lexicons.
+Your web app calls `org.groupds.member.add` / `org.groupds.member.remove` via `atproto-proxy` when admins manage membership. If your web app uses Better Auth for its own user accounts, that's fine — but group membership canonical state lives in the Group Service's per-group SQLite. Any other app can query and manage membership via the same `org.groupds.*` lexicons.
 
 ---
 
 ## Open Questions (With Recommendations)
 
 ### 1. Service entry type
-The `GroupWriteService` type is custom. The PDS doesn't validate service types — it just needs a resolvable URL at that fragment ID. **Ship it as `GroupWriteService` and propose standardization later.** This is exactly what labelers did with `AtprotoLabeler`.
+The `CertifiedGroupService` type is custom. The PDS doesn't validate service types — it just needs a resolvable URL at that fragment ID. **Ship it as `CertifiedGroupService` and propose standardization later.** This is exactly what labelers did with `AtprotoLabeler`.
 
-### 2. Multiple Group Gates per account
-Technically possible with different fragment IDs (`#group_write_a`, `#group_write_b`), but adds client complexity. **Start with one and revisit if needed.**
+### 2. Multiple Group Services per account
+Technically possible with different fragment IDs (`#group_service_a`, `#group_service_b`), but adds client complexity. **Start with one and revisit if needed.**
 
 ### 3. Read operations
-Reads go directly to the group's PDS or AppView. The Group Gate is write-only. **No changes needed.**
+Reads go directly to the group's PDS or AppView. The Group Service is write-only. **No changes needed.**
 
 ### 4. Handle changes on exit
 If the handle is on the group's PDS domain (e.g., `mygroup.pds.example.com`), it works after exit. Custom domains require the owner to maintain DNS. **Document this in onboarding.**
 
 ### 5. App password deprecation
-When Bluesky moves to OAuth-only, the Group Gate would authenticate to the group's PDS via OAuth instead of app passwords. The architecture stays the same — only the credential type changes. **Build with app passwords now, plan for OAuth migration later.**
+When Bluesky moves to OAuth-only, the Group Service would authenticate to the group's PDS via OAuth instead of app passwords. The architecture stays the same — only the credential type changes. **Build with app passwords now, plan for OAuth migration later.**
 
 ---
 
@@ -2002,9 +2002,9 @@ Steps are grouped into **MVP** (required for a working system) and **Post-MVP** 
 8. **Blob proxy** — `com.atproto.repo.uploadBlob` handler (buffered)
 9. **Membership API** — `member.add`, `member.remove`, `member.list`, `role.set`
 10. **Audit** — `AuditLogger` class + `audit.query` endpoint
-11. **PLC tooling** — Script to add `#group_write` service entry to group DID document. *Deployment prerequisite: without this, no PDS will proxy requests to the Group Gate.*
-12. **Deploy** — Railway (group's PDS first, then Group Gate in same project, persistent volume for SQLite)
-13. **Integration test** — End-to-end: client -> PDS proxy -> Group Gate -> group's PDS
+11. **PLC tooling** — Script to add `#group_service` service entry to group DID document. *Deployment prerequisite: without this, no PDS will proxy requests to the Group Service.*
+12. **Deploy** — Railway (group's PDS first, then Group Service in same project, persistent volume for SQLite)
+13. **Integration test** — End-to-end: client -> PDS proxy -> Group Service -> group's PDS
 
 ### Post-MVP — Harden and polish
 
@@ -2019,7 +2019,7 @@ Steps are grouped into **MVP** (required for a working system) and **Post-MVP** 
 This architecture composes fully with the standard atproto stack. From a client's perspective:
 
 ```typescript
-const groupClient = userAgent.withProxy('group_write', GROUP_DID)
+const groupClient = userAgent.withProxy('group_service', GROUP_DID)
 
 // Standard typed SDK methods work out of the box — no custom lexicon code needed for CRUD
 await groupClient.com.atproto.repo.createRecord({
@@ -2039,6 +2039,6 @@ await groupClient.call('org.groupds.member.add', {}, {
 })
 ```
 
-`withProxy` is a standard `@atproto/api` method. It sets the `atproto-proxy` header. The user's PDS sees that header, resolves the group's DID doc, finds the `#group_write` service endpoint, signs a service auth JWT, and forwards the request. The client doesn't even know where the Group Gate lives — it's resolved via the DID document.
+`withProxy` is a standard `@atproto/api` method. It sets the `atproto-proxy` header. The user's PDS sees that header, resolves the group's DID doc, finds the `#group_service` service endpoint, signs a service auth JWT, and forwards the request. The client doesn't even know where the Group Service lives — it's resolved via the DID document.
 
-Any atproto client that supports `withProxy` can talk to the Group Gate without custom code: third-party Bluesky clients, CLI tools, bots. They just need the group's DID and the service fragment ID (`#group_write`). This is exactly how Ozone labeling works from third-party clients today.
+Any atproto client that supports `withProxy` can talk to the Group Service without custom code: third-party Bluesky clients, CLI tools, bots. They just need the group's DID and the service fragment ID (`#group_service`). This is exactly how Ozone labeling works from third-party clients today.

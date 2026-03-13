@@ -85,7 +85,7 @@ async function main() {
   app.use(xrpcErrorHandler(logger))
 
   const server = app.listen(config.port, () => {
-    logger.info({ port: config.port, groups: groups.length }, 'Group Gate started')
+    logger.info({ port: config.port, groups: groups.length }, 'Group Service started')
   })
 
   // Graceful shutdown

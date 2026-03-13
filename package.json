@@ -1,5 +1,5 @@
 {
-  "name": "group-gate",
+  "name": "group-service",
   "version": "0.1.0",
   "description": "Group-governed PDS for atproto",
   "type": "module",
