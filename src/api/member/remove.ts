@@ -11,29 +11,32 @@ export default function (app: Express, ctx: AppContext) {
 
     const groupDb = ctx.groupDbs.get(groupDid)
 
-    // RBAC check and target lookup are independent — run in parallel
-    const [callerRole, target] = await Promise.all([
-      ctx.rbac.assertCan(groupDb, callerDid, 'member.remove'),
+    // Fetch target role and (for non-self removal) RBAC check in parallel
+    const [target, callerRole] = await Promise.all([
       groupDb
         .selectFrom('group_members')
         .select('role')
         .where('member_did', '=', memberDid)
         .executeTakeFirst(),
+      callerDid !== memberDid
+        ? ctx.rbac.assertCan(groupDb, callerDid, 'member.remove')
+        : Promise.resolve(null),
     ])
+
     if (!target) {
+      if (callerDid === memberDid) {
+        throw new XRPCError(401, 'Unauthorized', 'Not a member of this group')
+      }
       throw new XRPCError(404, 'MemberNotFound', 'Member not found')
     }
 
-    // Cannot remove an owner
     if (target.role === 'owner') {
       throw new XRPCError(400, 'CannotRemoveOwner', 'Cannot remove an owner — demote first')
     }
 
-    // Cannot remove equal or higher role (unless self-removal)
-    if (callerDid !== memberDid) {
-      if (ROLE_HIERARCHY[callerRole] <= ROLE_HIERARCHY[target.role as Role]) {
-        throw new ForbiddenError('Cannot remove a member with equal or higher role')
-      }
+    // Cannot remove a member with equal or higher role (non-self removal only)
+    if (callerDid !== memberDid && ROLE_HIERARCHY[callerRole!] <= ROLE_HIERARCHY[target.role as Role]) {
+      throw new ForbiddenError('Cannot remove a member with equal or higher role')
     }
 
     await groupDb.deleteFrom('group_members')
