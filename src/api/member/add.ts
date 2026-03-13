@@ -1,9 +1,9 @@
 import type { Express } from 'express'
-import { XRPCError, type ResponseType } from '@atproto/xrpc-server'
+import { XRPCError } from '@atproto/xrpc-server'
 import { ensureValidDid } from '@atproto/syntax'
 import type { AppContext } from '../../context.js'
 import { xrpcHandler } from '../util.js'
-import { ForbiddenError } from '../../errors.js'
+import { ConflictError, ForbiddenError } from '../../errors.js'
 import { ASSIGNABLE_ROLES, ROLE_HIERARCHY, type Role } from '../../rbac/permissions.js'
 
 export default function (app: Express, ctx: AppContext) {
@@ -29,7 +29,7 @@ export default function (app: Express, ctx: AppContext) {
     ])
 
     if (existing) {
-      throw new XRPCError(409 as ResponseType, 'Member already exists', 'MemberAlreadyExists')
+      throw new ConflictError('Member already exists', 'MemberAlreadyExists')
     }
 
     // Cannot assign equal or higher role
@@ -47,7 +47,7 @@ export default function (app: Express, ctx: AppContext) {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       if (msg.includes('UNIQUE constraint failed: group_members.member_did')) {
-        throw new XRPCError(409 as ResponseType, 'Member already exists', 'MemberAlreadyExists')
+        throw new ConflictError('Member already exists', 'MemberAlreadyExists')
       }
       throw err
     }
