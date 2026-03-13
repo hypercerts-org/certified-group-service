@@ -4,6 +4,7 @@ import roleSet from './role/set.js'
 import memberRemove from './member/remove.js'
 import putRecord from './repo/putRecord.js'
 import createRecord from './repo/createRecord.js'
+import uploadBlob from './repo/uploadBlob.js'
 
 export function registerRoutes(app: Express, ctx: AppContext): void {
   // Each handler bead appends its import + registration call here.
@@ -12,4 +13,5 @@ export function registerRoutes(app: Express, ctx: AppContext): void {
   memberRemove(app, ctx)
   putRecord(app, ctx)
   createRecord(app, ctx)
+  uploadBlob(app, ctx)
 }
