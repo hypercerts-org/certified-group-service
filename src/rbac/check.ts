@@ -3,6 +3,11 @@ import { canPerform, ROLE_HIERARCHY, type Operation, type Role } from './permiss
 import { UnauthorizedError, ForbiddenError } from '../errors.js'
 import type { GroupDatabase } from '../db/schema.js'
 
+export interface RbacChecker {
+  assertCan(groupDb: Kysely<GroupDatabase>, memberDid: string, operation: Operation): Promise<Role>
+  isAuthor(groupDb: Kysely<GroupDatabase>, recordUri: string, memberDid: string): Promise<boolean>
+}
+
 export async function assertCan(
   groupDb: Kysely<GroupDatabase>,
   memberDid: string,
