@@ -21,14 +21,14 @@ export function loadConfig(): Config {
   if (cachedConfig) return cachedConfig
   const env = process.env
   cachedConfig = configSchema.parse({
-    port: env.PORT ?? env.port,
-    publicHostname: env.PUBLIC_HOSTNAME ?? env.publicHostname,
-    dataDir: env.DATA_DIR ?? env.dataDir,
-    encryptionKey: env.ENCRYPTION_KEY ?? env.encryptionKey,
-    plcUrl: env.PLC_URL ?? env.plcUrl,
-    didCacheTtlMs: env.DID_CACHE_TTL_MS ?? env.didCacheTtlMs,
-    maxBlobSize: env.MAX_BLOB_SIZE ?? env.maxBlobSize,
-    logLevel: env.LOG_LEVEL ?? env.logLevel,
+    port: env.PORT,
+    publicHostname: env.PUBLIC_HOSTNAME,
+    dataDir: env.DATA_DIR,
+    encryptionKey: env.ENCRYPTION_KEY,
+    plcUrl: env.PLC_URL,
+    didCacheTtlMs: env.DID_CACHE_TTL_MS,
+    maxBlobSize: env.MAX_BLOB_SIZE,
+    logLevel: env.LOG_LEVEL,
   })
   return cachedConfig
 }
