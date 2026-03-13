@@ -1,10 +1,10 @@
-import Database from 'better-sqlite3'
-import { Kysely, SqliteDialect } from 'kysely'
 import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { Kysely } from 'kysely'
 import type { GroupDatabase } from './schema.js'
 import { runGroupMigrations } from './migrate.js'
+import { openSqliteDb } from './sqlite.js'
 
 export class GroupDbPool {
   private dbs = new Map<string, Kysely<GroupDatabase>>()
@@ -20,13 +20,7 @@ export class GroupDbPool {
     const safeName = createHash('sha256').update(groupDid).digest('hex')
     const dbPath = join(this.dataDir, `${safeName}.sqlite`)
 
-    const sqliteDb = new Database(dbPath)
-    sqliteDb.pragma('journal_mode = WAL')
-    sqliteDb.pragma('busy_timeout = 5000')
-
-    const db = new Kysely<GroupDatabase>({
-      dialect: new SqliteDialect({ database: sqliteDb }),
-    })
+    const db = openSqliteDb<GroupDatabase>(dbPath)
 
     this.dbs.set(groupDid, db)
     return db
