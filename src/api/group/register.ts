@@ -45,13 +45,26 @@ export default function (app: Express, ctx: AppContext) {
           ...(ctx.config.groupPdsInviteCode && { inviteCode: ctx.config.groupPdsInviteCode }),
         })
       } catch (err: any) {
-        if (err?.status === 400 && err?.error === 'HandleNotAvailable') {
+        if (
+          err?.status === 400 &&
+          (err?.error === 'HandleNotAvailable' ||
+            err?.message?.includes('Handle already taken'))
+        ) {
           throw new ConflictError('Handle already taken on the PDS', 'HandleNotAvailable')
         }
         throw err
       }
 
       const groupDid = createRes.data.did
+
+      // Resume the session so the agent is authenticated for subsequent calls
+      await agent.resumeSession({
+        did: createRes.data.did,
+        handle: createRes.data.handle,
+        accessJwt: createRes.data.accessJwt,
+        refreshJwt: createRes.data.refreshJwt,
+        active: true,
+      })
 
       // Check not already registered in our DB (shouldn't happen since we just created it)
       const existing = await ctx.globalDb
