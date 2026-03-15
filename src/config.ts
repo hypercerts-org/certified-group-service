@@ -8,6 +8,7 @@ export const configSchema = z.object({
   dataDir: z.string().default('./data'),
   encryptionKey: hexKey64, // 32-byte hex (256-bit)
   groupPdsUrl: z.string().url(), // PDS where group accounts are created
+  groupPdsInviteCode: z.string().optional(), // invite code for account creation on the group PDS
   plcUrl: z.string().url().default('https://plc.directory'),
   didCacheTtlMs: z.coerce.number().default(600_000), // 10 minutes
   maxBlobSize: z.coerce.number().default(5 * 1024 * 1024), // 5MB
@@ -27,6 +28,7 @@ export function loadConfig(): Config {
     dataDir: env.DATA_DIR,
     encryptionKey: env.ENCRYPTION_KEY,
     groupPdsUrl: env.GROUP_PDS_URL,
+    groupPdsInviteCode: env.GROUP_PDS_INVITE_CODE,
     plcUrl: env.PLC_URL,
     didCacheTtlMs: env.DID_CACHE_TTL_MS,
     maxBlobSize: env.MAX_BLOB_SIZE,

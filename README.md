@@ -35,8 +35,8 @@ CGS acts as an authenticated proxy between clients and a group's PDS:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/gPDS.git
-cd gPDS
+git clone https://github.com/your-org/certified-group-service.git
+cd certified-group-service
 
 # Install dependencies
 pnpm install

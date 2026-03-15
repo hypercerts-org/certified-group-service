@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import express from 'express'
 import { IdResolver } from '@atproto/identity'
 import pino from 'pino'

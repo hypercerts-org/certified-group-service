@@ -42,6 +42,7 @@ export default function (app: Express, ctx: AppContext) {
           email: `${handle}@group.${pdsHostname}`,
           handle: fullHandle,
           password: accountPassword,
+          ...(ctx.config.groupPdsInviteCode && { inviteCode: ctx.config.groupPdsInviteCode }),
         })
       } catch (err: any) {
         if (err?.status === 400 && err?.error === 'HandleNotAvailable') {
