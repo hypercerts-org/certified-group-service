@@ -4,16 +4,17 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Register a group with the gPDS. Unauthenticated — proof of control is verified by logging into the group's PDS with the provided app password.",
+      "description": "Register a new group. Creates a group account on the group PDS, generates an app password for the service, and seeds the caller as owner.",
       "input": {
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["groupDid", "pdsUrl", "appPassword", "ownerDid"],
+          "required": ["handle", "ownerDid"],
           "properties": {
-            "groupDid": { "type": "string", "format": "did" },
-            "pdsUrl": { "type": "string", "format": "uri" },
-            "appPassword": { "type": "string" },
+            "handle": {
+              "type": "string",
+              "description": "Short name for the group (e.g. 'mygroup'). Will be combined with the PDS hostname to form the full handle."
+            },
             "ownerDid": { "type": "string", "format": "did" }
           }
         }
@@ -22,15 +23,17 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["groupDid"],
+          "required": ["groupDid", "handle"],
           "properties": {
-            "groupDid": { "type": "string", "format": "did" }
+            "groupDid": { "type": "string", "format": "did" },
+            "handle": { "type": "string", "description": "Full handle assigned to the group account" },
+            "accountPassword": { "type": "string", "description": "Primary password for the group account. The owner must save this for credible exit." }
           }
         }
       },
       "errors": [
         { "name": "InvalidRequest" },
-        { "name": "Unauthorized" },
+        { "name": "HandleNotAvailable" },
         { "name": "GroupAlreadyRegistered" }
       ]
     }

@@ -8,11 +8,22 @@ import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase, GroupDatabase } from '../src/db/schema.js'
 
-// Mock AtpAgent
+// Mock AtpAgent — createAccount returns a DID, createAppPassword returns a password
 vi.mock('@atproto/api', () => {
   return {
     AtpAgent: vi.fn().mockImplementation(() => ({
-      login: vi.fn().mockResolvedValue({}),
+      com: {
+        atproto: {
+          server: {
+            createAccount: vi.fn().mockResolvedValue({
+              data: { did: 'did:plc:newgroup', handle: 'mygroup.pds.example.com', accessJwt: 'jwt', refreshJwt: 'rjwt' },
+            }),
+            createAppPassword: vi.fn().mockResolvedValue({
+              data: { name: 'group-service', password: 'app-pass-xxxx' },
+            }),
+          },
+        },
+      },
     })),
   }
 })
@@ -28,9 +39,7 @@ function createApp(ctx: AppContext) {
 }
 
 const validBody = {
-  groupDid: 'did:plc:testgroup',
-  pdsUrl: 'https://pds.example.com',
-  appPassword: 'test-app-password',
+  handle: 'mygroup',
   ownerDid: 'did:plc:owner',
 }
 
@@ -54,17 +63,19 @@ describe('group.register', () => {
     await groupDb.destroy()
   })
 
-  it('registers a group with valid credentials', async () => {
+  it('creates account on group PDS and registers the group', async () => {
     const res = await request(app)
       .post('/xrpc/app.certified.group.register')
       .send(validBody)
     expect(res.status).toBe(200)
-    expect(res.body.groupDid).toBe('did:plc:testgroup')
+    expect(res.body.groupDid).toBe('did:plc:newgroup')
+    expect(res.body.handle).toBe('mygroup.pds.example.com')
+    expect(res.body.accountPassword).toBeDefined()
 
     // Verify group stored in global DB
     const group = await globalDb
       .selectFrom('groups')
-      .where('did', '=', 'did:plc:testgroup')
+      .where('did', '=', 'did:plc:newgroup')
       .selectAll()
       .executeTakeFirst()
     expect(group).toBeDefined()
@@ -81,36 +92,25 @@ describe('group.register', () => {
     expect(owner!.role).toBe('owner')
   })
 
-  it('returns 401 when PDS login fails', async () => {
+  it('returns error when PDS account creation fails', async () => {
     vi.mocked(AtpAgent).mockImplementationOnce(() => ({
-      login: vi.fn().mockRejectedValue(new Error('Invalid credentials')),
+      com: {
+        atproto: {
+          server: {
+            createAccount: vi.fn().mockRejectedValue(
+              Object.assign(new Error('Handle taken'), { status: 400, error: 'HandleNotAvailable' }),
+            ),
+            createAppPassword: vi.fn(),
+          },
+        },
+      },
     }) as any)
 
     const res = await request(app)
       .post('/xrpc/app.certified.group.register')
       .send(validBody)
-    expect(res.status).toBe(500) // unhandled error from AtpAgent
-  })
-
-  it('returns 409 for duplicate registration', async () => {
-    // First registration
-    await request(app)
-      .post('/xrpc/app.certified.group.register')
-      .send(validBody)
-
-    // Second registration with same groupDid
-    const res = await request(app)
-      .post('/xrpc/app.certified.group.register')
-      .send(validBody)
     expect(res.status).toBe(409)
-    expect(res.body.error).toBe('GroupAlreadyRegistered')
-  })
-
-  it('returns 400 for invalid groupDid', async () => {
-    const res = await request(app)
-      .post('/xrpc/app.certified.group.register')
-      .send({ ...validBody, groupDid: 'not-a-did' })
-    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('HandleNotAvailable')
   })
 
   it('returns 400 for invalid ownerDid', async () => {
@@ -120,17 +120,17 @@ describe('group.register', () => {
     expect(res.status).toBe(400)
   })
 
-  it('returns 400 for invalid pdsUrl', async () => {
+  it('returns 400 for invalid handle characters', async () => {
     const res = await request(app)
       .post('/xrpc/app.certified.group.register')
-      .send({ ...validBody, pdsUrl: 'not-a-url' })
+      .send({ ...validBody, handle: 'my group!' })
     expect(res.status).toBe(400)
   })
 
   it('returns 400 for missing fields', async () => {
     const res = await request(app)
       .post('/xrpc/app.certified.group.register')
-      .send({ groupDid: 'did:plc:testgroup' })
+      .send({ handle: 'mygroup' })
     expect(res.status).toBe(400)
   })
 })

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import type { Express } from 'express'
 import { AtpAgent } from '@atproto/api'
 import { ensureValidDid } from '@atproto/syntax'
@@ -9,29 +10,49 @@ import { encrypt } from '../../pds/credentials.js'
 export default function (app: Express, ctx: AppContext) {
   app.post('/xrpc/app.certified.group.register', async (req, res, next) => {
     try {
-      const { groupDid, pdsUrl, appPassword, ownerDid } = req.body
+      const { handle, ownerDid } = req.body
 
       // Validate inputs
-      if (!groupDid || !pdsUrl || !appPassword || !ownerDid) {
-        throw new InvalidRequestError('Missing required fields')
-      }
-      try {
-        ensureValidDid(groupDid)
-      } catch {
-        throw new InvalidRequestError('Invalid groupDid')
+      if (!handle || !ownerDid) {
+        throw new InvalidRequestError('Missing required fields: handle, ownerDid')
       }
       try {
         ensureValidDid(ownerDid)
       } catch {
         throw new InvalidRequestError('Invalid ownerDid')
       }
-      try {
-        new URL(pdsUrl)
-      } catch {
-        throw new InvalidRequestError('Invalid pdsUrl')
+      if (!/^[a-zA-Z0-9-]+$/.test(handle)) {
+        throw new InvalidRequestError('Invalid handle: must be alphanumeric with hyphens')
       }
 
-      // Check not already registered
+      const pdsUrl = ctx.config.groupPdsUrl
+      const pdsHostname = new URL(pdsUrl).hostname
+
+      // Build the full handle: {handle}.{pdsHostname}
+      const fullHandle = `${handle}.${pdsHostname}`
+
+      // Generate a random password for the account
+      const accountPassword = randomBytes(24).toString('base64url')
+
+      // Create the group account on the group's PDS
+      const agent = new AtpAgent({ service: pdsUrl })
+      let createRes
+      try {
+        createRes = await agent.com.atproto.server.createAccount({
+          email: `${handle}@group.${pdsHostname}`,
+          handle: fullHandle,
+          password: accountPassword,
+        })
+      } catch (err: any) {
+        if (err?.status === 400 && err?.error === 'HandleNotAvailable') {
+          throw new ConflictError('Handle already taken on the PDS', 'HandleNotAvailable')
+        }
+        throw err
+      }
+
+      const groupDid = createRes.data.did
+
+      // Check not already registered in our DB (shouldn't happen since we just created it)
       const existing = await ctx.globalDb
         .selectFrom('groups')
         .where('did', '=', groupDid)
@@ -41,9 +62,11 @@ export default function (app: Express, ctx: AppContext) {
         throw new ConflictError('Group already registered', 'GroupAlreadyRegistered')
       }
 
-      // Verify credentials by logging in to the PDS
-      const agent = new AtpAgent({ service: pdsUrl })
-      await agent.login({ identifier: groupDid, password: appPassword })
+      // Create an app password for the group service to use
+      const appPasswordRes = await agent.com.atproto.server.createAppPassword({
+        name: 'group-service',
+      })
+      const appPassword = appPasswordRes.data.password
 
       // Encrypt and store
       const encryptionKey = Buffer.from(ctx.config.encryptionKey, 'hex')
@@ -63,7 +86,11 @@ export default function (app: Express, ctx: AppContext) {
         .values({ member_did: ownerDid, role: 'owner', added_by: ownerDid })
         .execute()
 
-      res.json({ groupDid })
+      res.json({
+        groupDid,
+        handle: fullHandle,
+        accountPassword,
+      })
     } catch (err) {
       next(err)
     }

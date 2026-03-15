@@ -19,6 +19,7 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     publicHostname: 'test.example.com',
     dataDir: '/tmp/test',
     encryptionKey: 'a'.repeat(64),
+    groupPdsUrl: 'https://pds.example.com',
     plcUrl: 'https://plc.directory',
     didCacheTtlMs: 300_000,
     maxBlobSize: 10 * 1024 * 1024,
