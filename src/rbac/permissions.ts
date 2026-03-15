@@ -6,6 +6,7 @@ export type Operation =
   | 'deleteOwnRecord'
   | 'deleteAnyRecord'
   | 'putOwnRecord'
+  | 'putAnyRecord'
   | 'putRecord:profile'
   | 'member.add'
   | 'member.remove'
@@ -26,6 +27,7 @@ const MIN_ROLE_FOR_OPERATION: Record<Operation, Role> = {
   uploadBlob: 'member',
   deleteOwnRecord: 'member',
   putOwnRecord: 'member',
+  putAnyRecord: 'member',
   'member.list': 'member',
   deleteAnyRecord: 'admin',
   'putRecord:profile': 'admin',

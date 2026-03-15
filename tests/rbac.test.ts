@@ -7,7 +7,7 @@ import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 
 describe('canPerform', () => {
-  const memberOps: Operation[] = ['createRecord', 'uploadBlob', 'deleteOwnRecord', 'putOwnRecord', 'member.list']
+  const memberOps: Operation[] = ['createRecord', 'uploadBlob', 'deleteOwnRecord', 'putOwnRecord', 'putAnyRecord', 'member.list']
   const adminOps: Operation[] = ['deleteAnyRecord', 'putRecord:profile', 'member.add', 'member.remove', 'audit.query']
   const ownerOps: Operation[] = ['role.set']
 

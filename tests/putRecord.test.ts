@@ -16,7 +16,7 @@ const COLLECTION = 'app.bsky.feed.post'
 const RKEY = 'somekey'
 const RECORD_URI = `at://${GROUP_DID}/${COLLECTION}/${RKEY}`
 
-describe('putRecord — non-author rejection audit logging', () => {
+describe('putRecord — cross-member update', () => {
   let groupDb: Kysely<GroupDatabase>
   let app: express.Express
 
@@ -38,7 +38,7 @@ describe('putRecord — non-author rejection audit logging', () => {
     await groupDb.destroy()
   })
 
-  it('returns 403 and writes a denied audit row when caller is not the record author', async () => {
+  it('allows a member to update a record created by another member', async () => {
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.putRecord')
       .send({
@@ -48,14 +48,14 @@ describe('putRecord — non-author rejection audit logging', () => {
         record: { $type: COLLECTION, text: 'hello' },
       })
 
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(200)
 
     const auditRows = await groupDb
       .selectFrom('group_audit_log')
       .select(['action', 'result'])
       .where('actor_did', '=', CALLER_DID)
-      .where('action', '=', 'putOwnRecord')
-      .where('result', '=', 'denied')
+      .where('action', '=', 'putAnyRecord')
+      .where('result', '=', 'permitted')
       .execute()
 
     expect(auditRows).toHaveLength(1)
