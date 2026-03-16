@@ -25,7 +25,11 @@ describe('AuthVerifier', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     globalDb = await createTestGlobalDb()
-    await globalDb.insertInto('groups').values({ did: 'did:plc:testgroup' }).execute()
+    await globalDb.insertInto('groups').values({
+      did: 'did:plc:testgroup',
+      pds_url: 'https://pds.example.com',
+      encrypted_app_password: 'encrypted',
+    }).execute()
     nonceCache = new NonceCache(globalDb)
     verifier = new AuthVerifier(
       mockIdResolver as any,

@@ -4,6 +4,7 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
+import { sql } from 'kysely'
 import { openSqliteDb } from '../src/db/sqlite.js'
 import { GroupDbPool } from '../src/db/group-db-pool.js'
 import { runGlobalMigrations, runGroupMigrations } from '../src/db/migrate.js'
@@ -22,22 +23,22 @@ describe('openSqliteDb', () => {
 
   it('returns usable Kysely instance', async () => {
     const db = openSqliteDb(join(tmpDir, 'test.sqlite'))
-    const result = await db.raw('SELECT 1 as val').execute()
+    const result = await sql<{ val: number }>`SELECT 1 as val`.execute(db)
     expect(result.rows).toHaveLength(1)
     await db.destroy()
   })
 
   it('sets WAL journal mode', async () => {
     const db = openSqliteDb(join(tmpDir, 'test.sqlite'))
-    const result = await db.raw('PRAGMA journal_mode').execute()
-    expect((result.rows[0] as any).journal_mode).toBe('wal')
+    const result = await sql<{ journal_mode: string }>`PRAGMA journal_mode`.execute(db)
+    expect(result.rows[0].journal_mode).toBe('wal')
     await db.destroy()
   })
 
   it('sets busy_timeout to 5000', async () => {
     const db = openSqliteDb(join(tmpDir, 'test.sqlite'))
-    const result = await db.raw('PRAGMA busy_timeout').execute()
-    expect((result.rows[0] as any).busy_timeout).toBe(5000)
+    const result = await sql<{ timeout: number }>`PRAGMA busy_timeout`.execute(db)
+    expect(result.rows[0].timeout).toBe(5000)
     await db.destroy()
   })
 })
