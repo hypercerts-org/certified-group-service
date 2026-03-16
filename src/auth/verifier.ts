@@ -1,5 +1,5 @@
 import { IdResolver } from '@atproto/identity'
-import { AuthRequiredError, verifyJwt, parseReqNsid } from '@atproto/xrpc-server'
+import { AuthRequiredError, verifyJwt as defaultVerifyJwt, parseReqNsid as defaultParseReqNsid } from '@atproto/xrpc-server'
 import type { Kysely } from 'kysely'
 import type { Request } from 'express'
 import type { GlobalDatabase } from '../db/schema.js'
@@ -18,11 +18,19 @@ const ACCEPTED_NSIDS = new Set([
 ])
 
 export class AuthVerifier {
+  private verifyJwtFn: typeof defaultVerifyJwt
+  private parseReqNsidFn: typeof defaultParseReqNsid
+
   constructor(
     private idResolver: IdResolver,
     private nonceCache: NonceCache,
     private globalDb: Kysely<GlobalDatabase>,
-  ) {}
+    verifyJwtFn?: typeof defaultVerifyJwt,
+    parseReqNsidFn?: typeof defaultParseReqNsid,
+  ) {
+    this.verifyJwtFn = verifyJwtFn ?? defaultVerifyJwt
+    this.parseReqNsidFn = parseReqNsidFn ?? defaultParseReqNsid
+  }
 
   async verify(req: Request): Promise<{ iss: string; aud: string }> {
     const authHeader = req.headers.authorization
@@ -30,7 +38,7 @@ export class AuthVerifier {
       throw new AuthRequiredError('Missing auth token')
     }
     const jwtStr = authHeader.slice(7)
-    const nsid = parseReqNsid(req)
+    const nsid = this.parseReqNsidFn(req)
 
     if (!ACCEPTED_NSIDS.has(nsid)) {
       throw new AuthRequiredError(`Unsupported NSID: ${nsid}`)
@@ -38,7 +46,7 @@ export class AuthVerifier {
 
     // verifyJwt checks: aud, lxm, exp, signature against DID doc.
     // Pass null for aud — we check it ourselves because we support multiple groups.
-    const payload = await verifyJwt(
+    const payload = await this.verifyJwtFn(
       jwtStr,
       null,
       nsid,
