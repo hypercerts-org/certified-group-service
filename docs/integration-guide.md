@@ -2,6 +2,14 @@
 
 This guide walks you through integrating the group service into your app. By the end you'll be able to register a group, add members, and create records — all in about 50 lines of code.
 
+## Staging environment
+
+The group service staging instance is deployed at:
+
+```
+https://atproto-group-gate-staging.up.railway.app
+```
+
 ## Architecture: where your app fits
 
 ```
@@ -22,7 +30,7 @@ Your app acts as a **backend-for-frontend (BFF)** that sits between your users a
 This is the only unauthenticated call. It creates a new account on the group's PDS and returns the group's DID.
 
 ```typescript
-const GROUP_SERVICE = 'https://group-service.example.com'
+const GROUP_SERVICE = 'https://atproto-group-gate-staging.up.railway.app'
 
 async function registerGroup(handle: string, ownerDid: string) {
   const res = await fetch(`${GROUP_SERVICE}/xrpc/app.certified.group.register`, {
