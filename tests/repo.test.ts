@@ -72,6 +72,27 @@ describe('createRecord', () => {
     expect(logs[0].action).toBe('createRecord')
     expect(logs[0].result).toBe('permitted')
   })
+
+  it('audit logs denied actions with reason', async () => {
+    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:stranger', aud: 'did:plc:testgroup' }) } as any })
+    await request(app)
+      .post('/xrpc/com.atproto.repo.createRecord')
+      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: {} })
+    const logs = await groupDb.selectFrom('group_audit_log').selectAll().execute()
+    expect(logs).toHaveLength(1)
+    expect(logs[0].result).toBe('denied')
+    const detail = JSON.parse(logs[0].detail!)
+    expect(detail.reason).toBeDefined()
+  })
+
+  it('response includes uri and cid', async () => {
+    const res = await request(app)
+      .post('/xrpc/com.atproto.repo.createRecord')
+      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: {} })
+    expect(res.status).toBe(200)
+    expect(res.body.uri).toBeDefined()
+    expect(res.body.cid).toBeDefined()
+  })
 })
 
 describe('deleteRecord', () => {
@@ -117,6 +138,37 @@ describe('deleteRecord', () => {
       .post('/xrpc/com.atproto.repo.deleteRecord')
       .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'abc' })
     expect(res.status).toBe(200)
+  })
+
+  it('audit logs denied delete with reason', async () => {
+    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/abc', 'did:plc:other', 'app.bsky.feed.post')
+    await request(app)
+      .post('/xrpc/com.atproto.repo.deleteRecord')
+      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'abc' })
+    const logs = await groupDb.selectFrom('group_audit_log').selectAll().execute()
+    expect(logs).toHaveLength(1)
+    expect(logs[0].result).toBe('denied')
+    const detail = JSON.parse(logs[0].detail!)
+    expect(detail.reason).toBeDefined()
+  })
+
+  it('repo DID mismatch returns 403', async () => {
+    const res = await request(app)
+      .post('/xrpc/com.atproto.repo.deleteRecord')
+      .send({ repo: 'did:plc:wrong', collection: 'app.bsky.feed.post', rkey: 'abc' })
+    expect(res.status).toBe(403)
+  })
+
+  it('authorship cleaned up after successful delete', async () => {
+    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/abc', 'did:plc:testuser', 'app.bsky.feed.post')
+    await request(app)
+      .post('/xrpc/com.atproto.repo.deleteRecord')
+      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'abc' })
+    const authors = await groupDb.selectFrom('group_record_authors')
+      .selectAll()
+      .where('record_uri', '=', 'at://did:plc:testgroup/app.bsky.feed.post/abc')
+      .execute()
+    expect(authors).toHaveLength(0)
   })
 })
 
@@ -168,5 +220,24 @@ describe('putRecord', () => {
     expect(res.status).toBe(200)
     const authors = await groupDb.selectFrom('group_record_authors').selectAll().execute()
     expect(authors).toHaveLength(1)
+  })
+
+  it('profile update skips authorship tracking', async () => {
+    await seedMember(groupDb, 'did:plc:admin1', 'admin')
+    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:admin1', aud: 'did:plc:testgroup' }) } as any })
+    const res = await request(app)
+      .post('/xrpc/com.atproto.repo.putRecord')
+      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.actor.profile', rkey: 'self', record: {} })
+    expect(res.status).toBe(200)
+    const authors = await groupDb.selectFrom('group_record_authors').selectAll().execute()
+    expect(authors).toHaveLength(0)
+  })
+
+  it('author can update own record via putRecord', async () => {
+    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/xyz', 'did:plc:testuser', 'app.bsky.feed.post')
+    const res = await request(app)
+      .post('/xrpc/com.atproto.repo.putRecord')
+      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'xyz', record: {} })
+    expect(res.status).toBe(200)
   })
 })

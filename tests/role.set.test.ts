@@ -85,6 +85,42 @@ describe('role.set — last-owner protection', () => {
     expect(res.body.error).toBe('InvalidRole')
   })
 
+  it('owner can promote member to owner', async () => {
+    await seedMember(groupDb, 'did:plc:member1', 'member')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:member1', role: 'owner' })
+    expect(res.status).toBe(200)
+    expect(res.body.role).toBe('owner')
+
+    const member = await groupDb.selectFrom('group_members')
+      .select('role').where('member_did', '=', 'did:plc:member1').executeTakeFirst()
+    expect(member!.role).toBe('owner')
+  })
+
+  it('setting same role is a no-op success', async () => {
+    await seedMember(groupDb, 'did:plc:admin1', 'admin')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:admin1', role: 'admin' })
+    expect(res.status).toBe(200)
+    expect(res.body.role).toBe('admin')
+  })
+
+  it('audit log records previousRole and newRole', async () => {
+    await seedMember(groupDb, 'did:plc:target', 'member')
+    await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:target', role: 'admin' })
+
+    const logs = await groupDb.selectFrom('group_audit_log').selectAll().execute()
+    expect(logs).toHaveLength(1)
+    const detail = JSON.parse(logs[0].detail!)
+    expect(detail.previousRole).toBe('member')
+    expect(detail.newRole).toBe('admin')
+    expect(detail.memberDid).toBe('did:plc:target')
+  })
+
   // ---------------------------------------------------------------------------
   // Happy-path concurrency: with 3 owners, both concurrent demotions are valid
   // and should both succeed, leaving exactly 1 owner.

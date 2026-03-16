@@ -33,4 +33,22 @@ describe('NonceCache', () => {
     await cache.cleanup()
     expect(await cache.checkAndStore('old-jti')).toBe(true)
   })
+
+  it('concurrent checkAndStore for same jti — only one wins', async () => {
+    const results = await Promise.all([
+      cache.checkAndStore('race-jti'),
+      cache.checkAndStore('race-jti'),
+    ])
+    const trues = results.filter((r) => r === true)
+    const falses = results.filter((r) => r === false)
+    expect(trues).toHaveLength(1)
+    expect(falses).toHaveLength(1)
+  })
+
+  it('cleanup preserves non-expired entries', async () => {
+    await cache.checkAndStore('fresh-jti')
+    await cache.cleanup()
+    // fresh-jti should still be in cache (TTL=120s), so re-storing returns false
+    expect(await cache.checkAndStore('fresh-jti')).toBe(false)
+  })
 })

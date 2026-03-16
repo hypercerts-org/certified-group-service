@@ -31,4 +31,21 @@ describe('credentials', () => {
     const tampered = buf.toString('base64')
     expect(() => decrypt(tampered, key)).toThrow()
   })
+
+  it('empty plaintext round-trips', () => {
+    const encrypted = encrypt('', key)
+    expect(decrypt(encrypted, key)).toBe('')
+  })
+
+  it('long plaintext round-trips', () => {
+    const long = 'x'.repeat(10 * 1024)
+    const encrypted = encrypt(long, key)
+    expect(decrypt(encrypted, key)).toBe(long)
+  })
+
+  it('wrong key throws', () => {
+    const encrypted = encrypt('secret', key)
+    const wrongKey = randomBytes(32)
+    expect(() => decrypt(encrypted, wrongKey)).toThrow()
+  })
 })

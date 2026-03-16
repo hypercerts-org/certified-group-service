@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { canPerform, type Role, type Operation } from '../src/rbac/permissions.js'
+import { canPerform, ASSIGNABLE_ROLES, ROLE_HIERARCHY, type Role, type Operation } from '../src/rbac/permissions.js'
 import { RbacChecker } from '../src/rbac/check.js'
 import { createTestGroupDb } from './helpers/test-db.js'
 import { seedMember, seedAuthorship } from './helpers/mock-server.js'
@@ -63,5 +63,43 @@ describe('RbacChecker', () => {
   it('isAuthor returns false for non-author', async () => {
     await seedAuthorship(groupDb, 'at://did:plc:g/app.bsky.feed.post/1', 'did:plc:other', 'app.bsky.feed.post')
     expect(await rbac.isAuthor(groupDb, 'at://did:plc:g/app.bsky.feed.post/1', 'did:plc:member1')).toBe(false)
+  })
+
+  it('assertCan throws Error for invalid role in database', async () => {
+    await groupDb
+      .insertInto('group_members')
+      .values({ member_did: 'did:plc:badrole', role: 'superadmin' as any, added_by: 'did:plc:owner' })
+      .execute()
+    await expect(rbac.assertCan(groupDb, 'did:plc:badrole', 'createRecord')).rejects.toThrow(
+      'Invalid role in database: superadmin',
+    )
+  })
+})
+
+describe('RBAC constants', () => {
+  it('ASSIGNABLE_ROLES does not include owner', () => {
+    expect(ASSIGNABLE_ROLES).toEqual(['member', 'admin'])
+  })
+
+  it('ROLE_HIERARCHY values are ordered', () => {
+    expect(ROLE_HIERARCHY.member).toBeLessThan(ROLE_HIERARCHY.admin)
+    expect(ROLE_HIERARCHY.admin).toBeLessThan(ROLE_HIERARCHY.owner)
+  })
+
+  it('canPerform covers all 12 operations', () => {
+    const allOps: Operation[] = [
+      'createRecord', 'uploadBlob', 'deleteOwnRecord', 'putOwnRecord', 'putAnyRecord', 'member.list',
+      'deleteAnyRecord', 'putRecord:profile', 'member.add', 'member.remove', 'audit.query',
+      'role.set',
+    ]
+    // member: 6 ops
+    const memberOps = allOps.filter((op) => canPerform('member', op))
+    expect(memberOps).toHaveLength(6)
+    // admin: 11 ops
+    const adminOps = allOps.filter((op) => canPerform('admin', op))
+    expect(adminOps).toHaveLength(11)
+    // owner: all 12
+    const ownerOps = allOps.filter((op) => canPerform('owner', op))
+    expect(ownerOps).toHaveLength(12)
   })
 })
