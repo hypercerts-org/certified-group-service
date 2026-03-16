@@ -15,7 +15,7 @@
 - **Nonce TTL is 2 minutes**, hardcoded. JWTs with longer expiry can be replayed after the nonce window closes.
 - **Blob uploads** read the raw request stream into memory (not streamed to PDS). Route registration order matters: `registerRawRoutes` (uploadBlob) is mounted before `express.json()`, `registerJsonRoutes` after. New raw-stream routes go in `registerRawRoutes`.
 - **Owner can only be created** via `group.register` (seeds DB) or `role.set` (owner-only). `member.add` caps at admin.
-- **Record authorship is immutable**: `onConflict(...).doNothing()` preserves original author on putRecord. Used for "who can delete this", not "who last edited".
+- **Record authorship is immutable**: `onConflict(...).doNothing()` preserves original author on putRecord. Used for "who can delete this" (only admins can `deleteAnyRecord`); any member can edit any record regardless of authorship.
 - **Profile edits** (`app.bsky.actor.profile` + rkey `self`) use a special operation `putRecord:profile` requiring admin, regardless of authorship.
 
 ## Testing

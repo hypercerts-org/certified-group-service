@@ -289,7 +289,7 @@ Roles are **per-group**, not global. A user can be an owner of one group, a memb
 
 | Role | Can do (within that group) |
 |------|--------|
-| **member** | Create records, edit/delete own records, upload blobs, list members |
+| **member** | Create records, edit any record, delete own records, upload blobs, list members |
 | **admin** | Everything above + delete any record, edit group profile, add/remove members, query audit log |
 | **owner** | Everything above + change member roles (promote/demote) |
 

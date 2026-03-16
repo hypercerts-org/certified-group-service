@@ -16,7 +16,7 @@ CGS acts as an authenticated proxy between clients and a group's PDS:
 
 | Role | Level | Capabilities |
 |------|-------|-------------|
-| **member** | 0 | Create/edit/delete own records, upload blobs, list members |
+| **member** | 0 | Create/edit any record, delete own records, upload blobs, list members |
 | **admin** | 1 | All member permissions + delete any record, edit group profile, manage members, query audit log |
 | **owner** | 2 | All admin permissions + set roles (promote/demote members) |
 
