@@ -11,9 +11,13 @@ import memberAdd from './member/add.js'
 import deleteRecord from './repo/deleteRecord.js'
 import groupRegister from './group/register.js'
 
-export function registerRoutes(app: Express, ctx: AppContext): void {
-  // Each handler bead appends its import + registration call here.
-  // This file starts empty and grows as handler beads are implemented.
+/** Routes that need the raw request stream (no JSON parsing). */
+export function registerRawRoutes(app: Express, ctx: AppContext): void {
+  uploadBlob(app, ctx)
+}
+
+/** Routes that expect a parsed JSON body. */
+export function registerJsonRoutes(app: Express, ctx: AppContext): void {
   groupRegister(app, ctx)
   roleSet(app, ctx)
   memberRemove(app, ctx)
@@ -21,7 +25,6 @@ export function registerRoutes(app: Express, ctx: AppContext): void {
   memberAdd(app, ctx)
   putRecord(app, ctx)
   createRecord(app, ctx)
-  uploadBlob(app, ctx)
   auditQuery(app, ctx)
   deleteRecord(app, ctx)
 }

@@ -9,7 +9,7 @@ import { loadConfig } from './config.js'
 import { AuthVerifier } from './auth/verifier.js'
 import { NonceCache } from './auth/nonce.js'
 import { RbacChecker } from './rbac/check.js'
-import { registerRoutes } from './api/index.js'
+import { registerJsonRoutes, registerRawRoutes } from './api/index.js'
 import { xrpcErrorHandler } from './api/error-handler.js'
 import { runGlobalMigrations } from './db/migrate.js'
 import { openSqliteDb } from './db/sqlite.js'
@@ -57,12 +57,18 @@ async function main() {
   app.set('trust proxy', 1)
   app.use(pinoHttp({ logger }))
 
-  // JSON parsing: skip for uploadBlob (needs raw stream), 1MB limit otherwise
-  const jsonParser = express.json({ limit: '1mb' })
-  app.use((req, res, next) => {
-    if (req.path === '/xrpc/com.atproto.repo.uploadBlob') return next()
-    jsonParser(req, res, next)
-  })
+  // XRPC routes
+  const pdsAgents = new PdsAgentPool(globalDb, Buffer.from(config.encryptionKey, 'hex'))
+  const audit = new AuditLogger()
+  const ctx: AppContext = {
+    config, globalDb, groupDbs, authVerifier, rbac, pdsAgents, audit, logger,
+  }
+
+  // Raw-stream routes must be registered before the JSON body parser
+  registerRawRoutes(app, ctx)
+
+  // JSON parsing for all subsequent routes
+  app.use(express.json({ limit: '1mb' }))
 
   // Health check
   app.get('/health', async (_req, res) => {
@@ -74,13 +80,7 @@ async function main() {
     }
   })
 
-  // XRPC routes
-  const pdsAgents = new PdsAgentPool(globalDb, Buffer.from(config.encryptionKey, 'hex'))
-  const audit = new AuditLogger()
-  const ctx: AppContext = {
-    config, globalDb, groupDbs, authVerifier, rbac, pdsAgents, audit, logger,
-  }
-  registerRoutes(app, ctx)
+  registerJsonRoutes(app, ctx)
 
   // Error middleware (must be registered AFTER routes)
   app.use(xrpcErrorHandler(logger))

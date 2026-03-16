@@ -41,16 +41,18 @@ describe('GET /health', () => {
 })
 
 describe('JSON parser skip for uploadBlob', () => {
-  it('skips JSON parsing for /xrpc/com.atproto.repo.uploadBlob', async () => {
+  it('raw routes registered before JSON parser do not get body parsed', async () => {
     const app = express()
-    const jsonParser = express.json({ limit: '1mb' })
-    app.use((req, res, next) => {
-      if (req.path === '/xrpc/com.atproto.repo.uploadBlob') return next()
-      jsonParser(req, res, next)
-    })
+
+    // Raw route registered before JSON parser (mirrors registerRawRoutes)
     app.post('/xrpc/com.atproto.repo.uploadBlob', (req, res) => {
       res.json({ bodyParsed: req.body !== undefined })
     })
+
+    // JSON parser applied after raw routes (mirrors index.ts)
+    app.use(express.json({ limit: '1mb' }))
+
+    // JSON route registered after parser (mirrors registerJsonRoutes)
     app.post('/xrpc/other', (req, res) => {
       res.json({ bodyParsed: req.body !== undefined })
     })
