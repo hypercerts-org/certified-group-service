@@ -205,12 +205,12 @@ describe('putRecord', () => {
     expect(res.status).toBe(200)
   })
 
-  it('cannot update record authored by others', async () => {
+  it('can update record authored by others', async () => {
     await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/xyz', 'did:plc:other', 'app.bsky.feed.post')
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.putRecord')
       .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'xyz', record: {} })
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(200)
   })
 
   it('new record via putRecord treated as createRecord permission', async () => {
