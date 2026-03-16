@@ -12,6 +12,7 @@ import type { GlobalDatabase, GroupDatabase } from '../src/db/schema.js'
 vi.mock('@atproto/api', () => {
   return {
     AtpAgent: vi.fn().mockImplementation(() => ({
+      resumeSession: vi.fn().mockResolvedValue(undefined),
       com: {
         atproto: {
           server: {
@@ -94,6 +95,7 @@ describe('group.register', () => {
 
   it('returns error when PDS account creation fails', async () => {
     vi.mocked(AtpAgent).mockImplementationOnce(() => ({
+      resumeSession: vi.fn().mockResolvedValue(undefined),
       com: {
         atproto: {
           server: {
