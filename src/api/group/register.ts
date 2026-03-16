@@ -100,6 +100,11 @@ export default function (app: Express, ctx: AppContext) {
         .values({ member_did: ownerDid, role: 'owner', added_by: ownerDid })
         .execute()
 
+      // Audit log the group creation
+      await ctx.audit.log(groupDb, ownerDid, 'group.register', 'permitted', {
+        handle: fullHandle,
+      })
+
       res.json({
         groupDid,
         handle: fullHandle,
