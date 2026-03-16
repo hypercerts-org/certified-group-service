@@ -103,6 +103,7 @@ See [docs/deployment.md](docs/deployment.md) for deployment guides, including Ra
 
 ## Further documentation
 
+- [Integration Guide](docs/integration-guide.md) — step-by-step guide to integrating the group service into your app
 - [Architecture](docs/architecture.md) — authentication flow, RBAC model, data model, PDS proxy internals
 - [API Reference](docs/api-reference.md) — complete endpoint documentation with examples
 - [Deployment](docs/deployment.md) — production deployment guides
