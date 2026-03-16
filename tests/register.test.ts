@@ -129,6 +129,28 @@ describe('group.register', () => {
     expect(res.status).toBe(400)
   })
 
+  it('passes caller-provided email to createAccount', async () => {
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.register')
+      .send({ ...validBody, email: 'owner@example.com' })
+    expect(res.status).toBe(200)
+
+    const mockAgent = vi.mocked(AtpAgent).mock.results[0].value
+    const createAccountCall = mockAgent.com.atproto.server.createAccount.mock.calls[0][0]
+    expect(createAccountCall.email).toBe('owner@example.com')
+  })
+
+  it('uses placeholder email when none provided', async () => {
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.register')
+      .send(validBody)
+    expect(res.status).toBe(200)
+
+    const mockAgent = vi.mocked(AtpAgent).mock.results[0].value
+    const createAccountCall = mockAgent.com.atproto.server.createAccount.mock.calls[0][0]
+    expect(createAccountCall.email).toBe('mygroup@group.pds.example.com')
+  })
+
   it('returns 400 for missing fields', async () => {
     const res = await request(app)
       .post('/xrpc/app.certified.group.register')

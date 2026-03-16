@@ -15,7 +15,8 @@
               "type": "string",
               "description": "Short name for the group (e.g. 'mygroup'). Will be combined with the PDS hostname to form the full handle."
             },
-            "ownerDid": { "type": "string", "format": "did" }
+            "ownerDid": { "type": "string", "format": "did" },
+            "email": { "type": "string", "description": "Optional recovery email for the group account. Enables the forgot-password flow for credible exit." }
           }
         }
       },

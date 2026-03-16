@@ -10,7 +10,7 @@ import { encrypt } from '../../pds/credentials.js'
 export default function (app: Express, ctx: AppContext) {
   app.post('/xrpc/app.certified.group.register', async (req, res, next) => {
     try {
-      const { handle, ownerDid } = req.body
+      const { handle, ownerDid, email } = req.body
 
       // Validate inputs
       if (!handle || !ownerDid) {
@@ -31,6 +31,9 @@ export default function (app: Express, ctx: AppContext) {
       // Build the full handle: {handle}.{pdsHostname}
       const fullHandle = `${handle}.${pdsHostname}`
 
+      // Use caller-provided email or generate a placeholder
+      const accountEmail = email || `${handle}@group.${pdsHostname}`
+
       // Generate a random password for the account
       const accountPassword = randomBytes(24).toString('base64url')
 
@@ -39,7 +42,7 @@ export default function (app: Express, ctx: AppContext) {
       let createRes
       try {
         createRes = await agent.com.atproto.server.createAccount({
-          email: `${handle}@group.${pdsHostname}`,
+          email: accountEmail,
           handle: fullHandle,
           password: accountPassword,
           ...(ctx.config.groupPdsInviteCode && { inviteCode: ctx.config.groupPdsInviteCode }),
