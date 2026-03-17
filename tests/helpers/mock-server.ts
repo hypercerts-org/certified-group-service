@@ -5,6 +5,15 @@ import { AuditLogger } from '../../src/audit.js'
 import { createTestGlobalDb, createTestGroupDb } from './test-db.js'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase, GroupDatabase } from '../../src/db/schema.js'
+import express from 'express'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createGroupServer } from '../../src/server.js'
+import { createFallbackErrorHandler } from '../../src/api/error-handler.js'
+import type { Server } from '@atproto/xrpc-server'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const LEXICON_DIR = join(__dirname, '../../lexicons')
 
 export async function createTestContext(overrides?: Partial<AppContext>): Promise<{
   ctx: AppContext
@@ -60,6 +69,12 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
 
   const mockAuthVerifier = {
     verify: async () => ({ iss: 'did:plc:testuser', aud: 'did:plc:testgroup' }),
+    xrpcAuth() {
+      return async ({ req }: { req: any }) => {
+        const { iss, aud } = await this.verify(req)
+        return { credentials: { callerDid: iss, groupDid: aud } }
+      }
+    },
   }
 
   const ctx: AppContext = {
@@ -109,4 +124,29 @@ export async function seedAuthorship(
       collection,
     })
     .execute()
+}
+
+export function createTestApp(
+  ctx: AppContext,
+  registerHandlers: (server: Server, ctx: AppContext) => void,
+): express.Express {
+  const xrpcServer = createGroupServer(LEXICON_DIR)
+  registerHandlers(xrpcServer, ctx)
+
+  const app = express()
+  app.use(xrpcServer.router)
+  app.use(createFallbackErrorHandler(silentLogger as any))
+  return app
+}
+
+export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
+  return {
+    verify: async () => ({ iss, aud }),
+    xrpcAuth() {
+      return async ({ req }: { req: any }) => {
+        const { iss, aud } = await this.verify(req)
+        return { credentials: { callerDid: iss, groupDid: aud } }
+      }
+    },
+  } as any
 }
