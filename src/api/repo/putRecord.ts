@@ -52,22 +52,25 @@ export default function (server: Server, ctx: AppContext) {
         agent.com.atproto.repo.putRecord(input),
       )
 
-      await Promise.all([
-        // Upsert authorship (for new records via putRecord, skip profiles)
-        !isProfileUpdate
-          ? groupDb.insertInto('group_record_authors')
-              .values({
-                record_uri: response.data.uri,
-                author_did: callerDid,
-                collection: input.collection,
-              })
-              .onConflict((oc) => oc.column('record_uri').doNothing())
-              .execute()
-          : Promise.resolve(),
+      const postOps: Promise<unknown>[] = [
         ctx.audit.log(groupDb, callerDid, operation, 'permitted', {
           collection: input.collection, rkey: input.rkey,
         }),
-      ])
+      ]
+      // Upsert authorship (for new records via putRecord, skip profiles)
+      if (!isProfileUpdate) {
+        postOps.push(
+          groupDb.insertInto('group_record_authors')
+            .values({
+              record_uri: response.data.uri,
+              author_did: callerDid,
+              collection: input.collection,
+            })
+            .onConflict((oc) => oc.column('record_uri').doNothing())
+            .execute(),
+        )
+      }
+      await Promise.all(postOps)
 
       return { encoding: 'application/json' as const, body: response.data }
     },

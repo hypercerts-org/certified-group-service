@@ -10,7 +10,7 @@ import { AuthVerifier } from './auth/verifier.js'
 import { NonceCache } from './auth/nonce.js'
 import { RbacChecker } from './rbac/check.js'
 import { registerJsonRoutes, registerRawRoutes } from './api/index.js'
-import { xrpcErrorHandler } from './api/error-handler.js'
+import { createFallbackErrorHandler } from './api/error-handler.js'
 import { runGlobalMigrations } from './db/migrate.js'
 import { openSqliteDb } from './db/sqlite.js'
 import { GroupDbPool } from './db/group-db-pool.js'
@@ -83,7 +83,7 @@ async function main() {
   registerJsonRoutes(app, ctx)
 
   // Error middleware (must be registered AFTER routes)
-  app.use(xrpcErrorHandler(logger))
+  app.use(createFallbackErrorHandler(logger))
 
   const server = app.listen(config.port, () => {
     logger.info({ port: config.port, groups: groups.length }, 'Group Service started')

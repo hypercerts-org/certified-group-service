@@ -22,7 +22,7 @@ export default function (server: Server, ctx: AppContext) {
       try {
         await ctx.rbac.assertCan(groupDb, callerDid, 'uploadBlob')
       } catch (err) {
-        await ctx.audit.log(groupDb, callerDid, 'uploadBlob', 'denied')
+        await ctx.audit.log(groupDb, callerDid, 'uploadBlob', 'denied', { reason: (err as Error).message })
         throw err
       }
 
