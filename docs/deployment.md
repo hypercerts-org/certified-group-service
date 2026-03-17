@@ -43,6 +43,8 @@ CGS is pre-configured for [Railway](https://railway.app/) via `railway.toml`.
 
    `PORT` is injected automatically by Railway — do not set it manually. All other variables have sensible defaults (see the [environment variables table](../README.md#environment-variables)).
 
+   > **Note:** `SERVICE_URL` is written into each group's DID document as the service endpoint. It must be a full public URL (scheme + host) so that atproto-proxy resolution works — a bare hostname will not resolve correctly.
+
 3. **Add a persistent volume** — this is critical:
    - Right-click your service (or click **+**) → **Add Volume**
    - Mount path: `/app/data`
