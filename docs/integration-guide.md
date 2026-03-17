@@ -16,14 +16,14 @@ https://atproto-group-gate-staging.up.railway.app
 Your App (BFF server)
     │
     │  1. User logs in via OAuth → you get an access token
-    │  2. You call getServiceAuth on the user's PDS → you get a signed JWT
-    │  3. You forward requests to the group service with that JWT
+    │  2. You send XRPC requests to the user's PDS with atproto-proxy header
+    │  3. The PDS handles service auth and forwards to the group service
     │
     ▼
-Group Service ──▶ Group's PDS
+User's PDS ──▶ Group Service ──▶ Group's PDS
 ```
 
-Your app acts as a **backend-for-frontend (BFF)** that sits between your users and the group service. The group service never talks to your users directly — it only accepts server-to-server requests authenticated with atproto service auth JWTs.
+Your app acts as a **backend-for-frontend (BFF)** that sits between your users and the group service. Instead of managing service auth JWTs yourself, you send requests to the user's PDS with an `atproto-proxy` header — the PDS handles authentication and forwards requests to the group service on your behalf.
 
 ## Step 1: Register a group
 
@@ -50,100 +50,42 @@ async function registerGroup(handle: string, ownerDid: string) {
 - `ownerDid` — the DID of the user who will own this group. They're immediately seeded as the owner.
 - `accountPassword` — returned once. You don't need to store this; the group service manages its own credentials.
 
-## Step 2: Get a service auth JWT
+## Step 2: Create a proxy agent
 
-Every subsequent call requires a JWT signed by the user's PDS. You get this by calling `com.atproto.server.getServiceAuth` on the user's PDS using their OAuth access token.
+With the group's DID in hand, create a proxy agent that routes all group service calls through the user's PDS:
 
 ```typescript
-async function getServiceAuthToken(
-  userPdsUrl: string,
-  accessToken: string,
-  groupDid: string,
-  method: string, // e.g. "com.atproto.repo.createRecord"
-): Promise<string> {
-  const url = new URL('/xrpc/com.atproto.server.getServiceAuth', userPdsUrl)
-  url.searchParams.set('aud', groupDid)
-  url.searchParams.set('lxm', method)
+import { AtpAgent } from '@atproto/api'
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
+// Create an agent authenticated to the user's PDS
+const agent = new AtpAgent({ service: userPdsUrl })
+// ... configure agent with user's OAuth session (access token, DPoP, etc.)
 
-  if (!res.ok) throw new Error(`Service auth failed: ${res.status}`)
-
-  const { token } = await res.json()
-  return token
-}
+// Create a proxy agent for a specific group
+const groupAgent = agent.withProxy('certified_group', groupDid)
 ```
 
-The returned JWT contains:
-- `iss` — the user's DID (from their PDS)
-- `aud` — the group's DID (what you passed as `aud`)
-- `lxm` — the XRPC method (what you passed as `lxm`)
-- `jti` — a unique nonce (set by the PDS)
-- `exp` — expiration timestamp
+All calls made through `groupAgent` will be forwarded by the PDS to the group service with proper service auth — you never touch the service auth JWTs directly.
 
-> **Important:** Each JWT can only be used **once** — the group service tracks nonces and rejects replays. Get a fresh token for every request.
-
-> **Note:** If your PDS uses DPoP-bound tokens (e.g. via OAuth), you'll need to include DPoP proofs with the `getServiceAuth` call. See the [demo app's service-auth.ts](../demo/server/oauth/service-auth.ts) for a complete DPoP implementation.
+> **Note:** If your PDS uses DPoP-bound tokens (e.g. via OAuth), you'll need a custom
+> `fetchHandler` on the `AtpAgent` that attaches DPoP proofs. See the
+> [demo app's dpop-fetch.ts](../demo/server/oauth/dpop-fetch.ts) for a complete implementation.
 
 ## Step 3: Make authenticated requests
 
-With a JWT in hand, call any group service endpoint:
+With a `groupAgent` configured, call any group service endpoint using typed XRPC calls:
 
 ```typescript
-async function groupServiceRequest(
-  method: 'GET' | 'POST',
-  nsid: string,
-  jwt: string,
-  body?: Record<string, unknown>,
-  params?: Record<string, string>,
-) {
-  const url = new URL(`/xrpc/${nsid}`, GROUP_SERVICE)
-  if (params) {
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
-  }
-
-  const res = await fetch(url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${jwt}`,
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(`${nsid} failed (${res.status}): ${err.message || JSON.stringify(err)}`)
-  }
-
-  return res.json()
-}
-```
-
-## Putting it all together
-
-Here's a complete flow — register a group, add a member, create a post:
-
-```typescript
-// 1. Register a group (owner is the current user)
-const { groupDid } = await registerGroup('our-team', currentUserDid)
-
-// 2. Add a member (requires admin or owner role)
-const addMemberJwt = await getServiceAuthToken(
-  userPdsUrl, accessToken, groupDid, 'app.certified.group.member.add',
+// Add a member
+await groupAgent.call(
+  'app.certified.group.member.add',
+  {},
+  { memberDid: 'did:plc:newmember', role: 'member' },
+  { encoding: 'application/json' },
 )
-await groupServiceRequest('POST', 'app.certified.group.member.add', addMemberJwt, {
-  memberDid: 'did:plc:newmember',
-  role: 'member',
-})
 
-// 3. Create a post in the group's repo
-const createJwt = await getServiceAuthToken(
-  userPdsUrl, accessToken, groupDid, 'com.atproto.repo.createRecord',
-)
-const post = await groupServiceRequest('POST', 'com.atproto.repo.createRecord', createJwt, {
+// Create a record
+const post = await groupAgent.com.atproto.repo.createRecord({
   repo: groupDid,
   collection: 'app.bsky.feed.post',
   record: {
@@ -152,46 +94,57 @@ const post = await groupServiceRequest('POST', 'com.atproto.repo.createRecord', 
     createdAt: new Date().toISOString(),
   },
 })
-// post.uri → "at://did:plc:abc123/app.bsky.feed.post/3xyz789"
+// post.data.uri → "at://did:plc:abc123/app.bsky.feed.post/3xyz789"
+```
+
+## Putting it all together
+
+Here's a complete flow — register a group, add a member, create a post:
+
+```typescript
+import { AtpAgent } from '@atproto/api'
+
+// 1. Register a group (owner is the current user)
+const { groupDid } = await registerGroup('our-team', currentUserDid)
+
+// 2. Set up the proxy agent
+const agent = new AtpAgent({ service: userPdsUrl })
+// ... configure agent with user's OAuth session
+const groupAgent = agent.withProxy('certified_group', groupDid)
+
+// 3. Add a member (requires admin or owner role)
+await groupAgent.call(
+  'app.certified.group.member.add',
+  {},
+  { memberDid: 'did:plc:newmember', role: 'member' },
+  { encoding: 'application/json' },
+)
+
+// 4. Create a post in the group's repo
+const post = await groupAgent.com.atproto.repo.createRecord({
+  repo: groupDid,
+  collection: 'app.bsky.feed.post',
+  record: {
+    $type: 'app.bsky.feed.post',
+    text: 'First post from the group!',
+    createdAt: new Date().toISOString(),
+  },
+})
+// post.data.uri → "at://did:plc:abc123/app.bsky.feed.post/3xyz789"
 ```
 
 ## Uploading blobs
 
-Blob uploads use raw binary bodies instead of JSON:
+Use `groupAgent.com.atproto.repo.uploadBlob()` to upload images and other binary data:
 
 ```typescript
-async function uploadBlob(
-  jwt: string,
-  groupDid: string,
-  data: Buffer | Uint8Array,
-  mimeType: string,
-) {
-  const res = await fetch(`${GROUP_SERVICE}/xrpc/com.atproto.repo.uploadBlob`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${jwt}`,
-      'Content-Type': mimeType,
-      'Content-Length': String(data.byteLength),
-    },
-    body: data,
-  })
+// Upload a blob
+const { data: { blob } } = await groupAgent.com.atproto.repo.uploadBlob(imageBuffer, {
+  encoding: 'image/png',
+})
 
-  if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
-
-  // { blob: { $type: "blob", ref: { $link: "bafyrei..." }, mimeType, size } }
-  return res.json()
-}
-
-// Usage: upload an image, then attach it to a post
-const uploadJwt = await getServiceAuthToken(
-  userPdsUrl, accessToken, groupDid, 'com.atproto.repo.uploadBlob',
-)
-const { blob } = await uploadBlob(uploadJwt, groupDid, imageBuffer, 'image/png')
-
-const createJwt = await getServiceAuthToken(
-  userPdsUrl, accessToken, groupDid, 'com.atproto.repo.createRecord',
-)
-await groupServiceRequest('POST', 'com.atproto.repo.createRecord', createJwt, {
+// Attach the blob to a post
+await groupAgent.com.atproto.repo.createRecord({
   repo: groupDid,
   collection: 'app.bsky.feed.post',
   record: {
@@ -212,31 +165,26 @@ Max blob size is 5 MB by default.
 
 ```typescript
 // List members (any member can do this)
-const listJwt = await getServiceAuthToken(
-  userPdsUrl, accessToken, groupDid, 'app.certified.group.member.list',
-)
-const { members, cursor } = await groupServiceRequest(
-  'GET', 'app.certified.group.member.list', listJwt,
-  undefined,
-  { groupDid, limit: '50' },
+const { data: { members, cursor } } = await groupAgent.call(
+  'app.certified.group.member.list',
+  { groupDid, limit: 50 },
 )
 
 // Remove a member (requires admin, or any role for self-removal)
-const removeJwt = await getServiceAuthToken(
-  userPdsUrl, accessToken, groupDid, 'app.certified.group.member.remove',
+await groupAgent.call(
+  'app.certified.group.member.remove',
+  {},
+  { memberDid: 'did:plc:targetmember' },
+  { encoding: 'application/json' },
 )
-await groupServiceRequest('POST', 'app.certified.group.member.remove', removeJwt, {
-  memberDid: 'did:plc:targetmember',
-})
 
 // Promote a member to admin (requires owner)
-const roleJwt = await getServiceAuthToken(
-  userPdsUrl, accessToken, groupDid, 'app.certified.group.role.set',
+await groupAgent.call(
+  'app.certified.group.role.set',
+  {},
+  { memberDid: 'did:plc:trustedmember', role: 'admin' },
+  { encoding: 'application/json' },
 )
-await groupServiceRequest('POST', 'app.certified.group.role.set', roleJwt, {
-  memberDid: 'did:plc:trustedmember',
-  role: 'admin',
-})
 ```
 
 ## Querying the audit log
@@ -244,28 +192,21 @@ await groupServiceRequest('POST', 'app.certified.group.role.set', roleJwt, {
 Every action (permitted or denied) is logged. Admins and owners of the group can query its audit log — there's no cross-group view:
 
 ```typescript
-const auditJwt = await getServiceAuthToken(
-  userPdsUrl, accessToken, groupDid, 'app.certified.group.audit.query',
-)
-
 // All recent entries
-const { entries } = await groupServiceRequest(
-  'GET', 'app.certified.group.audit.query', auditJwt,
-  undefined,
+const { data: { entries } } = await groupAgent.call(
+  'app.certified.group.audit.query',
   { groupDid },
 )
 
 // Filter by actor
-const { entries: userEntries } = await groupServiceRequest(
-  'GET', 'app.certified.group.audit.query', auditJwt,
-  undefined,
+const { data: { entries: userEntries } } = await groupAgent.call(
+  'app.certified.group.audit.query',
   { groupDid, actorDid: 'did:plc:specificuser' },
 )
 
 // Filter by action
-const { entries: deletions } = await groupServiceRequest(
-  'GET', 'app.certified.group.audit.query', auditJwt,
-  undefined,
+const { data: { entries: deletions } } = await groupAgent.call(
+  'app.certified.group.audit.query',
   { groupDid, action: 'deleteRecord' },
 )
 ```
@@ -277,7 +218,7 @@ The group service returns standard XRPC errors. Here's what to handle:
 | Status | Meaning | What to do |
 |--------|---------|------------|
 | 400 | Bad request (validation error) | Check your request body — the `message` field explains what's wrong |
-| 401 | Authentication failed | JWT is invalid, expired, or replayed. Get a fresh one |
+| 401 | Authentication failed | Session is invalid or expired. Re-authenticate and retry |
 | 403 | Forbidden (insufficient role) | The user doesn't have the required role for this operation |
 | 404 | Not found | Member or record doesn't exist |
 | 409 | Conflict | Member already exists, or handle already taken |
@@ -311,8 +252,17 @@ Key constraints:
 
 The [demo app](../demo/) is a complete working example with:
 - OAuth login flow with DPoP ([`demo/server/oauth/`](../demo/server/oauth/))
-- BFF proxy pattern ([`demo/server/routes/proxy.ts`](../demo/server/routes/proxy.ts))
+- DPoP fetch handler for AtpAgent ([`demo/server/oauth/dpop-fetch.ts`](../demo/server/oauth/dpop-fetch.ts))
+- BFF proxy via service proxying ([`demo/server/routes/proxy.ts`](../demo/server/routes/proxy.ts))
 - Group registration ([`demo/server/routes/register.ts`](../demo/server/routes/register.ts))
 - React frontend ([`demo/src/`](../demo/src/))
 
 For the full API specification, see the [API Reference](./api-reference.md).
+
+## Direct calls (advanced)
+
+If you can't use service proxying (e.g. your environment doesn't support it), you can
+still call the group service directly using `com.atproto.server.getServiceAuth` to obtain
+a JWT and then making requests with `Authorization: Bearer <jwt>`. This is the legacy
+approach — service proxying is preferred because it's simpler, more secure (the BFF never
+touches service auth JWTs), and follows the standard atproto pattern.
