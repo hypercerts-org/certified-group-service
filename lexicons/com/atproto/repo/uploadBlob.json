@@ -1,0 +1,12 @@
+{
+  "lexicon": 1,
+  "id": "com.atproto.repo.uploadBlob",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Proxy: upload a blob to the group repo.",
+      "input": { "encoding": "*/*" },
+      "output": { "encoding": "application/json" }
+    }
+  }
+}
