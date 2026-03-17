@@ -254,7 +254,7 @@ Each log entry captures:
 
 1. **Registration**: `group.register` creates a PDS account, registers a `#certified_group` service endpoint in the group's DID document, stores encrypted credentials, and seeds the owner.
 2. **Database creation**: On startup, CGS loads all groups from the registry and runs per-group migrations for each, creating the group's SQLite database if it doesn't exist.
-3. **First owner**: The first owner must be manually inserted into the group's `group_members` table. After that, the owner can manage the group through the API.
+3. **First owner**: The first owner is automatically seeded into the group's `group_members` table during `group.register`. After that, the owner can manage the group through the API.
 4. **Ongoing management**: Owners can promote admins, admins can add/remove members, and all authorized members can interact with the group's repository.
 
 ## Startup sequence
