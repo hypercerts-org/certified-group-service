@@ -1,13 +1,9 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { createProxyAgent } from '../oauth/proxy-agent.js'
+import { createProxyAgent, isSessionExpiredError } from '../oauth/proxy-agent.js'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
-
-function isSessionExpiredError(err: any): boolean {
-  return err.status === 401 || err.message?.includes('log in again')
-}
 
 /**
  * POST /api/upload-blob?groupDid=...

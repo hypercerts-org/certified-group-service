@@ -126,10 +126,8 @@ export function createDpopFetch(session: SessionData, req?: Request): typeof glo
         nonce: dpopNonce,
         accessToken: session.accessToken,
       })
-      const retryHeaders = new Headers(init?.headers)
-      retryHeaders.set('Authorization', `DPoP ${session.accessToken}`)
-      retryHeaders.set('DPoP', proof)
-      res = await globalThis.fetch(input, { ...init, headers: retryHeaders })
+      headers.set('DPoP', proof)
+      res = await globalThis.fetch(input, { ...init, headers })
     }
 
     // On 401, try refreshing the access token and retry once
@@ -144,10 +142,9 @@ export function createDpopFetch(session: SessionData, req?: Request): typeof glo
         url,
         accessToken: refreshed.accessToken,
       })
-      const retryHeaders = new Headers(init?.headers)
-      retryHeaders.set('Authorization', `DPoP ${refreshed.accessToken}`)
-      retryHeaders.set('DPoP', proof)
-      res = await globalThis.fetch(input, { ...init, headers: retryHeaders })
+      headers.set('Authorization', `DPoP ${refreshed.accessToken}`)
+      headers.set('DPoP', proof)
+      res = await globalThis.fetch(input, { ...init, headers })
     }
 
     return res

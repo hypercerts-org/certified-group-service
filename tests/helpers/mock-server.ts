@@ -67,21 +67,11 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     invalidate: () => {},
   }
 
-  const mockAuthVerifier = {
-    verify: async () => ({ iss: 'did:plc:testuser', aud: 'did:plc:testgroup' }),
-    xrpcAuth() {
-      return async ({ req }: { req: any }) => {
-        const { iss, aud } = await this.verify(req)
-        return { credentials: { callerDid: iss, groupDid: aud } }
-      }
-    },
-  }
-
   const ctx: AppContext = {
     config: mockConfig,
     globalDb,
     groupDbs: mockGroupDbs as any,
-    authVerifier: mockAuthVerifier as any,
+    authVerifier: mockAuth('did:plc:testuser'),
     rbac: new RbacChecker(),
     pdsAgents: mockPdsAgents as any,
     audit: new AuditLogger(),

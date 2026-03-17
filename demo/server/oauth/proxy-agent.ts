@@ -3,6 +3,10 @@ import { AtpAgent } from '@atproto/api'
 import { createDpopFetch } from './dpop-fetch.js'
 import type { SessionData } from '../session.js'
 
+export function isSessionExpiredError(err: any): boolean {
+  return err.status === 401 || err.message?.includes('log in again')
+}
+
 /**
  * Creates an AtpAgent for the user's PDS with DPoP-bound OAuth fetch,
  * proxied through the certified_group service to the given group DID.

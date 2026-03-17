@@ -1,11 +1,7 @@
 import { Router } from 'express'
-import { createProxyAgent } from '../oauth/proxy-agent.js'
+import { createProxyAgent, isSessionExpiredError } from '../oauth/proxy-agent.js'
 
 const router = Router()
-
-function isSessionExpiredError(err: any): boolean {
-  return err.status === 401 || err.message?.includes('log in again')
-}
 
 /**
  * POST /api/proxy/:nsid — proxy a JSON POST to the group service via atproto-proxy
