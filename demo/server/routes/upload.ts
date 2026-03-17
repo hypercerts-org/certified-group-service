@@ -1,14 +1,17 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { getServiceAuth } from '../oauth/service-auth.js'
+import { createProxyAgent } from '../oauth/proxy-agent.js'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
-const GROUP_SERVICE_URL = process.env.GROUP_SERVICE_URL || 'http://localhost:3000'
+
+function isSessionExpiredError(err: any): boolean {
+  return err.status === 401 || err.message?.includes('log in again')
+}
 
 /**
  * POST /api/upload-blob?groupDid=...
- * Accepts multipart file upload, forwards raw bytes to the group service uploadBlob.
+ * Accepts multipart file upload, forwards raw bytes to the group service uploadBlob via atproto-proxy.
  */
 router.post('/', upload.single('file'), async (req, res) => {
   try {
@@ -25,30 +28,17 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' })
     }
 
-    const jwt = await getServiceAuth(req.session.user, groupDid, 'com.atproto.repo.uploadBlob', req)
-
-    const response = await fetch(`${GROUP_SERVICE_URL}/xrpc/com.atproto.repo.uploadBlob`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': req.file.mimetype,
-        Authorization: `Bearer ${jwt}`,
-      },
-      body: new Uint8Array(req.file.buffer),
+    const agent = createProxyAgent(req.session.user, groupDid, req)
+    const response = await agent.com.atproto.repo.uploadBlob(new Uint8Array(req.file.buffer), {
+      encoding: req.file.mimetype,
     })
-
-    const data = await response.json().catch(() => ({}))
-
-    if (!response.ok) {
-      return res.status(response.status).json(data)
-    }
-
-    res.json(data)
+    res.json(response.data)
   } catch (err: any) {
     console.error('Upload error:', err.message)
-    if (err.message?.includes('refresh') || err.message?.includes('log in again') || err.message?.includes('getServiceAuth failed (401)')) {
+    if (isSessionExpiredError(err)) {
       return res.status(401).json({ error: 'Session expired — please log in again', sessionExpired: true })
     }
-    res.status(500).json({ error: err.message || 'Upload failed' })
+    res.status(err.status || 500).json({ error: err.message || 'Upload failed' })
   }
 })
 

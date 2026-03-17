@@ -1,12 +1,15 @@
 import { Router } from 'express'
-import { getServiceAuth } from '../oauth/service-auth.js'
+import { createProxyAgent } from '../oauth/proxy-agent.js'
 
 const router = Router()
-const GROUP_SERVICE_URL = process.env.GROUP_SERVICE_URL || 'http://localhost:3000'
+
+function isSessionExpiredError(err: any): boolean {
+  return err.status === 401 || err.message?.includes('log in again')
+}
 
 /**
- * POST /api/proxy/:nsid — proxy a JSON POST to the group service with service auth
- * Body must include `groupDid` which is extracted for the `aud` claim.
+ * POST /api/proxy/:nsid — proxy a JSON POST to the group service via atproto-proxy
+ * Body must include `groupDid` which is used to route the proxy.
  */
 router.post('/:nsid', async (req, res) => {
   try {
@@ -21,36 +24,21 @@ router.post('/:nsid', async (req, res) => {
       return res.status(400).json({ error: 'Missing groupDid' })
     }
 
-    const jwt = await getServiceAuth(req.session.user, groupDid, nsid, req)
-
-    const response = await fetch(`${GROUP_SERVICE_URL}/xrpc/${nsid}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${jwt}`,
-      },
-      body: JSON.stringify(body),
-    })
-
-    const data = await response.json().catch(() => ({}))
-
-    if (!response.ok) {
-      return res.status(response.status).json(data)
-    }
-
-    res.json(data)
+    const agent = createProxyAgent(req.session.user, groupDid, req)
+    const response = await agent.call(nsid, {}, body, { encoding: 'application/json' })
+    res.json(response.data)
   } catch (err: any) {
     console.error('Proxy POST error:', err.message)
-    if (err.message?.includes('refresh') || err.message?.includes('log in again') || err.message?.includes('getServiceAuth failed (401)')) {
+    if (isSessionExpiredError(err)) {
       return res.status(401).json({ error: 'Session expired — please log in again', sessionExpired: true })
     }
-    res.status(500).json({ error: err.message || 'Proxy request failed' })
+    res.status(err.status || 500).json({ error: err.message || 'Proxy request failed' })
   }
 })
 
 /**
- * GET /api/proxy/:nsid — proxy a query to the group service with service auth
- * Query param `groupDid` is extracted for the `aud` claim.
+ * GET /api/proxy/:nsid — proxy a query to the group service via atproto-proxy
+ * Query param `groupDid` is used to route the proxy.
  */
 router.get('/:nsid', async (req, res) => {
   try {
@@ -65,30 +53,15 @@ router.get('/:nsid', async (req, res) => {
       return res.status(400).json({ error: 'Missing groupDid query param' })
     }
 
-    const jwt = await getServiceAuth(req.session.user, groupDid, nsid, req)
-
-    const queryString = new URLSearchParams(params).toString()
-    const url = `${GROUP_SERVICE_URL}/xrpc/${nsid}${queryString ? '?' + queryString : ''}`
-
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-      },
-    })
-
-    const data = await response.json().catch(() => ({}))
-
-    if (!response.ok) {
-      return res.status(response.status).json(data)
-    }
-
-    res.json(data)
+    const agent = createProxyAgent(req.session.user, groupDid, req)
+    const response = await agent.call(nsid, params)
+    res.json(response.data)
   } catch (err: any) {
     console.error('Proxy GET error:', err.message)
-    if (err.message?.includes('refresh') || err.message?.includes('log in again') || err.message?.includes('getServiceAuth failed (401)')) {
+    if (isSessionExpiredError(err)) {
       return res.status(401).json({ error: 'Session expired — please log in again', sessionExpired: true })
     }
-    res.status(500).json({ error: err.message || 'Proxy request failed' })
+    res.status(err.status || 500).json({ error: err.message || 'Proxy request failed' })
   }
 })
 
