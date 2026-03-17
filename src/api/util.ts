@@ -7,6 +7,10 @@ interface AuthedMethodConfig {
   handler: MethodHandler<GroupAuthResult>
 }
 
+export function jsonResponse<T>(body: T) {
+  return { encoding: 'application/json' as const, body }
+}
+
 export function registerAuthedMethod(
   server: Server,
   nsid: string,

@@ -1,6 +1,6 @@
 import type { Server } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod } from '../util.js'
+import { registerAuthedMethod, jsonResponse } from '../util.js'
 import { ForbiddenError } from '../../errors.js'
 import type { Operation } from '../../rbac/permissions.js'
 
@@ -72,7 +72,7 @@ export default function (server: Server, ctx: AppContext) {
       }
       await Promise.all(postOps)
 
-      return { encoding: 'application/json' as const, body: response.data }
+      return jsonResponse(response.data)
     },
   })
 }

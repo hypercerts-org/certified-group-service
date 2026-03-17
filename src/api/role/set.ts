@@ -1,7 +1,7 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod } from '../util.js'
+import { registerAuthedMethod, jsonResponse } from '../util.js'
 import { ForbiddenError } from '../../errors.js'
 import { ROLE_HIERARCHY, type Role } from '../../rbac/permissions.js'
 
@@ -60,7 +60,7 @@ export default function (server: Server, ctx: AppContext) {
         memberDid, previousRole: target.role, newRole,
       })
 
-      return { encoding: 'application/json' as const, body: { memberDid, role: newRole } }
+      return jsonResponse({ memberDid, role: newRole })
     },
   })
 }

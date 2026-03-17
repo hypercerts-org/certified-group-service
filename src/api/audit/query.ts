@@ -1,7 +1,7 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod } from '../util.js'
+import { registerAuthedMethod, jsonResponse } from '../util.js'
 
 function parseDetail(s: string | null | undefined): unknown {
   if (!s) return undefined
@@ -17,7 +17,7 @@ export default function (server: Server, ctx: AppContext) {
       // RBAC: admin+ can query audit log
       await ctx.rbac.assertCan(groupDb, callerDid, 'audit.query')
 
-      const limit = (params.limit as number) ?? 50
+      const limit = Math.min(Math.max((params.limit as number) ?? 50, 1), 100)
       const cursor = params.cursor as string | undefined
       const actorDid = params.actorDid as string | undefined
       const action = params.action as string | undefined
@@ -52,22 +52,19 @@ export default function (server: Server, ctx: AppContext) {
         nextCursor = Buffer.from(String(last.id)).toString('base64')
       }
 
-      return {
-        encoding: 'application/json' as const,
-        body: {
-          cursor: nextCursor,
-          entries: entries.map((e) => ({
-            id: String(e.id),
-            actorDid: e.actor_did,
-            action: e.action,
-            collection: e.collection ?? undefined,
-            rkey: e.rkey ?? undefined,
-            result: e.result,
-            detail: parseDetail(e.detail),
-            createdAt: e.created_at,
-          })),
-        },
-      }
+      return jsonResponse({
+        cursor: nextCursor,
+        entries: entries.map((e) => ({
+          id: String(e.id),
+          actorDid: e.actor_did,
+          action: e.action,
+          collection: e.collection ?? undefined,
+          rkey: e.rkey ?? undefined,
+          result: e.result,
+          detail: parseDetail(e.detail),
+          createdAt: e.created_at,
+        })),
+      })
     },
   })
 }

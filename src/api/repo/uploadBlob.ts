@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream'
 import type { Server } from '@atproto/xrpc-server'
-import { registerAuthedMethod } from '../util.js'
+import { registerAuthedMethod, jsonResponse } from '../util.js'
 import type { AppContext } from '../../context.js'
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -37,7 +37,7 @@ export default function (server: Server, ctx: AppContext) {
 
       await ctx.audit.log(groupDb, callerDid, 'uploadBlob', 'permitted')
 
-      return { encoding: 'application/json' as const, body: response.data }
+      return jsonResponse(response.data)
     },
   })
 }
