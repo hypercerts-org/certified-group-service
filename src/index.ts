@@ -3,13 +3,15 @@ import express from 'express'
 import { IdResolver } from '@atproto/identity'
 import pino from 'pino'
 import { pinoHttp } from 'pino-http'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { mkdirSync } from 'node:fs'
+import { createGroupServer } from './server.js'
 import { loadConfig } from './config.js'
 import { AuthVerifier } from './auth/verifier.js'
 import { NonceCache } from './auth/nonce.js'
 import { RbacChecker } from './rbac/check.js'
-import { registerJsonRoutes, registerRawRoutes } from './api/index.js'
+import { registerXrpcMethods, registerRawRoutes } from './api/index.js'
 import { createFallbackErrorHandler } from './api/error-handler.js'
 import { runGlobalMigrations } from './db/migrate.js'
 import { openSqliteDb } from './db/sqlite.js'
@@ -64,13 +66,7 @@ async function main() {
     config, globalDb, groupDbs, authVerifier, rbac, pdsAgents, audit, logger,
   }
 
-  // Raw-stream routes must be registered before the JSON body parser
-  registerRawRoutes(app, ctx)
-
-  // JSON parsing for all subsequent routes
-  app.use(express.json({ limit: '1mb' }))
-
-  // Health check
+  // Health check (unchanged)
   app.get('/health', async (_req, res) => {
     try {
       await globalDb.selectFrom('groups').select('did').limit(1).execute()
@@ -80,9 +76,17 @@ async function main() {
     }
   })
 
-  registerJsonRoutes(app, ctx)
+  // group.register needs JSON parsing (outside XRPC server)
+  app.use('/xrpc/app.certified.group.register', express.json({ limit: '1mb' }))
+  registerRawRoutes(app, ctx)
 
-  // Error middleware (must be registered AFTER routes)
+  // XRPC server — handles all other /xrpc/* routes
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const xrpcServer = createGroupServer(join(__dirname, '..', 'lexicons'))
+  registerXrpcMethods(xrpcServer, ctx)
+  app.use(xrpcServer.router)
+
+  // Fallback error handler for non-XRPC routes (group.register)
   app.use(createFallbackErrorHandler(logger))
 
   const server = app.listen(config.port, () => {
