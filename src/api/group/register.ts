@@ -69,6 +69,22 @@ export default function (app: Express, ctx: AppContext) {
         active: true,
       })
 
+      // Register service endpoint in group's DID document
+      const { data: recommended } = await agent.com.atproto.identity.getRecommendedDidCredentials()
+
+      const { data: { operation } } = await agent.com.atproto.identity.signPlcOperation({
+        ...recommended,
+        services: {
+          ...recommended.services as Record<string, unknown>,
+          certified_group: {
+            type: 'CertifiedGroupService',
+            endpoint: ctx.config.serviceUrl,
+          },
+        },
+      })
+
+      await agent.com.atproto.identity.submitPlcOperation({ operation })
+
       // Check not already registered in our DB (shouldn't happen since we just created it)
       const existing = await ctx.globalDb
         .selectFrom('groups')

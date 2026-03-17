@@ -23,6 +23,15 @@ vi.mock('@atproto/api', () => {
               data: { name: 'group-service', password: 'app-pass-xxxx' },
             }),
           },
+          identity: {
+            getRecommendedDidCredentials: vi.fn().mockResolvedValue({
+              data: { rotationKeys: ['did:key:z...'], verificationMethods: {}, services: {} },
+            }),
+            signPlcOperation: vi.fn().mockResolvedValue({
+              data: { operation: { type: 'plc_operation', sig: 'mock' } },
+            }),
+            submitPlcOperation: vi.fn().mockResolvedValue(undefined),
+          },
         },
       },
     })),
@@ -156,5 +165,63 @@ describe('group.register', () => {
       .post('/xrpc/app.certified.group.register')
       .send({ handle: 'mygroup' })
     expect(res.status).toBe(400)
+  })
+
+  it('registers service endpoint in DID document during registration', async () => {
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.register')
+      .send(validBody)
+    expect(res.status).toBe(200)
+
+    const mockAgent = vi.mocked(AtpAgent).mock.results[0].value
+    expect(mockAgent.com.atproto.identity.getRecommendedDidCredentials).toHaveBeenCalled()
+    expect(mockAgent.com.atproto.identity.signPlcOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        services: expect.objectContaining({
+          certified_group: {
+            type: 'CertifiedGroupService',
+            endpoint: 'https://test.example.com',
+          },
+        }),
+      }),
+    )
+    expect(mockAgent.com.atproto.identity.submitPlcOperation).toHaveBeenCalledWith({
+      operation: { type: 'plc_operation', sig: 'mock' },
+    })
+  })
+
+  it('fails registration if PLC operation fails', async () => {
+    vi.mocked(AtpAgent).mockImplementationOnce(() => ({
+      resumeSession: vi.fn().mockResolvedValue(undefined),
+      com: {
+        atproto: {
+          server: {
+            createAccount: vi.fn().mockResolvedValue({
+              data: { did: 'did:plc:newgroup', handle: 'mygroup.pds.example.com', accessJwt: 'jwt', refreshJwt: 'rjwt' },
+            }),
+            createAppPassword: vi.fn(),
+          },
+          identity: {
+            getRecommendedDidCredentials: vi.fn().mockResolvedValue({
+              data: { rotationKeys: ['did:key:z...'], verificationMethods: {}, services: {} },
+            }),
+            signPlcOperation: vi.fn().mockRejectedValue(new Error('PLC operation failed')),
+            submitPlcOperation: vi.fn(),
+          },
+        },
+      },
+    }) as any)
+
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.register')
+      .send(validBody)
+    expect(res.status).toBe(500)
+
+    const group = await globalDb
+      .selectFrom('groups')
+      .where('did', '=', 'did:plc:newgroup')
+      .selectAll()
+      .executeTakeFirst()
+    expect(group).toBeUndefined()
   })
 })
