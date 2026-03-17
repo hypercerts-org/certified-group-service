@@ -1,17 +1,17 @@
 import { describe, it, expect, vi } from 'vitest'
 import { XRPCError } from '@atproto/xrpc-server'
-import { xrpcErrorHandler } from '../src/api/error-handler.js'
+import { createFallbackErrorHandler } from '../src/api/error-handler.js'
 
 function makeMocks() {
   const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() }
-  const handler = xrpcErrorHandler(logger as any)
+  const handler = createFallbackErrorHandler(logger as any)
   const req = {} as any
   const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
   const next = vi.fn()
   return { logger, handler, req, res, next }
 }
 
-describe('xrpcErrorHandler', () => {
+describe('createFallbackErrorHandler', () => {
   it('XRPCError returns correct status and payload', () => {
     const { handler, req, res, next } = makeMocks()
     const err = new XRPCError(400, 'Bad input', 'InvalidRequest')
