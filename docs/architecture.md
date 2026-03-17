@@ -7,8 +7,14 @@ The Certified Group Service (CGS) solves a specific problem in the AT Protocol e
 In standard atproto, each repository is controlled by a single identity (DID). CGS sits between clients and the group's PDS, acting as a governance layer that enforces who can do what. It manages its own membership database, tracks record authorship, and proxies all repository operations to the backing PDS using stored credentials.
 
 ```
-Client (with JWT)
+Any atproto client
     │
+    │  atproto-proxy: did:plc:GROUP#certified_group
+    ▼
+User's PDS
+    │
+    │  Authorization: Bearer <service-auth-jwt>
+    │  (JWT signed with user's key, iss=user, aud=group)
     ▼
 ┌──────────────────────────────────┐
 │  Certified Group Service         │
@@ -46,6 +52,35 @@ Every request must include an `Authorization: Bearer <JWT>` header. The verifica
 5. **Validate audience** — the JWT's `aud` claim must match a group DID registered in the `groups` table
 6. **Check nonce** — the JWT's `jti` (JWT ID) is checked against the `nonce_cache` table. If it already exists, the request is rejected as a replay. Otherwise the jti is stored with a 2-minute TTL.
 7. **Return** `{ iss: callerDid, aud: groupDid }` to the endpoint handler
+
+## Service proxying
+
+Clients don't call the group service directly. Instead, they send XRPC requests to their own PDS with an `atproto-proxy` header specifying the group DID and service fragment:
+
+```
+atproto-proxy: did:plc:GROUP#certified_group
+```
+
+The user's PDS then:
+
+1. **Receives** the XRPC request with the `atproto-proxy` header
+2. **Resolves** the group's DID document via the AT Protocol DID resolution mechanism
+3. **Finds** the `#certified_group` service endpoint in the DID document
+4. **Creates** a service auth JWT signed with the user's signing key (`iss=user DID`, `aud=group DID`, `lxm=NSID`)
+5. **Forwards** the request to the group service endpoint with the JWT as a Bearer token
+6. **Returns** the group service's response to the client
+
+This is the same mechanism used by Ozone labeling services in the AT Protocol ecosystem.
+
+### DID document service entry
+
+During group registration, a service entry is added to the group's DID document via a PLC operation:
+
+- **id**: `#certified_group`
+- **type**: `CertifiedGroupService`
+- **endpoint**: the service's public URL (`SERVICE_URL`)
+
+This entry is registered automatically during `group.register` and is what allows the user's PDS to discover and forward requests to the group service.
 
 ### Nonce cache
 
@@ -217,7 +252,7 @@ Each log entry captures:
 
 ## Group lifecycle
 
-1. **Registration**: A group is registered by inserting a row into the global `groups` table with the group's DID, PDS URL, and encrypted app password. This is currently a manual database operation.
+1. **Registration**: `group.register` creates a PDS account, registers a `#certified_group` service endpoint in the group's DID document, stores encrypted credentials, and seeds the owner.
 2. **Database creation**: On startup, CGS loads all groups from the registry and runs per-group migrations for each, creating the group's SQLite database if it doesn't exist.
 3. **First owner**: The first owner must be manually inserted into the group's `group_members` table. After that, the owner can manage the group through the API.
 4. **Ongoing management**: Owners can promote admins, admins can add/remove members, and all authorized members can interact with the group's repository.
