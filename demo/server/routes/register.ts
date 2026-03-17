@@ -1,4 +1,6 @@
 import { Router } from 'express'
+import { AtpAgent } from '@atproto/api'
+import { createDpopFetch } from '../oauth/dpop-fetch.js'
 
 const router = Router()
 const GROUP_SERVICE_URL = process.env.GROUP_SERVICE_URL || 'http://localhost:3000'
@@ -21,10 +23,23 @@ router.post('/', async (req, res) => {
 
     const ownerDid = req.session.user.did
 
+    // Fetch the user's email from their ePDS session
+    let email: string | undefined
+    try {
+      const agent = new AtpAgent({
+        service: req.session.user.pdsUrl,
+        fetch: createDpopFetch(req.session.user, req),
+      })
+      const sessionRes = await agent.com.atproto.server.getSession()
+      email = sessionRes.data.email
+    } catch (err: any) {
+      console.warn('Could not fetch email from ePDS:', err.message)
+    }
+
     const response = await fetch(`${GROUP_SERVICE_URL}/xrpc/app.certified.group.register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ handle, ownerDid }),
+      body: JSON.stringify({ handle, ownerDid, email }),
     })
 
     const data = await response.json().catch(() => ({}))

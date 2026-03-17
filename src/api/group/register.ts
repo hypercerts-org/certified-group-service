@@ -72,16 +72,29 @@ export default function (app: Express, ctx: AppContext) {
       // Register service endpoint in group's DID document
       const { data: recommended } = await agent.com.atproto.identity.getRecommendedDidCredentials()
 
-      const { data: { operation } } = await agent.com.atproto.identity.signPlcOperation({
-        ...recommended,
-        services: {
-          ...recommended.services as Record<string, unknown>,
-          certified_group: {
-            type: 'CertifiedGroupService',
-            endpoint: ctx.config.serviceUrl,
+      let operation
+      try {
+        const signed = await agent.com.atproto.identity.signPlcOperation({
+          ...recommended,
+          services: {
+            ...recommended.services as Record<string, unknown>,
+            certified_group: {
+              type: 'CertifiedGroupService',
+              endpoint: ctx.config.serviceUrl,
+            },
           },
-        },
-      })
+        })
+        operation = signed.data.operation
+      } catch (err: any) {
+        if (err?.message?.includes('email confirmation')) {
+          throw new InvalidRequestError(
+            'The group PDS requires email confirmation before updating the DID document. ' +
+            'Provide a valid, confirmable email address when registering the group, or ' +
+            'disable email confirmation on the group PDS.',
+          )
+        }
+        throw err
+      }
 
       await agent.com.atproto.identity.submitPlcOperation({ operation })
 
