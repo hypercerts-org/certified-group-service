@@ -1,9 +1,15 @@
 import { IdResolver } from '@atproto/identity'
-import { AuthRequiredError, verifyJwt as defaultVerifyJwt, parseReqNsid as defaultParseReqNsid } from '@atproto/xrpc-server'
+import { AuthRequiredError, verifyJwt as defaultVerifyJwt, parseReqNsid as defaultParseReqNsid, type AuthVerifier as XrpcAuthVerifier } from '@atproto/xrpc-server'
 import type { Kysely } from 'kysely'
 import type { Request } from 'express'
 import type { GlobalDatabase } from '../db/schema.js'
 import { NonceCache } from './nonce.js'
+
+export interface GroupAuthCredentials {
+  callerDid: string
+  groupDid: string
+}
+export type GroupAuthResult = { credentials: GroupAuthCredentials }
 
 const ACCEPTED_NSIDS = new Set([
   'com.atproto.repo.createRecord',
@@ -79,5 +85,14 @@ export class AuthVerifier {
     }
 
     return { iss: payload.iss, aud: payload.aud }
+  }
+
+  xrpcAuth(): XrpcAuthVerifier {
+    return async ({ req }) => {
+      const { iss, aud } = await this.verify(req)
+      return {
+        credentials: { callerDid: iss, groupDid: aud },
+      }
+    }
   }
 }
