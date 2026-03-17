@@ -1,48 +1,43 @@
-import { XRPCError } from '@atproto/xrpc-server'
-import type { Express } from 'express'
+import type { Readable } from 'node:stream'
+import type { Server } from '@atproto/xrpc-server'
+import { registerAuthedMethod } from '../util.js'
 import type { AppContext } from '../../context.js'
-import { xrpcHandler } from '../util.js'
-import type { Operation } from '../../rbac/permissions.js'
 
-export default function (app: Express, ctx: AppContext) {
-  app.post('/xrpc/com.atproto.repo.uploadBlob', xrpcHandler(ctx, async (req, res, { callerDid, groupDid }) => {
-    const groupDb = ctx.groupDbs.get(groupDid)
-    const operation: Operation = 'uploadBlob'
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
+}
 
-    try {
-      await ctx.rbac.assertCan(groupDb, callerDid, operation)
-    } catch (err) {
-      await ctx.audit.log(groupDb, callerDid, operation, 'denied')
-      throw err
-    }
+export default function (server: Server, ctx: AppContext) {
+  registerAuthedMethod(server, 'com.atproto.repo.uploadBlob', ctx, {
+    opts: { blobLimit: ctx.config.maxBlobSize },
+    handler: async ({ auth, input }) => {
+      const { callerDid, groupDid } = auth.credentials
+      const groupDb = ctx.groupDbs.get(groupDid)
 
-    // Check Content-Length upfront (fast reject)
-    const contentLength = parseInt(req.headers['content-length'] ?? '0', 10)
-    if (contentLength > ctx.config.maxBlobSize) {
-      throw new XRPCError(400, 'Blob exceeds size limit', 'BlobTooLarge')
-    }
-
-    // Buffer the blob with mid-stream size enforcement
-    const chunks: Buffer[] = []
-    let totalSize = 0
-    for await (const chunk of req) {
-      chunks.push(chunk)
-      totalSize += chunk.length
-      if (totalSize > ctx.config.maxBlobSize) {
-        req.destroy()
-        throw new XRPCError(400, 'Blob exceeds size limit', 'BlobTooLarge')
+      // RBAC
+      try {
+        await ctx.rbac.assertCan(groupDb, callerDid, 'uploadBlob')
+      } catch (err) {
+        await ctx.audit.log(groupDb, callerDid, 'uploadBlob', 'denied')
+        throw err
       }
-    }
-    const blobData = Buffer.concat(chunks)
-    const contentType = req.headers['content-type'] ?? 'application/octet-stream'
 
-    // Forward to group's PDS
-    const response = await ctx.pdsAgents.withAgent(groupDid, (agent) =>
-      agent.com.atproto.repo.uploadBlob(blobData, { encoding: contentType }),
-    )
+      // input.body is a Readable stream (framework applied no body parser for */* encoding)
+      // input.encoding is the Content-Type header
+      const blobData = await streamToBuffer(input?.body as Readable)
+      const contentType = input?.encoding ?? 'application/octet-stream'
 
-    await ctx.audit.log(groupDb, callerDid, operation, 'permitted')
+      const response = await ctx.pdsAgents.withAgent(groupDid, (agent) =>
+        agent.com.atproto.repo.uploadBlob(blobData, { encoding: contentType }),
+      )
 
-    res.json(response.data)
-  }))
+      await ctx.audit.log(groupDb, callerDid, 'uploadBlob', 'permitted')
+
+      return { encoding: 'application/json' as const, body: response.data }
+    },
+  })
 }
