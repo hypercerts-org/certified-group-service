@@ -1,12 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import express from 'express'
+import type { Express } from 'express'
 import request from 'supertest'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 import { createTestGroupDb } from './helpers/test-db.js'
-import { createTestContext, seedMember, seedAuthorship, silentLogger } from './helpers/mock-server.js'
+import { createTestContext, createTestApp, seedMember, seedAuthorship } from './helpers/mock-server.js'
 import putRecordHandler from '../src/api/repo/putRecord.js'
-import { xrpcErrorHandler } from '../src/api/error-handler.js'
 
 // The mock auth verifier always returns callerDid='did:plc:testuser', groupDid='did:plc:testgroup'
 const GROUP_DID = 'did:plc:testgroup'
@@ -18,7 +17,7 @@ const RECORD_URI = `at://${GROUP_DID}/${COLLECTION}/${RKEY}`
 
 describe('putRecord — cross-member update', () => {
   let groupDb: Kysely<GroupDatabase>
-  let app: express.Express
+  let app: Express
 
   beforeEach(async () => {
     groupDb = await createTestGroupDb()
@@ -28,10 +27,9 @@ describe('putRecord — cross-member update', () => {
     const { ctx } = await createTestContext({
       groupDbs: { get: () => groupDb, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
     })
-    app = express()
-    app.use(express.json())
-    putRecordHandler(app, ctx)
-    app.use(xrpcErrorHandler(silentLogger as any))
+    app = createTestApp(ctx, (server, appCtx) => {
+      putRecordHandler(server, appCtx)
+    })
   })
 
   afterEach(async () => {

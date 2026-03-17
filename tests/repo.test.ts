@@ -1,36 +1,28 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import express from 'express'
+import type { Express } from 'express'
 import request from 'supertest'
-import { createTestContext, seedMember, seedAuthorship, silentLogger } from './helpers/mock-server.js'
+import { createTestContext, createTestApp, mockAuth, seedMember, seedAuthorship } from './helpers/mock-server.js'
 import createRecordHandler from '../src/api/repo/createRecord.js'
 import deleteRecordHandler from '../src/api/repo/deleteRecord.js'
 import putRecordHandler from '../src/api/repo/putRecord.js'
-import { xrpcErrorHandler } from '../src/api/error-handler.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 
-function createApp(ctx: AppContext) {
-  const app = express()
-  app.use(express.json())
-  createRecordHandler(app, ctx)
-  deleteRecordHandler(app, ctx)
-  putRecordHandler(app, ctx)
-  app.use(xrpcErrorHandler(silentLogger as any))
-  return app
-}
-
 describe('createRecord', () => {
   let ctx: AppContext
   let groupDb: Kysely<GroupDatabase>
-  let app: express.Express
+  let app: Express
 
   beforeEach(async () => {
     const test = await createTestContext()
     ctx = test.ctx
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'member')
-    app = createApp(ctx)
+    app = createTestApp(ctx, (server, appCtx) => {
+      createRecordHandler(server, appCtx)
+      deleteRecordHandler(server, appCtx)
+    })
   })
 
   afterEach(async () => {
@@ -56,7 +48,11 @@ describe('createRecord', () => {
   })
 
   it('rejects non-members', async () => {
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:stranger', aud: 'did:plc:testgroup' }) } as any })
+    const overriddenCtx = { ...ctx, authVerifier: mockAuth('did:plc:stranger') }
+    app = createTestApp(overriddenCtx, (server, appCtx) => {
+      createRecordHandler(server, appCtx)
+      deleteRecordHandler(server, appCtx)
+    })
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.createRecord')
       .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: {} })
@@ -74,7 +70,11 @@ describe('createRecord', () => {
   })
 
   it('audit logs denied actions with reason', async () => {
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:stranger', aud: 'did:plc:testgroup' }) } as any })
+    const overriddenCtx = { ...ctx, authVerifier: mockAuth('did:plc:stranger') }
+    app = createTestApp(overriddenCtx, (server, appCtx) => {
+      createRecordHandler(server, appCtx)
+      deleteRecordHandler(server, appCtx)
+    })
     await request(app)
       .post('/xrpc/com.atproto.repo.createRecord')
       .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: {} })
@@ -98,14 +98,16 @@ describe('createRecord', () => {
 describe('deleteRecord', () => {
   let ctx: AppContext
   let groupDb: Kysely<GroupDatabase>
-  let app: express.Express
+  let app: Express
 
   beforeEach(async () => {
     const test = await createTestContext()
     ctx = test.ctx
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'member')
-    app = createApp(ctx)
+    app = createTestApp(ctx, (server, appCtx) => {
+      deleteRecordHandler(server, appCtx)
+    })
   })
 
   afterEach(async () => {
@@ -132,7 +134,10 @@ describe('deleteRecord', () => {
 
   it('allows admin to delete any record', async () => {
     await seedMember(groupDb, 'did:plc:admin1', 'admin')
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:admin1', aud: 'did:plc:testgroup' }) } as any })
+    const overriddenCtx = { ...ctx, authVerifier: mockAuth('did:plc:admin1') }
+    app = createTestApp(overriddenCtx, (server, appCtx) => {
+      deleteRecordHandler(server, appCtx)
+    })
     await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/abc', 'did:plc:other', 'app.bsky.feed.post')
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.deleteRecord')
@@ -175,14 +180,16 @@ describe('deleteRecord', () => {
 describe('putRecord', () => {
   let ctx: AppContext
   let groupDb: Kysely<GroupDatabase>
-  let app: express.Express
+  let app: Express
 
   beforeEach(async () => {
     const test = await createTestContext()
     ctx = test.ctx
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'member')
-    app = createApp(ctx)
+    app = createTestApp(ctx, (server, appCtx) => {
+      putRecordHandler(server, appCtx)
+    })
   })
 
   afterEach(async () => {
@@ -198,7 +205,10 @@ describe('putRecord', () => {
 
   it('admin can update profile', async () => {
     await seedMember(groupDb, 'did:plc:admin1', 'admin')
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:admin1', aud: 'did:plc:testgroup' }) } as any })
+    const overriddenCtx = { ...ctx, authVerifier: mockAuth('did:plc:admin1') }
+    app = createTestApp(overriddenCtx, (server, appCtx) => {
+      putRecordHandler(server, appCtx)
+    })
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.putRecord')
       .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.actor.profile', rkey: 'self', record: {} })
@@ -224,7 +234,10 @@ describe('putRecord', () => {
 
   it('profile update skips authorship tracking', async () => {
     await seedMember(groupDb, 'did:plc:admin1', 'admin')
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:admin1', aud: 'did:plc:testgroup' }) } as any })
+    const overriddenCtx = { ...ctx, authVerifier: mockAuth('did:plc:admin1') }
+    app = createTestApp(overriddenCtx, (server, appCtx) => {
+      putRecordHandler(server, appCtx)
+    })
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.putRecord')
       .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.actor.profile', rkey: 'self', record: {} })

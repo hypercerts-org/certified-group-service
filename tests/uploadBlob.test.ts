@@ -1,32 +1,25 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import express from 'express'
+import type { Express } from 'express'
 import request from 'supertest'
-import { createTestContext, seedMember, silentLogger } from './helpers/mock-server.js'
+import { createTestContext, createTestApp, mockAuth, seedMember } from './helpers/mock-server.js'
 import uploadBlobHandler from '../src/api/repo/uploadBlob.js'
-import { xrpcErrorHandler } from '../src/api/error-handler.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 
-function createApp(ctx: AppContext) {
-  const app = express()
-  // No express.json() — uploadBlob reads raw stream
-  uploadBlobHandler(app, ctx)
-  app.use(xrpcErrorHandler(silentLogger as any))
-  return app
-}
-
 describe('uploadBlob', () => {
   let ctx: AppContext
   let groupDb: Kysely<GroupDatabase>
-  let app: express.Express
+  let app: Express
 
   beforeEach(async () => {
     const test = await createTestContext()
     ctx = { ...test.ctx, config: { ...test.ctx.config, maxBlobSize: 1024 } }
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'member')
-    app = createApp(ctx)
+    app = createTestApp(ctx, (server, appCtx) => {
+      uploadBlobHandler(server, appCtx)
+    })
   })
 
   afterEach(async () => {
@@ -48,12 +41,13 @@ describe('uploadBlob', () => {
   })
 
   it('rejects non-member', async () => {
-    app = createApp({
-      ...ctx,
-      authVerifier: { verify: async () => ({ iss: 'did:plc:stranger', aud: 'did:plc:testgroup' }) } as any,
+    const overriddenCtx = { ...ctx, authVerifier: mockAuth('did:plc:stranger') }
+    app = createTestApp(overriddenCtx, (server, appCtx) => {
+      uploadBlobHandler(server, appCtx)
     })
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.uploadBlob')
+      .set('Content-Type', 'application/octet-stream')
       .send(Buffer.alloc(10))
     expect(res.status).toBe(401)
 
@@ -65,44 +59,30 @@ describe('uploadBlob', () => {
   it('rejects blob exceeding Content-Length limit', async () => {
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.uploadBlob')
+      .set('Content-Type', 'application/octet-stream')
       .set('Content-Length', '2000')
       .send(Buffer.alloc(10))
-    expect(res.status).toBe(400)
-    expect(res.body.error).toBe('BlobTooLarge')
+    expect(res.status).toBe(413)
+    expect(res.body.error).toBe('PayloadTooLarge')
   })
 
   it('rejects blob exceeding size mid-stream', async () => {
     // maxBlobSize is 1024, send 1025 bytes
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.uploadBlob')
+      .set('Content-Type', 'application/octet-stream')
       .send(Buffer.alloc(1025))
-    expect(res.status).toBe(400)
-    expect(res.body.error).toBe('BlobTooLarge')
+    expect(res.status).toBe(413)
+    expect(res.body.error).toBe('PayloadTooLarge')
   })
 
-  it('defaults Content-Type to application/octet-stream', async () => {
-    let capturedEncoding: string | undefined
-    const mockPdsAgents = {
-      ...ctx.pdsAgents,
-      withAgent: async (_did: string, fn: (agent: any) => Promise<any>) => {
-        const agent = {
-          com: { atproto: { repo: {
-            uploadBlob: async (_data: any, opts: any) => {
-              capturedEncoding = opts.encoding
-              return { data: { blob: { ref: { $link: 'bafyblob' }, mimeType: 'application/octet-stream', size: 10 } } }
-            },
-          } } },
-        }
-        return fn(agent)
-      },
-    }
-    app = createApp({ ...ctx, pdsAgents: mockPdsAgents as any })
-
-    await request(app)
+  it('rejects request without Content-Type', async () => {
+    // The XRPC server requires Content-Type for blob endpoints
+    const res = await request(app)
       .post('/xrpc/com.atproto.repo.uploadBlob')
       .unset('Content-Type')
       .send(Buffer.alloc(10))
-    expect(capturedEncoding).toBe('application/octet-stream')
+    expect(res.status).toBe(400)
   })
 
   it('preserves custom Content-Type', async () => {
@@ -121,7 +101,10 @@ describe('uploadBlob', () => {
         return fn(agent)
       },
     }
-    app = createApp({ ...ctx, pdsAgents: mockPdsAgents as any })
+    const overriddenCtx = { ...ctx, pdsAgents: mockPdsAgents as any }
+    app = createTestApp(overriddenCtx, (server, appCtx) => {
+      uploadBlobHandler(server, appCtx)
+    })
 
     await request(app)
       .post('/xrpc/com.atproto.repo.uploadBlob')
@@ -133,6 +116,7 @@ describe('uploadBlob', () => {
   it('blob exactly at size limit is accepted', async () => {
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.uploadBlob')
+      .set('Content-Type', 'application/octet-stream')
       .send(Buffer.alloc(1024))
     expect(res.status).toBe(200)
   })
