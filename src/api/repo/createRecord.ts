@@ -1,6 +1,6 @@
 import type { Server } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.js'
 import { ForbiddenError } from '../../errors.js'
 import type { Operation } from '../../rbac/permissions.js'
 
@@ -18,14 +18,7 @@ export default function (server: Server, ctx: AppContext) {
       // 2. RBAC check with audit on denial
       const groupDb = ctx.groupDbs.get(groupDid)
       const operation: Operation = 'createRecord'
-      try {
-        await ctx.rbac.assertCan(groupDb, callerDid, operation)
-      } catch (err) {
-        await ctx.audit.log(groupDb, callerDid, operation, 'denied', {
-          collection: input.collection, reason: (err as Error).message,
-        })
-        throw err
-      }
+      await assertCanWithAudit(ctx, groupDb, callerDid, operation, { collection: input.collection })
 
       // 3. Forward to group's PDS via withAgent
       const response = await ctx.pdsAgents.withAgent(groupDid, (agent) =>

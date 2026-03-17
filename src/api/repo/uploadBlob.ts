@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream'
 import type { Server } from '@atproto/xrpc-server'
-import { registerAuthedMethod, jsonResponse } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.js'
 import type { AppContext } from '../../context.js'
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -18,13 +18,7 @@ export default function (server: Server, ctx: AppContext) {
       const { callerDid, groupDid } = auth.credentials
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      // RBAC
-      try {
-        await ctx.rbac.assertCan(groupDb, callerDid, 'uploadBlob')
-      } catch (err) {
-        await ctx.audit.log(groupDb, callerDid, 'uploadBlob', 'denied', { reason: (err as Error).message })
-        throw err
-      }
+      await assertCanWithAudit(ctx, groupDb, callerDid, 'uploadBlob')
 
       // input.body is a Readable stream (framework applied no body parser for */* encoding)
       // input.encoding is the Content-Type header

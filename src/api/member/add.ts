@@ -20,19 +20,7 @@ export default function (server: Server, ctx: AppContext) {
 
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      // RBAC check and existence check are independent — run in parallel
-      const [callerRole, existing] = await Promise.all([
-        ctx.rbac.assertCan(groupDb, callerDid, 'member.add'),
-        groupDb
-          .selectFrom('group_members')
-          .select('member_did')
-          .where('member_did', '=', memberDid)
-          .executeTakeFirst(),
-      ])
-
-      if (existing) {
-        throw new ConflictError('Member already exists', 'MemberAlreadyExists')
-      }
+      const callerRole = await ctx.rbac.assertCan(groupDb, callerDid, 'member.add')
 
       // Cannot assign equal or higher role
       if (ROLE_HIERARCHY[callerRole] <= ROLE_HIERARCHY[role as Role]) {
