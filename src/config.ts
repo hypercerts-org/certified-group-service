@@ -4,7 +4,7 @@ const hexKey64 = z.string().regex(/^[0-9a-fA-F]{64}$/, 'must be 64 hex character
 
 export const configSchema = z.object({
   port: z.coerce.number().default(3000),
-  publicHostname: z.string().min(1),
+  serviceUrl: z.string().url(),
   dataDir: z.string().default('./data'),
   encryptionKey: hexKey64, // 32-byte hex (256-bit)
   groupPdsUrl: z.string().url(), // PDS where group accounts are created
@@ -24,7 +24,7 @@ export function loadConfig(): Config {
   const env = process.env
   cachedConfig = configSchema.parse({
     port: env.PORT,
-    publicHostname: env.PUBLIC_HOSTNAME,
+    serviceUrl: env.SERVICE_URL,
     dataDir: env.DATA_DIR,
     encryptionKey: env.ENCRYPTION_KEY,
     groupPdsUrl: env.GROUP_PDS_URL,

@@ -25,7 +25,7 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
 
   const mockConfig: Config = {
     port: 3000,
-    publicHostname: 'test.example.com',
+    serviceUrl: 'https://test.example.com',
     dataDir: '/tmp/test',
     encryptionKey: 'a'.repeat(64),
     groupPdsUrl: 'https://pds.example.com',

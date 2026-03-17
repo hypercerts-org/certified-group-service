@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { configSchema } from '../src/config.js'
 
 const VALID_BASE = {
-  publicHostname: 'test.com',
+  serviceUrl: 'https://group-service.example.com',
   encryptionKey: 'a'.repeat(64),
   groupPdsUrl: 'https://pds.example.com',
 }
@@ -18,9 +18,13 @@ describe('configSchema', () => {
     expect(config.logLevel).toBe('info')
   })
 
-  it('rejects missing publicHostname', () => {
-    const { publicHostname, ...rest } = VALID_BASE
+  it('rejects missing serviceUrl', () => {
+    const { serviceUrl, ...rest } = VALID_BASE
     expect(() => configSchema.parse(rest)).toThrow()
+  })
+
+  it('rejects invalid serviceUrl', () => {
+    expect(() => configSchema.parse({ ...VALID_BASE, serviceUrl: 'not-a-url' })).toThrow()
   })
 
   it('rejects missing encryptionKey', () => {

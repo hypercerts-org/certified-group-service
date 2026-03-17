@@ -43,7 +43,7 @@ pnpm install
 
 # Configure environment
 cp .env.example .env
-# Edit .env — at minimum set ENCRYPTION_KEY and PUBLIC_HOSTNAME
+# Edit .env — at minimum set ENCRYPTION_KEY and SERVICE_URL
 
 # Generate an encryption key
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -66,7 +66,7 @@ pnpm dev
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `PORT` | No | `3000` | HTTP server listen port |
-| `PUBLIC_HOSTNAME` | **Yes** | — | Public hostname of this service (e.g. `group-service.example.com`) |
+| `SERVICE_URL` | **Yes** | — | Public URL of this service (e.g. `https://group-service.example.com`). Written into group DID documents for atproto-proxy resolution. |
 | `DATA_DIR` | No | `./data` | Directory for SQLite databases |
 | `ENCRYPTION_KEY` | **Yes** | — | 32-byte hex key for AES-256-GCM encryption of stored PDS credentials. Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 | `PLC_URL` | No | `https://plc.directory` | PLC directory URL for DID resolution |
@@ -89,7 +89,7 @@ Build and run with Docker:
 ```bash
 docker build -t group-service .
 docker run -p 3000:3000 \
-  -e PUBLIC_HOSTNAME=group-service.example.com \
+  -e SERVICE_URL=https://group-service.example.com \
   -e ENCRYPTION_KEY=<your-64-char-hex-key> \
   -v $(pwd)/data:/app/data \
   group-service

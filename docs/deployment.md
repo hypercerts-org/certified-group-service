@@ -6,7 +6,7 @@ CGS requires:
 
 - **Node.js 22+** runtime
 - **Persistent storage** for SQLite databases (the `DATA_DIR` directory)
-- **Two required environment variables**: `ENCRYPTION_KEY` and `PUBLIC_HOSTNAME`
+- **Two required environment variables**: `ENCRYPTION_KEY` and `SERVICE_URL`
 
 The service exposes a health check at `GET /health` that returns `{"status":"ok"}`.
 
@@ -17,7 +17,7 @@ The included Dockerfile creates a minimal production image using a multi-stage b
 ```bash
 docker build -t group-service .
 docker run -p 3000:3000 \
-  -e PUBLIC_HOSTNAME=group-service.example.com \
+  -e SERVICE_URL=https://group-service.example.com \
   -e ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
   -v $(pwd)/data:/app/data \
   group-service
@@ -37,7 +37,7 @@ CGS is pre-configured for [Railway](https://railway.app/) via `railway.toml`.
 
    | Variable | Value |
    |----------|-------|
-   | `PUBLIC_HOSTNAME` | Your Railway domain (e.g. `your-app.up.railway.app`) |
+   | `SERVICE_URL` | Full public URL (e.g. `https://your-app.up.railway.app`) |
    | `ENCRYPTION_KEY` | Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
    | `DATA_DIR` | `/app/data` |
 
@@ -82,6 +82,6 @@ CGS runs anywhere you can run a Docker container with persistent storage. Key co
 
 - Mount a persistent volume at whatever path you set for `DATA_DIR`
 - Expose port `3000` (or whatever `PORT` is set to)
-- Set `PUBLIC_HOSTNAME` to the domain clients will use to reach the service
+- Set `SERVICE_URL` to the full public URL of the service (e.g. `https://group-service.example.com`)
 - Use the `/health` endpoint for health checks
 - Run a single replica only (SQLite constraint)
