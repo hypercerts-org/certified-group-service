@@ -1,7 +1,7 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit, encodeCursor, decodeCursor } from '../util.js'
 
 function parseDetail(s: string | null | undefined): unknown {
   if (!s) return undefined
@@ -37,7 +37,7 @@ export default function (server: Server, ctx: AppContext) {
 
       // Cursor: decode base64 → id string, WHERE id < cursor
       if (cursor) {
-        const cursorId = parseInt(Buffer.from(cursor, 'base64').toString('utf8'), 10)
+        const cursorId = parseInt(decodeCursor(cursor), 10)
         if (isNaN(cursorId)) throw new XRPCError(400, 'Invalid cursor', 'InvalidCursor')
         query = query.where('id', '<', cursorId)
       }
@@ -49,7 +49,7 @@ export default function (server: Server, ctx: AppContext) {
       let nextCursor: string | undefined
       if (hasMore) {
         const last = entries[entries.length - 1]
-        nextCursor = Buffer.from(String(last.id)).toString('base64')
+        nextCursor = encodeCursor(String(last.id))
       }
 
       return jsonResponse({

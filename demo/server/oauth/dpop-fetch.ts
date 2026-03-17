@@ -1,8 +1,8 @@
 import type { Request } from 'express'
 import { createDpopProof, restoreDpopKeyPair } from './crypto.js'
+import { getAsMetadata } from './metadata.js'
 import type { SessionData } from '../session.js'
 
-const EPDS_URL = process.env.EPDS_URL || 'https://epds1.test.certified.app'
 const CLIENT_ID = process.env.OAUTH_CLIENT_ID || ''
 
 /**
@@ -15,11 +15,7 @@ export async function refreshAccessToken(req: Request): Promise<void> {
     throw new Error('No refresh token available — please log in again')
   }
 
-  // Discover token endpoint
-  const asRes = await fetch(`${EPDS_URL}/.well-known/oauth-authorization-server`)
-  if (!asRes.ok) throw new Error(`Failed to fetch AS metadata: ${asRes.status}`)
-  const asMeta = (await asRes.json()) as Record<string, string>
-  const tokenEndpoint = asMeta.token_endpoint
+  const { token: tokenEndpoint } = await getAsMetadata()
 
   const { privateKey, publicJwk } = restoreDpopKeyPair(session.dpopPrivateJwk)
 

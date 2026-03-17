@@ -15,6 +15,14 @@ export function jsonResponse<T>(body: T) {
   return { encoding: 'application/json' as const, body }
 }
 
+export function encodeCursor(payload: string): string {
+  return Buffer.from(payload).toString('base64')
+}
+
+export function decodeCursor(cursor: string): string {
+  return Buffer.from(cursor, 'base64').toString('utf8')
+}
+
 export async function assertCanWithAudit(
   ctx: AppContext,
   groupDb: Kysely<GroupDatabase>,

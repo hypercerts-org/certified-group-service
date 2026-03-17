@@ -1,7 +1,7 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit, encodeCursor, decodeCursor } from '../util.js'
 
 export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.member.list', ctx, {
@@ -24,8 +24,7 @@ export default function (server: Server, ctx: AppContext) {
 
       // Cursor: decode base64 → "added_at::member_did"
       if (cursor) {
-        const decoded = Buffer.from(cursor, 'base64').toString('utf8')
-        const [cursorTs, cursorDid] = decoded.split('::')
+        const [cursorTs, cursorDid] = decodeCursor(cursor).split('::')
         if (!cursorTs || !cursorDid) throw new XRPCError(400, 'Invalid cursor', 'InvalidCursor')
         query = query.where((eb) =>
           eb.or([
@@ -42,7 +41,7 @@ export default function (server: Server, ctx: AppContext) {
       let nextCursor: string | undefined
       if (hasMore) {
         const last = members[members.length - 1]
-        nextCursor = Buffer.from(`${last.added_at}::${last.member_did}`).toString('base64')
+        nextCursor = encodeCursor(`${last.added_at}::${last.member_did}`)
       }
 
       return jsonResponse({

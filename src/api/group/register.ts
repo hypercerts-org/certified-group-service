@@ -85,16 +85,6 @@ export default function (app: Express, ctx: AppContext) {
 
       await agent.com.atproto.identity.submitPlcOperation({ operation })
 
-      // Check not already registered in our DB (shouldn't happen since we just created it)
-      const existing = await ctx.globalDb
-        .selectFrom('groups')
-        .where('did', '=', groupDid)
-        .select('did')
-        .executeTakeFirst()
-      if (existing) {
-        throw new ConflictError('Group already registered', 'GroupAlreadyRegistered')
-      }
-
       // Create an app password for the group service to use
       const appPasswordRes = await agent.com.atproto.server.createAppPassword({
         name: 'group-service',
@@ -104,10 +94,18 @@ export default function (app: Express, ctx: AppContext) {
       // Encrypt and store
       const encryptionKey = Buffer.from(ctx.config.encryptionKey, 'hex')
       const encrypted = encrypt(appPassword, encryptionKey)
-      await ctx.globalDb
-        .insertInto('groups')
-        .values({ did: groupDid, pds_url: pdsUrl, encrypted_app_password: encrypted })
-        .execute()
+      try {
+        await ctx.globalDb
+          .insertInto('groups')
+          .values({ did: groupDid, pds_url: pdsUrl, encrypted_app_password: encrypted })
+          .execute()
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (msg.includes('UNIQUE constraint failed') || msg.includes('PRIMARY KEY constraint failed')) {
+          throw new ConflictError('Group already registered', 'GroupAlreadyRegistered')
+        }
+        throw err
+      }
 
       // Initialize per-group database and run migrations
       await ctx.groupDbs.migrateGroup(groupDid)

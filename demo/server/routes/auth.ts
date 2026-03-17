@@ -7,29 +7,13 @@ import {
   createDpopProof,
   restoreDpopKeyPair,
 } from '../oauth/crypto.js'
+import { getAsMetadata } from '../oauth/metadata.js'
 
 const router = Router()
 
-const EPDS_URL = process.env.EPDS_URL || 'https://epds1.test.certified.app'
 const CLIENT_ID = process.env.OAUTH_CLIENT_ID || ''
 const REDIRECT_URI = process.env.OAUTH_REDIRECT_URI || ''
-
-/** Cached AS metadata endpoints */
-let asMetadata: { par: string; authorize: string; token: string } | null = null
-
-/** Fetch OAuth Authorization Server metadata to discover endpoints */
-async function getAsMetadata() {
-  if (asMetadata) return asMetadata
-  const res = await fetch(`${EPDS_URL}/.well-known/oauth-authorization-server`)
-  if (!res.ok) throw new Error(`Failed to fetch AS metadata: ${res.status}`)
-  const data = (await res.json()) as Record<string, string>
-  asMetadata = {
-    par: data.pushed_authorization_request_endpoint,
-    authorize: data.authorization_endpoint,
-    token: data.token_endpoint,
-  }
-  return asMetadata
-}
+const EPDS_URL = process.env.EPDS_URL || 'https://epds1.test.certified.app'
 
 /**
  * POST /api/login — initiate OAuth flow (Flow 2: ePDS handles email form)

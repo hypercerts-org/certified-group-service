@@ -1,7 +1,15 @@
+import type { Response } from 'express'
 import { Router } from 'express'
 import { createProxyAgent, isSessionExpiredError } from '../oauth/proxy-agent.js'
 
 const router = Router()
+
+function handleProxyError(res: Response, err: any) {
+  if (isSessionExpiredError(err)) {
+    return res.status(401).json({ error: 'Session expired — please log in again', sessionExpired: true })
+  }
+  res.status(err.status || 500).json({ error: err.message || 'Proxy request failed' })
+}
 
 /**
  * POST /api/proxy/:nsid — proxy a JSON POST to the group service via atproto-proxy
@@ -24,11 +32,7 @@ router.post('/:nsid', async (req, res) => {
     const response = await agent.call(nsid, {}, body, { encoding: 'application/json' })
     res.json(response.data)
   } catch (err: any) {
-    console.error('Proxy POST error:', err.message)
-    if (isSessionExpiredError(err)) {
-      return res.status(401).json({ error: 'Session expired — please log in again', sessionExpired: true })
-    }
-    res.status(err.status || 500).json({ error: err.message || 'Proxy request failed' })
+    handleProxyError(res, err)
   }
 })
 
@@ -53,11 +57,7 @@ router.get('/:nsid', async (req, res) => {
     const response = await agent.call(nsid, params)
     res.json(response.data)
   } catch (err: any) {
-    console.error('Proxy GET error:', err.message)
-    if (isSessionExpiredError(err)) {
-      return res.status(401).json({ error: 'Session expired — please log in again', sessionExpired: true })
-    }
-    res.status(err.status || 500).json({ error: err.message || 'Proxy request failed' })
+    handleProxyError(res, err)
   }
 })
 
