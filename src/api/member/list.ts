@@ -1,7 +1,7 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.js'
 
 export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.member.list', ctx, {
@@ -10,7 +10,7 @@ export default function (server: Server, ctx: AppContext) {
       const groupDb = ctx.groupDbs.get(groupDid)
 
       // RBAC: any member can list members
-      await ctx.rbac.assertCan(groupDb, callerDid, 'member.list')
+      await assertCanWithAudit(ctx, groupDb, callerDid, 'member.list')
 
       const limit = (params.limit as number) ?? 50
       const cursor = params.cursor as string | undefined

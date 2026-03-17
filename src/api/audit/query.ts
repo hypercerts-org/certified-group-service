@@ -1,7 +1,7 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.js'
 
 function parseDetail(s: string | null | undefined): unknown {
   if (!s) return undefined
@@ -15,9 +15,9 @@ export default function (server: Server, ctx: AppContext) {
       const groupDb = ctx.groupDbs.get(groupDid)
 
       // RBAC: admin+ can query audit log
-      await ctx.rbac.assertCan(groupDb, callerDid, 'audit.query')
+      await assertCanWithAudit(ctx, groupDb, callerDid, 'audit.query')
 
-      const limit = Math.min(Math.max((params.limit as number) ?? 50, 1), 100)
+      const limit = (params.limit as number) ?? 50
       const cursor = params.cursor as string | undefined
       const actorDid = params.actorDid as string | undefined
       const action = params.action as string | undefined

@@ -10,7 +10,7 @@ export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.member.add', ctx, {
     handler: async ({ auth, input: xrpcInput }) => {
       const { callerDid, groupDid } = auth.credentials
-      const { memberDid, role } = xrpcInput?.body as { memberDid: string; role?: string }
+      const { memberDid, role } = xrpcInput?.body as { memberDid: string; role: Role }
 
       // Validate inputs before any async work
       ensureValidDid(memberDid)
