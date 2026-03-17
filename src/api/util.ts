@@ -1,16 +1,10 @@
-import type { Server } from '@atproto/xrpc-server'
+import type { Server, MethodHandler, RouteOptions } from '@atproto/xrpc-server'
 import type { AppContext } from '../context.js'
-import type { GroupAuthCredentials } from '../auth/verifier.js'
+import type { GroupAuthResult } from '../auth/verifier.js'
 
 interface MethodConfig {
-  opts?: { blobLimit?: number }
-  handler: (ctx: {
-    auth: { credentials: GroupAuthCredentials }
-    input?: { body: unknown; encoding?: string }
-    params: Record<string, unknown>
-    req: import('express').Request
-    res: import('express').Response
-  }) => Promise<{ encoding: string; body: unknown }>
+  opts?: RouteOptions
+  handler: MethodHandler<GroupAuthResult>
 }
 
 export function registerAuthedMethod(
@@ -21,7 +15,7 @@ export function registerAuthedMethod(
 ): void {
   server.method(nsid, {
     auth: ctx.authVerifier.xrpcAuth(),
-    ...(config.opts ? { opts: config.opts } : {}),
-    handler: config.handler as never,
+    ...(config.opts && { opts: config.opts }),
+    handler: config.handler,
   })
 }

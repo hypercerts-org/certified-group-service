@@ -1,5 +1,5 @@
 import { IdResolver } from '@atproto/identity'
-import { AuthRequiredError, verifyJwt as defaultVerifyJwt, parseReqNsid as defaultParseReqNsid, type AuthVerifier as XrpcAuthVerifier } from '@atproto/xrpc-server'
+import { AuthRequiredError, verifyJwt as defaultVerifyJwt, parseReqNsid as defaultParseReqNsid, type MethodAuthVerifier } from '@atproto/xrpc-server'
 import type { Kysely } from 'kysely'
 import type { Request } from 'express'
 import type { GlobalDatabase } from '../db/schema.js'
@@ -87,7 +87,7 @@ export class AuthVerifier {
     return { iss: payload.iss, aud: payload.aud }
   }
 
-  xrpcAuth(): XrpcAuthVerifier {
+  xrpcAuth(): MethodAuthVerifier<GroupAuthResult> {
     return async ({ req }) => {
       const { iss, aud } = await this.verify(req)
       return {
