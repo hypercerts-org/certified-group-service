@@ -3,7 +3,7 @@ import express from 'express'
 import request from 'supertest'
 import { createTestContext, silentLogger } from './helpers/mock-server.js'
 import groupRegisterHandler from '../src/api/group/register.js'
-import { xrpcErrorHandler } from '../src/api/error-handler.js'
+import { createFallbackErrorHandler } from '../src/api/error-handler.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase, GroupDatabase } from '../src/db/schema.js'
@@ -35,7 +35,7 @@ function createApp(ctx: AppContext) {
   const app = express()
   app.use(express.json())
   groupRegisterHandler(app, ctx)
-  app.use(xrpcErrorHandler(silentLogger as any))
+  app.use(createFallbackErrorHandler(silentLogger as any))
   return app
 }
 

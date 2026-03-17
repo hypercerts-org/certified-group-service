@@ -39,34 +39,3 @@ describe('GET /health', () => {
     expect(res.body).toEqual({ status: 'error', message: 'database unreachable' })
   })
 })
-
-describe('JSON parser skip for uploadBlob', () => {
-  it('raw routes registered before JSON parser do not get body parsed', async () => {
-    const app = express()
-
-    // Raw route registered before JSON parser (mirrors registerRawRoutes)
-    app.post('/xrpc/com.atproto.repo.uploadBlob', (req, res) => {
-      res.json({ bodyParsed: req.body !== undefined })
-    })
-
-    // JSON parser applied after raw routes (mirrors index.ts)
-    app.use(express.json({ limit: '1mb' }))
-
-    // JSON route registered after parser (mirrors registerJsonRoutes)
-    app.post('/xrpc/other', (req, res) => {
-      res.json({ bodyParsed: req.body !== undefined })
-    })
-
-    const blobRes = await request(app)
-      .post('/xrpc/com.atproto.repo.uploadBlob')
-      .set('Content-Type', 'application/json')
-      .send(JSON.stringify({ foo: 'bar' }))
-    expect(blobRes.body.bodyParsed).toBe(false)
-
-    const otherRes = await request(app)
-      .post('/xrpc/other')
-      .set('Content-Type', 'application/json')
-      .send(JSON.stringify({ foo: 'bar' }))
-    expect(otherRes.body.bodyParsed).toBe(true)
-  })
-})

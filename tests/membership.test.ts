@@ -1,27 +1,24 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import express from 'express'
 import request from 'supertest'
-import { createTestContext, seedMember, silentLogger } from './helpers/mock-server.js'
+import { createTestContext, seedMember, createTestApp, mockAuth } from './helpers/mock-server.js'
 import memberAddHandler from '../src/api/member/add.js'
 import memberRemoveHandler from '../src/api/member/remove.js'
 import memberListHandler from '../src/api/member/list.js'
 import roleSetHandler from '../src/api/role/set.js'
 import auditQueryHandler from '../src/api/audit/query.js'
-import { xrpcErrorHandler } from '../src/api/error-handler.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 
-function createApp(ctx: AppContext) {
-  const app = express()
-  app.use(express.json())
-  memberAddHandler(app, ctx)
-  memberRemoveHandler(app, ctx)
-  memberListHandler(app, ctx)
-  roleSetHandler(app, ctx)
-  auditQueryHandler(app, ctx)
-  app.use(xrpcErrorHandler(silentLogger as any))
-  return app
+function buildApp(ctx: AppContext) {
+  return createTestApp(ctx, (server, appCtx) => {
+    memberAddHandler(server, appCtx)
+    memberRemoveHandler(server, appCtx)
+    memberListHandler(server, appCtx)
+    roleSetHandler(server, appCtx)
+    auditQueryHandler(server, appCtx)
+  })
 }
 
 describe('member.add', () => {
@@ -34,7 +31,7 @@ describe('member.add', () => {
     ctx = test.ctx
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'admin')
-    app = createApp(ctx)
+    app = buildApp(ctx)
   })
 
   afterEach(async () => {
@@ -48,6 +45,7 @@ describe('member.add', () => {
     expect(res.status).toBe(200)
     expect(res.body.memberDid).toBe('did:plc:newuser')
     expect(res.body.role).toBe('member')
+    expect(res.body.addedBy).toBe('did:plc:testuser')
     expect(res.body.addedAt).toBeDefined()
   })
 
@@ -88,7 +86,7 @@ describe('member.add', () => {
 
   it('member cannot add anyone (RBAC 403)', async () => {
     await seedMember(groupDb, 'did:plc:member1', 'member')
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:member1', aud: 'did:plc:testgroup' }) } as any })
+    app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:member1') })
     const res = await request(app)
       .post('/xrpc/app.certified.group.member.add')
       .send({ memberDid: 'did:plc:newuser', role: 'member' })
@@ -99,7 +97,7 @@ describe('member.add', () => {
     const res = await request(app)
       .post('/xrpc/app.certified.group.member.add')
       .send({ memberDid: 'not-a-did', role: 'member' })
-    expect(res.status).toBe(500) // ensureValidDid throws a generic Error
+    expect(res.status).toBe(400) // lexicon validates DID format before handler
   })
 
   it('missing memberDid field returns error', async () => {
@@ -111,7 +109,7 @@ describe('member.add', () => {
 
   it('owner can add admin', async () => {
     await seedMember(groupDb, 'did:plc:owner1', 'owner')
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:owner1', aud: 'did:plc:testgroup' }) } as any })
+    app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:owner1') })
     const res = await request(app)
       .post('/xrpc/app.certified.group.member.add')
       .send({ memberDid: 'did:plc:newadmin', role: 'admin' })
@@ -141,7 +139,7 @@ describe('member.remove', () => {
     ctx = test.ctx
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'admin')
-    app = createApp(ctx)
+    app = buildApp(ctx)
   })
 
   afterEach(async () => {
@@ -182,7 +180,7 @@ describe('member.remove', () => {
   })
 
   it('self-removal of non-member returns 401', async () => {
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:stranger', aud: 'did:plc:testgroup' }) } as any })
+    app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:stranger') })
     const res = await request(app)
       .post('/xrpc/app.certified.group.member.remove')
       .send({ memberDid: 'did:plc:stranger' })
@@ -209,7 +207,7 @@ describe('member.remove', () => {
   it('member cannot remove another member (RBAC blocks)', async () => {
     await seedMember(groupDb, 'did:plc:member1', 'member')
     await seedMember(groupDb, 'did:plc:member2', 'member')
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:member1', aud: 'did:plc:testgroup' }) } as any })
+    app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:member1') })
     const res = await request(app)
       .post('/xrpc/app.certified.group.member.remove')
       .send({ memberDid: 'did:plc:member2' })
@@ -227,7 +225,7 @@ describe('member.list', () => {
     ctx = test.ctx
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'member')
-    app = createApp(ctx)
+    app = buildApp(ctx)
   })
 
   afterEach(async () => {
@@ -257,25 +255,19 @@ describe('member.list', () => {
   })
 
   it('non-members get 401', async () => {
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:stranger', aud: 'did:plc:testgroup' }) } as any })
+    app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:stranger') })
     const res = await request(app).get('/xrpc/app.certified.group.member.list')
     expect(res.status).toBe(401)
   })
 
-  it('limit=0 falls back to default (50)', async () => {
-    await seedMember(groupDb, 'did:plc:user0', 'member')
-    await seedMember(groupDb, 'did:plc:user1', 'member')
+  it('limit=0 is rejected (lexicon minimum is 1)', async () => {
     const res = await request(app).get('/xrpc/app.certified.group.member.list?limit=0')
-    expect(res.status).toBe(200)
-    // 0 is falsy, so parseInt('0') || 50 → 50, returns all 3 members
-    expect(res.body.members).toHaveLength(3)
+    expect(res.status).toBe(400)
   })
 
-  it('limit clamped to 100 when exceeding', async () => {
-    // With only a few members, we can just verify request succeeds (limit > 100 doesn't error)
+  it('limit exceeding maximum is rejected (lexicon maximum is 100)', async () => {
     const res = await request(app).get('/xrpc/app.certified.group.member.list?limit=999')
-    expect(res.status).toBe(200)
-    expect(res.body.members).toHaveLength(1) // only testuser
+    expect(res.status).toBe(400)
   })
 
   it('invalid cursor returns 400 InvalidCursor', async () => {
@@ -302,7 +294,7 @@ describe('role.set', () => {
     ctx = test.ctx
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
-    app = createApp(ctx)
+    app = buildApp(ctx)
   })
 
   afterEach(async () => {
@@ -336,7 +328,7 @@ describe('role.set', () => {
 
   it('non-owner cannot set roles', async () => {
     await seedMember(groupDb, 'did:plc:admin1', 'admin')
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:admin1', aud: 'did:plc:testgroup' }) } as any })
+    app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:admin1') })
     await seedMember(groupDb, 'did:plc:target', 'member')
     const res = await request(app)
       .post('/xrpc/app.certified.group.role.set')
@@ -362,7 +354,7 @@ describe('audit.query', () => {
     ctx = test.ctx
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'admin')
-    app = createApp(ctx)
+    app = buildApp(ctx)
   })
 
   afterEach(async () => {
@@ -395,7 +387,7 @@ describe('audit.query', () => {
 
   it('members cannot query audit log', async () => {
     await seedMember(groupDb, 'did:plc:member1', 'member')
-    app = createApp({ ...ctx, authVerifier: { verify: async () => ({ iss: 'did:plc:member1', aud: 'did:plc:testgroup' }) } as any })
+    app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:member1') })
     const res = await request(app).get('/xrpc/app.certified.group.audit.query')
     expect(res.status).toBe(403)
   })

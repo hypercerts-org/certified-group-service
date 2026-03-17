@@ -5,10 +5,8 @@ import { XRPCError } from '@atproto/xrpc-server'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 import { createTestGroupDb } from './helpers/test-db.js'
-import { createTestContext, seedMember, silentLogger } from './helpers/mock-server.js'
+import { createTestContext, seedMember, createTestApp } from './helpers/mock-server.js'
 import roleSetHandler from '../src/api/role/set.js'
-import { xrpcErrorHandler } from '../src/api/error-handler.js'
-import type { AppContext } from '../src/context.js'
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -25,10 +23,9 @@ describe('role.set — last-owner protection', () => {
     const { ctx } = await createTestContext({
       groupDbs: { get: () => groupDb, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
     })
-    app = express()
-    app.use(express.json())
-    roleSetHandler(app, ctx)
-    app.use(xrpcErrorHandler(silentLogger as any))
+    app = createTestApp(ctx, (server, appCtx) => {
+      roleSetHandler(server, appCtx)
+    })
   })
 
   afterEach(async () => {
