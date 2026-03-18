@@ -1,13 +1,13 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { createProxyAgent, isSessionExpiredError } from '../oauth/proxy-agent.js'
+import { callGroupService, isSessionExpiredError } from '../oauth/group-client.js'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
 
 /**
  * POST /api/upload-blob?groupDid=...
- * Accepts multipart file upload, forwards raw bytes to the group service uploadBlob via atproto-proxy.
+ * Accepts multipart file upload, sends raw bytes to the group service directly.
  */
 router.post('/', upload.single('file'), async (req, res) => {
   try {
@@ -24,11 +24,16 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' })
     }
 
-    const agent = createProxyAgent(req.session.user, groupDid, req)
-    const response = await agent.com.atproto.repo.uploadBlob(new Uint8Array(req.file.buffer), {
-      encoding: req.file.mimetype,
+    const result = await callGroupService({
+      session: req.session.user,
+      groupDid,
+      nsid: 'com.atproto.repo.uploadBlob',
+      method: 'POST',
+      rawBody: new Uint8Array(req.file.buffer),
+      contentType: req.file.mimetype,
+      req,
     })
-    res.json(response.data)
+    res.json(result.data)
   } catch (err: any) {
     console.error('Upload error:', err.message)
     if (isSessionExpiredError(err)) {

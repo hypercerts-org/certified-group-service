@@ -1,9 +1,10 @@
 import { Router } from 'express'
-import { AtpAgent } from '@atproto/api'
 import { createDpopFetch } from '../oauth/dpop-fetch.js'
+import { GROUP_SERVICE_URL } from '../oauth/group-client.js'
+import { fetchServiceAuth } from '../oauth/service-auth.js'
 
 const router = Router()
-const GROUP_SERVICE_URL = process.env.GROUP_SERVICE_URL || 'http://localhost:3000'
+
 const GROUP_SERVICE_DID = process.env.GROUP_SERVICE_DID || ''
 
 /**
@@ -25,32 +26,34 @@ router.post('/', async (req, res) => {
 
     const ownerDid = req.session.user.did
 
-    // Create a DPoP-authenticated agent to the user's PDS
-    const agent = new AtpAgent({
-      service: req.session.user.pdsUrl,
-      fetch: createDpopFetch(req.session.user, req),
-    })
-
     // Fetch the user's email from their ePDS session (optional)
     let email: string | undefined
     try {
-      const sessionRes = await agent.com.atproto.server.getSession()
-      email = sessionRes.data.email
+      const dpopFetch = createDpopFetch(req.session.user, req)
+      const sessionRes = await dpopFetch(
+        `${req.session.user.pdsUrl}/xrpc/com.atproto.server.getSession`,
+      )
+      if (sessionRes.ok) {
+        const data = (await sessionRes.json()) as { email?: string }
+        email = data.email
+      }
     } catch (err: any) {
       console.warn('Could not fetch email from ePDS:', err.message)
     }
 
     // Get a service auth JWT from the user's PDS to prove they control ownerDid
-    const serviceAuth = await agent.com.atproto.server.getServiceAuth({
-      aud: GROUP_SERVICE_DID,
-      lxm: 'app.certified.group.register',
-    })
+    const token = await fetchServiceAuth(
+      req.session.user,
+      GROUP_SERVICE_DID,
+      'app.certified.group.register',
+      req,
+    )
 
     const response = await fetch(`${GROUP_SERVICE_URL}/xrpc/app.certified.group.register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${serviceAuth.data.token}`,
+        'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify({ handle, ownerDid, email }),
     })
