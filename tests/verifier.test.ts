@@ -35,6 +35,7 @@ describe('AuthVerifier', () => {
       mockIdResolver as any,
       nonceCache,
       globalDb,
+      'did:web:test.example.com',
       fakeVerifyJwt,
       fakeParseReqNsid,
     )

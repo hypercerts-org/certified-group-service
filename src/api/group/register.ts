@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { Express } from 'express'
 import { AtpAgent } from '@atproto/api'
 import { ensureValidDid } from '@atproto/syntax'
-import { InvalidRequestError } from '@atproto/xrpc-server'
+import { AuthRequiredError, InvalidRequestError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
 import { ConflictError } from '../../errors.js'
 import { encrypt } from '../../pds/credentials.js'
@@ -20,6 +20,14 @@ export default function (app: Express, ctx: AppContext) {
         ensureValidDid(ownerDid)
       } catch {
         throw new InvalidRequestError('Invalid ownerDid')
+      }
+
+      // Verify the caller controls the claimed ownerDid
+      const { iss } = await ctx.authVerifier.verifyRegistration(req)
+      if (iss !== ownerDid) {
+        throw new AuthRequiredError(
+          'Service auth token issuer does not match ownerDid',
+        )
       }
       if (!/^[a-zA-Z0-9-]+$/.test(handle)) {
         throw new InvalidRequestError('Invalid handle: must be alphanumeric with hyphens')
@@ -138,7 +146,6 @@ export default function (app: Express, ctx: AppContext) {
       res.json({
         groupDid,
         handle: fullHandle,
-        accountPassword,
       })
     } catch (err) {
       next(err)

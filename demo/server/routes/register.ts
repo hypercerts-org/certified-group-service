@@ -4,10 +4,12 @@ import { createDpopFetch } from '../oauth/dpop-fetch.js'
 
 const router = Router()
 const GROUP_SERVICE_URL = process.env.GROUP_SERVICE_URL || 'http://localhost:3000'
+const GROUP_SERVICE_DID = process.env.GROUP_SERVICE_DID || ''
 
 /**
  * POST /api/register — register a new group
  * Requires authentication. Owner DID is taken from the session.
+ * Gets a service auth JWT from the user's PDS to prove DID control.
  * Body: { handle }
  */
 router.post('/', async (req, res) => {
@@ -23,22 +25,33 @@ router.post('/', async (req, res) => {
 
     const ownerDid = req.session.user.did
 
-    // Fetch the user's email from their ePDS session
+    // Create a DPoP-authenticated agent to the user's PDS
+    const agent = new AtpAgent({
+      service: req.session.user.pdsUrl,
+      fetch: createDpopFetch(req.session.user, req),
+    })
+
+    // Fetch the user's email from their ePDS session (optional)
     let email: string | undefined
     try {
-      const agent = new AtpAgent({
-        service: req.session.user.pdsUrl,
-        fetch: createDpopFetch(req.session.user, req),
-      })
       const sessionRes = await agent.com.atproto.server.getSession()
       email = sessionRes.data.email
     } catch (err: any) {
       console.warn('Could not fetch email from ePDS:', err.message)
     }
 
+    // Get a service auth JWT from the user's PDS to prove they control ownerDid
+    const serviceAuth = await agent.com.atproto.server.getServiceAuth({
+      aud: GROUP_SERVICE_DID,
+      lxm: 'app.certified.group.register',
+    })
+
     const response = await fetch(`${GROUP_SERVICE_URL}/xrpc/app.certified.group.register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${serviceAuth.data.token}`,
+      },
       body: JSON.stringify({ handle, ownerDid, email }),
     })
 

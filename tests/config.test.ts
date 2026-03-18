@@ -12,10 +12,16 @@ describe('configSchema', () => {
     const config = configSchema.parse(VALID_BASE)
     expect(config.port).toBe(3000)
     expect(config.dataDir).toBe('./data')
+    expect(config.serviceDid).toBe('did:web:group-service.example.com')
     expect(config.plcUrl).toBe('https://plc.directory')
     expect(config.didCacheTtlMs).toBe(600_000)
     expect(config.maxBlobSize).toBe(5 * 1024 * 1024)
     expect(config.logLevel).toBe('info')
+  })
+
+  it('accepts explicit serviceDid', () => {
+    const config = configSchema.parse({ ...VALID_BASE, serviceDid: 'did:web:custom.example.com' })
+    expect(config.serviceDid).toBe('did:web:custom.example.com')
   })
 
   it('rejects missing serviceUrl', () => {

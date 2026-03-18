@@ -27,28 +27,38 @@ Your app acts as a **backend-for-frontend (BFF)** that sits between your users a
 
 ## Step 1: Register a group
 
-This is the only unauthenticated call. It creates a new account on the group's PDS and returns the group's DID.
+Registration requires a **service auth JWT** proving the caller controls the `ownerDid`. Your BFF obtains this from the user's PDS via `com.atproto.server.getServiceAuth`, then forwards it to the group service.
 
 ```typescript
 const GROUP_SERVICE = 'https://atproto-group-gate-staging.up.railway.app'
+const GROUP_SERVICE_DID = 'did:web:atproto-group-gate-staging.up.railway.app'
 
-async function registerGroup(handle: string, ownerDid: string) {
+async function registerGroup(agent: AtpAgent, handle: string, ownerDid: string) {
+  // Get a service auth JWT from the user's PDS to prove DID control
+  const { data: { token } } = await agent.com.atproto.server.getServiceAuth({
+    aud: GROUP_SERVICE_DID,
+    lxm: 'app.certified.group.register',
+  })
+
   const res = await fetch(`${GROUP_SERVICE}/xrpc/app.certified.group.register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
     body: JSON.stringify({ handle, ownerDid }),
   })
 
   if (!res.ok) throw new Error(`Registration failed: ${res.status}`)
 
-  // { groupDid: "did:plc:abc123", handle: "mygroup.pds.example.com", accountPassword: "..." }
+  // { groupDid: "did:plc:abc123", handle: "mygroup.pds.example.com" }
   return res.json()
 }
 ```
 
+- `agent` — an `AtpAgent` authenticated to the user's PDS (with their OAuth session).
 - `handle` — alphanumeric with hyphens (e.g. `"my-team"`). Gets suffixed with the PDS hostname automatically.
-- `ownerDid` — the DID of the user who will own this group. They're immediately seeded as the owner.
-- `accountPassword` — returned once. You don't need to store this; the group service manages its own credentials.
+- `ownerDid` — the DID of the user who will own this group. Must match the JWT's `iss` claim. They're immediately seeded as the owner.
 
 ## Step 2: Create a proxy agent
 
@@ -104,15 +114,17 @@ Here's a complete flow — register a group, add a member, create a post:
 ```typescript
 import { AtpAgent } from '@atproto/api'
 
-// 1. Register a group (owner is the current user)
-const { groupDid } = await registerGroup('our-team', currentUserDid)
-
-// 2. Set up the proxy agent
+// 1. Set up an agent authenticated to the user's PDS
 const agent = new AtpAgent({ service: userPdsUrl })
 // ... configure agent with user's OAuth session
+
+// 2. Register a group (proves DID control via service auth)
+const { groupDid } = await registerGroup(agent, 'our-team', currentUserDid)
+
+// 3. Set up the proxy agent
 const groupAgent = agent.withProxy('certified_group', groupDid)
 
-// 3. Add a member (requires admin or owner role)
+// 4. Add a member (requires admin or owner role)
 await groupAgent.call(
   'app.certified.group.member.add',
   {},
@@ -120,7 +132,7 @@ await groupAgent.call(
   { encoding: 'application/json' },
 )
 
-// 4. Create a post in the group's repo
+// 5. Create a post in the group's repo
 const post = await groupAgent.com.atproto.repo.createRecord({
   repo: groupDid,
   collection: 'app.bsky.feed.post',

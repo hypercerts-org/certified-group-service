@@ -35,9 +35,9 @@ export const logout = () =>
 export const getMe = () =>
   request<{ did: string; handle: string }>('/me')
 
-// Register (requires auth — owner DID comes from session)
+// Register (requires auth — owner DID comes from session, service auth proves DID control)
 export const registerGroup = (body: { handle: string }) =>
-  request<{ groupDid: string; handle: string; accountPassword: string }>('/register', { method: 'POST', body: JSON.stringify(body) })
+  request<{ groupDid: string; handle: string }>('/register', { method: 'POST', body: JSON.stringify(body) })
 
 // Proxy — POST
 export const proxyPost = (nsid: string, body: Record<string, any>) =>

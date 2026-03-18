@@ -27,7 +27,7 @@ export function Register() {
   const { setGroup } = useGroup()
   const navigate = useNavigate()
   const [handle, setHandle] = useState('')
-  const [result, setResult] = useState<{ groupDid: string; handle: string; accountPassword: string } | null>(null)
+  const [result, setResult] = useState<{ groupDid: string; handle: string } | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -86,12 +86,6 @@ export function Register() {
               Group created: <strong>{result.handle}</strong>
               <br />
               DID: <CopyDid did={result.groupDid} style={{ fontSize: 12 }} />
-            </div>
-            <div style={{ background: '#fff3e0', padding: 12, borderRadius: 6, fontSize: 13, border: '1px solid #ffb74d' }}>
-              <strong>Save this password!</strong> You need it to manage the group account directly (credible exit).
-              <pre style={{ marginTop: 8, background: '#fff', padding: 8, borderRadius: 4, fontSize: 12, overflowX: 'auto' }}>
-                {result.accountPassword}
-              </pre>
             </div>
             <button
               type="button"

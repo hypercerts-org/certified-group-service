@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import express from 'express'
 import request from 'supertest'
+import { AuthRequiredError } from '@atproto/xrpc-server'
 import { createTestContext, silentLogger } from './helpers/mock-server.js'
 import groupRegisterHandler from '../src/api/group/register.js'
 import { createFallbackErrorHandler } from '../src/api/error-handler.js'
@@ -61,7 +62,17 @@ describe('group.register', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
-    const test = await createTestContext()
+    const test = await createTestContext({
+      authVerifier: {
+        verify: async () => ({ iss: 'did:plc:owner', aud: 'did:plc:testgroup' }),
+        verifyRegistration: async () => ({ iss: 'did:plc:owner' }),
+        xrpcAuth() {
+          return async () => ({
+            credentials: { callerDid: 'did:plc:owner', groupDid: 'did:plc:testgroup' },
+          })
+        },
+      } as any,
+    })
     ctx = test.ctx
     globalDb = test.globalDb
     groupDb = test.groupDb
@@ -80,7 +91,7 @@ describe('group.register', () => {
     expect(res.status).toBe(200)
     expect(res.body.groupDid).toBe('did:plc:newgroup')
     expect(res.body.handle).toBe('mygroup.pds.example.com')
-    expect(res.body.accountPassword).toBeDefined()
+    expect(res.body.accountPassword).toBeUndefined()
 
     // Verify group stored in global DB
     const group = await globalDb
@@ -165,6 +176,55 @@ describe('group.register', () => {
       .post('/xrpc/app.certified.group.register')
       .send({ handle: 'mygroup' })
     expect(res.status).toBe(400)
+  })
+
+  it('rejects unauthenticated requests', async () => {
+    const test = await createTestContext({
+      authVerifier: {
+        verify: async () => ({ iss: 'did:plc:owner', aud: 'did:plc:testgroup' }),
+        verifyRegistration: async () => {
+          throw new AuthRequiredError('Missing auth token')
+        },
+        xrpcAuth() {
+          return async () => ({
+            credentials: { callerDid: 'did:plc:owner', groupDid: 'did:plc:testgroup' },
+          })
+        },
+      } as any,
+    })
+    const unauthApp = createApp(test.ctx)
+
+    const res = await request(unauthApp)
+      .post('/xrpc/app.certified.group.register')
+      .send(validBody)
+    expect(res.status).toBe(401)
+
+    await test.globalDb.destroy()
+    await test.groupDb.destroy()
+  })
+
+  it('rejects when token issuer does not match ownerDid', async () => {
+    const test = await createTestContext({
+      authVerifier: {
+        verify: async () => ({ iss: 'did:plc:attacker', aud: 'did:plc:testgroup' }),
+        verifyRegistration: async () => ({ iss: 'did:plc:attacker' }),
+        xrpcAuth() {
+          return async () => ({
+            credentials: { callerDid: 'did:plc:attacker', groupDid: 'did:plc:testgroup' },
+          })
+        },
+      } as any,
+    })
+    const mismatchApp = createApp(test.ctx)
+
+    const res = await request(mismatchApp)
+      .post('/xrpc/app.certified.group.register')
+      .send(validBody)
+    expect(res.status).toBe(401)
+    expect(res.body.message).toContain('does not match ownerDid')
+
+    await test.globalDb.destroy()
+    await test.groupDb.destroy()
   })
 
   it('registers service endpoint in DID document during registration', async () => {

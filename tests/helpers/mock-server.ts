@@ -26,6 +26,7 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
   const mockConfig: Config = {
     port: 3000,
     serviceUrl: 'https://test.example.com',
+    serviceDid: 'did:web:test.example.com',
     dataDir: '/tmp/test',
     encryptionKey: 'a'.repeat(64),
     groupPdsUrl: 'https://pds.example.com',
@@ -132,6 +133,7 @@ export function createTestApp(
 export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
   return {
     verify: async () => ({ iss, aud }),
+    verifyRegistration: async () => ({ iss }),
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
         const { iss, aud } = await this.verify(req)
