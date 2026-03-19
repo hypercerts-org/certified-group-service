@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 ## Commands
-- `npm test` — vitest (fork-isolated per file, in-memory SQLite)
-- `npm run dev` — tsx watch
+- `pnpm test` — vitest (fork-isolated per file, in-memory SQLite)
+- `pnpm dev` — tsx watch
 - Conventional commits: `feat|fix|chore|refactor|test|docs(scope): message`
 
 ## Terminology
