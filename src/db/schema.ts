@@ -17,6 +17,7 @@ interface GroupsTable {
   did: string
   pds_url: string
   encrypted_app_password: string
+  encrypted_recovery_key: string | null
   created_at: Generated<string>
 }
 

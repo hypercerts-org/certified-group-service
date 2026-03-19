@@ -26,12 +26,13 @@ vi.mock('@atproto/api', () => {
           },
           identity: {
             getRecommendedDidCredentials: vi.fn().mockResolvedValue({
-              data: { rotationKeys: ['did:key:z...'], verificationMethods: {}, services: {} },
+              data: {
+                rotationKeys: ['did:key:zQ3shtest'],
+                verificationMethods: { atproto: 'did:key:zQ3shverify' },
+                alsoKnownAs: ['at://mygroup.pds.example.com'],
+                services: { atproto_pds: { type: 'AtprotoPersonalDataServer', endpoint: 'https://pds.example.com' } },
+              },
             }),
-            signPlcOperation: vi.fn().mockResolvedValue({
-              data: { operation: { type: 'plc_operation', sig: 'mock' } },
-            }),
-            submitPlcOperation: vi.fn().mockResolvedValue(undefined),
           },
         },
       },
@@ -39,7 +40,24 @@ vi.mock('@atproto/api', () => {
   }
 })
 
+// Mock PLC utilities
+vi.mock('../src/pds/plc.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/pds/plc.js')>()
+  return {
+    ...actual,
+    generateRecoveryKey: vi.fn().mockResolvedValue({
+      did: () => 'did:key:zQ3shrecovery',
+      sign: vi.fn().mockResolvedValue(new Uint8Array(64)),
+      export: vi.fn().mockResolvedValue(new Uint8Array(32)),
+    }),
+    getLatestPlcCid: vi.fn().mockResolvedValue('bafygenesis'),
+    signPlcOperation: vi.fn().mockResolvedValue({ type: 'plc_operation', sig: 'mock-recovery-sig' }),
+    submitPlcOperation: vi.fn().mockResolvedValue(undefined),
+  }
+})
+
 import { AtpAgent } from '@atproto/api'
+import { generateRecoveryKey, getLatestPlcCid, signPlcOperation, submitPlcOperation } from '../src/pds/plc.js'
 
 function createApp(ctx: AppContext) {
   const app = express()
@@ -102,6 +120,7 @@ describe('group.register', () => {
     expect(group).toBeDefined()
     expect(group!.pds_url).toBe('https://pds.example.com')
     expect(group!.encrypted_app_password).toBeDefined()
+    expect(group!.encrypted_recovery_key).toBeDefined()
 
     // Verify owner seeded in group DB
     const owner = await groupDb
@@ -123,6 +142,9 @@ describe('group.register', () => {
               Object.assign(new Error('Handle taken'), { status: 400, error: 'HandleNotAvailable' }),
             ),
             createAppPassword: vi.fn(),
+          },
+          identity: {
+            getRecommendedDidCredentials: vi.fn(),
           },
         },
       },
@@ -227,16 +249,25 @@ describe('group.register', () => {
     await test.groupDb.destroy()
   })
 
-  it('registers service endpoint in DID document during registration', async () => {
+  it('registers service endpoint in DID document using recovery key', async () => {
     const res = await request(app)
       .post('/xrpc/app.certified.group.register')
       .send(validBody)
     expect(res.status).toBe(200)
 
+    // Recovery key generated and passed to createAccount
+    expect(generateRecoveryKey).toHaveBeenCalled()
     const mockAgent = vi.mocked(AtpAgent).mock.results[0].value
+    const createAccountCall = mockAgent.com.atproto.server.createAccount.mock.calls[0][0]
+    expect(createAccountCall.recoveryKey).toBe('did:key:zQ3shrecovery')
+
+    // PLC operation signed with recovery key (not via PDS)
     expect(mockAgent.com.atproto.identity.getRecommendedDidCredentials).toHaveBeenCalled()
-    expect(mockAgent.com.atproto.identity.signPlcOperation).toHaveBeenCalledWith(
+    expect(getLatestPlcCid).toHaveBeenCalledWith('https://plc.directory', 'did:plc:newgroup')
+    expect(signPlcOperation).toHaveBeenCalledWith(
       expect.objectContaining({
+        type: 'plc_operation',
+        prev: 'bafygenesis',
         services: expect.objectContaining({
           certified_group: {
             type: 'CertifiedGroupService',
@@ -244,33 +275,17 @@ describe('group.register', () => {
           },
         }),
       }),
+      expect.objectContaining({ did: expect.any(Function) }),
     )
-    expect(mockAgent.com.atproto.identity.submitPlcOperation).toHaveBeenCalledWith({
-      operation: { type: 'plc_operation', sig: 'mock' },
-    })
+    expect(submitPlcOperation).toHaveBeenCalledWith(
+      'https://plc.directory',
+      'did:plc:newgroup',
+      { type: 'plc_operation', sig: 'mock-recovery-sig' },
+    )
   })
 
-  it('fails registration if PLC operation fails', async () => {
-    vi.mocked(AtpAgent).mockImplementationOnce(() => ({
-      resumeSession: vi.fn().mockResolvedValue(undefined),
-      com: {
-        atproto: {
-          server: {
-            createAccount: vi.fn().mockResolvedValue({
-              data: { did: 'did:plc:newgroup', handle: 'mygroup.pds.example.com', accessJwt: 'jwt', refreshJwt: 'rjwt' },
-            }),
-            createAppPassword: vi.fn(),
-          },
-          identity: {
-            getRecommendedDidCredentials: vi.fn().mockResolvedValue({
-              data: { rotationKeys: ['did:key:z...'], verificationMethods: {}, services: {} },
-            }),
-            signPlcOperation: vi.fn().mockRejectedValue(new Error('PLC operation failed')),
-            submitPlcOperation: vi.fn(),
-          },
-        },
-      },
-    }) as any)
+  it('fails registration if PLC operation submission fails', async () => {
+    vi.mocked(submitPlcOperation).mockRejectedValueOnce(new Error('PLC submission failed'))
 
     const res = await request(app)
       .post('/xrpc/app.certified.group.register')

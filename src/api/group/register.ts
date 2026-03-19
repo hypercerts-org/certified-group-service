@@ -6,6 +6,12 @@ import { AuthRequiredError, InvalidRequestError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
 import { ConflictError } from '../../errors.js'
 import { encrypt } from '../../pds/credentials.js'
+import {
+  generateRecoveryKey,
+  getLatestPlcCid,
+  signPlcOperation,
+  submitPlcOperation,
+} from '../../pds/plc.js'
 
 export default function (app: Express, ctx: AppContext) {
   app.post('/xrpc/app.certified.group.register', async (req, res, next) => {
@@ -45,6 +51,11 @@ export default function (app: Express, ctx: AppContext) {
       // Generate a random password for the account
       const accountPassword = randomBytes(24).toString('base64url')
 
+      // Generate a recovery keypair so the group service can update the DID
+      // document independently of the PDS (no email confirmation required)
+      const recoveryKey = await generateRecoveryKey()
+      const recoveryDidKey = recoveryKey.did()
+
       // Create the group account on the group's PDS
       const agent = new AtpAgent({ service: pdsUrl })
       let createRes
@@ -53,6 +64,7 @@ export default function (app: Express, ctx: AppContext) {
           email: accountEmail,
           handle: fullHandle,
           password: accountPassword,
+          recoveryKey: recoveryDidKey,
           ...(ctx.config.groupPdsInviteCode && { inviteCode: ctx.config.groupPdsInviteCode }),
         })
       } catch (err: any) {
@@ -77,34 +89,33 @@ export default function (app: Express, ctx: AppContext) {
         active: true,
       })
 
-      // Register service endpoint in group's DID document
-      const { data: recommended } = await agent.com.atproto.identity.getRecommendedDidCredentials()
+      // Register service endpoint in group's DID document.
+      // We sign the PLC operation ourselves using the recovery key,
+      // bypassing the PDS's signPlcOperation (which may require email confirmation).
+      const [{ data: recommended }, prevCid] = await Promise.all([
+        agent.com.atproto.identity.getRecommendedDidCredentials(),
+        getLatestPlcCid(ctx.config.plcUrl, groupDid),
+      ])
 
-      let operation
-      try {
-        const signed = await agent.com.atproto.identity.signPlcOperation({
-          ...recommended,
+      const operation = await signPlcOperation(
+        {
+          type: 'plc_operation',
+          rotationKeys: recommended.rotationKeys as string[] ?? [recoveryDidKey],
+          verificationMethods: (recommended.verificationMethods as Record<string, string>) ?? {},
+          alsoKnownAs: (recommended.alsoKnownAs as string[]) ?? [],
           services: {
-            ...recommended.services as Record<string, unknown>,
+            ...(recommended.services as Record<string, { type: string; endpoint: string }>) ?? {},
             certified_group: {
               type: 'CertifiedGroupService',
               endpoint: ctx.config.serviceUrl,
             },
           },
-        })
-        operation = signed.data.operation
-      } catch (err: any) {
-        if (err?.message?.includes('email confirmation')) {
-          throw new InvalidRequestError(
-            'The group PDS requires email confirmation before updating the DID document. ' +
-            'Provide a valid, confirmable email address when registering the group, or ' +
-            'disable email confirmation on the group PDS.',
-          )
-        }
-        throw err
-      }
+          prev: prevCid,
+        },
+        recoveryKey,
+      )
 
-      await agent.com.atproto.identity.submitPlcOperation({ operation })
+      await submitPlcOperation(ctx.config.plcUrl, groupDid, operation)
 
       // Create an app password for the group service to use
       const appPasswordRes = await agent.com.atproto.server.createAppPassword({
@@ -115,10 +126,20 @@ export default function (app: Express, ctx: AppContext) {
       // Encrypt and store
       const encryptionKey = Buffer.from(ctx.config.encryptionKey, 'hex')
       const encrypted = encrypt(appPassword, encryptionKey)
+      const recoveryKeyBytes = await recoveryKey.export()
+      const encryptedRecoveryKey = encrypt(
+        Buffer.from(recoveryKeyBytes).toString('base64url'),
+        encryptionKey,
+      )
       try {
         await ctx.globalDb
           .insertInto('groups')
-          .values({ did: groupDid, pds_url: pdsUrl, encrypted_app_password: encrypted })
+          .values({
+            did: groupDid,
+            pds_url: pdsUrl,
+            encrypted_app_password: encrypted,
+            encrypted_recovery_key: encryptedRecoveryKey,
+          })
           .execute()
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
