@@ -1,11 +1,11 @@
 import type { Server } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit, type AuthedMethodConfig } from '../util.js'
 import { ForbiddenError } from '../../errors.js'
 import type { Operation } from '../../rbac/permissions.js'
 
 export default function (server: Server, ctx: AppContext) {
-  registerAuthedMethod(server, 'com.atproto.repo.createRecord', ctx, {
+  const config: AuthedMethodConfig = {
     handler: async ({ auth, input: xrpcInput }) => {
       const { callerDid, groupDid } = auth.credentials
       const input = xrpcInput?.body as { repo: string; collection: string; rkey?: string; record: { [x: string]: unknown } }
@@ -43,5 +43,7 @@ export default function (server: Server, ctx: AppContext) {
       // 5. Return PDS response
       return jsonResponse(response.data)
     },
-  })
+  }
+  registerAuthedMethod(server, 'app.certified.group.repo.createRecord', ctx, config)
+  registerAuthedMethod(server, 'com.atproto.repo.createRecord', ctx, config)
 }

@@ -1,11 +1,11 @@
 import type { Server } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit, type AuthedMethodConfig } from '../util.js'
 import { ForbiddenError } from '../../errors.js'
 import type { Operation } from '../../rbac/permissions.js'
 
 export default function (server: Server, ctx: AppContext) {
-  registerAuthedMethod(server, 'com.atproto.repo.deleteRecord', ctx, {
+  const config: AuthedMethodConfig = {
     handler: async ({ auth, input: xrpcInput }) => {
       const { callerDid, groupDid } = auth.credentials
       const input = xrpcInput?.body as { repo: string; collection: string; rkey: string }
@@ -36,5 +36,7 @@ export default function (server: Server, ctx: AppContext) {
 
       return jsonResponse({})
     },
-  })
+  }
+  registerAuthedMethod(server, 'app.certified.group.repo.deleteRecord', ctx, config)
+  registerAuthedMethod(server, 'com.atproto.repo.deleteRecord', ctx, config)
 }

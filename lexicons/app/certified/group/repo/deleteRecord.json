@@ -1,0 +1,29 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.repo.deleteRecord",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Delete a record from the group's repository. Proxied through the user's PDS.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repo", "collection", "rkey"],
+          "properties": {
+            "repo": { "type": "string", "format": "at-identifier" },
+            "collection": { "type": "string", "format": "nsid" },
+            "rkey": { "type": "string" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {}
+        }
+      }
+    }
+  }
+}

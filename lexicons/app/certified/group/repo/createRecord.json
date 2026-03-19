@@ -1,0 +1,34 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.repo.createRecord",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create a record in the group's repository. Proxied through the user's PDS.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repo", "collection", "record"],
+          "properties": {
+            "repo": { "type": "string", "format": "at-identifier" },
+            "collection": { "type": "string", "format": "nsid" },
+            "rkey": { "type": "string" },
+            "record": { "type": "unknown" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri", "cid"],
+          "properties": {
+            "uri": { "type": "string", "format": "at-uri" },
+            "cid": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

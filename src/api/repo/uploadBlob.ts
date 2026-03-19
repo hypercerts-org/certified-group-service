@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream'
 import type { Server } from '@atproto/xrpc-server'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit, type AuthedMethodConfig } from '../util.js'
 import type { AppContext } from '../../context.js'
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -12,7 +12,7 @@ async function streamToBuffer(stream: Readable): Promise<Buffer> {
 }
 
 export default function (server: Server, ctx: AppContext) {
-  registerAuthedMethod(server, 'com.atproto.repo.uploadBlob', ctx, {
+  const config: AuthedMethodConfig = {
     opts: { blobLimit: ctx.config.maxBlobSize },
     handler: async ({ auth, input }) => {
       const { callerDid, groupDid } = auth.credentials
@@ -33,5 +33,7 @@ export default function (server: Server, ctx: AppContext) {
 
       return jsonResponse(response.data)
     },
-  })
+  }
+  registerAuthedMethod(server, 'app.certified.group.repo.uploadBlob', ctx, config)
+  registerAuthedMethod(server, 'com.atproto.repo.uploadBlob', ctx, config)
 }
