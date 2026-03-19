@@ -1,6 +1,6 @@
 import 'dotenv/config'
 import express from 'express'
-import { IdResolver } from '@atproto/identity'
+import { IdResolver, MemoryCache } from '@atproto/identity'
 import pino from 'pino'
 import { pinoHttp } from 'pino-http'
 import { dirname, join } from 'node:path'
@@ -37,7 +37,8 @@ async function main() {
   const groupDbs = new GroupDbPool(join(config.dataDir, 'groups'))
 
   // DID resolution
-  const idResolver = new IdResolver({ plcUrl: config.plcUrl })
+  const didCache = new MemoryCache(config.didCacheTtlMs, config.didCacheTtlMs * 2)
+  const idResolver = new IdResolver({ plcUrl: config.plcUrl, didCache })
 
   // Load managed group DIDs and run per-group migrations
   const groups = await globalDb.selectFrom('groups').select('did').execute()
