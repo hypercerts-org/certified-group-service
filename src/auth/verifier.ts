@@ -3,7 +3,7 @@ import { AuthRequiredError, verifyJwt as defaultVerifyJwt, parseReqNsid as defau
 import type { Kysely } from 'kysely'
 import type { Request } from 'express'
 import type { GlobalDatabase } from '../db/schema.js'
-import { NonceCache } from './nonce.js'
+import { NonceCache, NONCE_TTL_SECONDS } from './nonce.js'
 
 export interface GroupAuthCredentials {
   callerDid: string
@@ -41,6 +41,15 @@ export class AuthVerifier {
     this.parseReqNsidFn = parseReqNsidFn ?? defaultParseReqNsid
   }
 
+  private assertTokenLifetime(payload: { iat?: number; exp?: number }): void {
+    if (payload.iat == null) {
+      throw new AuthRequiredError('Missing iat in service auth token')
+    }
+    if (payload.exp != null && payload.exp - payload.iat > NONCE_TTL_SECONDS) {
+      throw new AuthRequiredError('Token lifetime exceeds nonce window')
+    }
+  }
+
   async verify(req: Request): Promise<{ iss: string; aud: string }> {
     const authHeader = req.headers.authorization
     if (!authHeader?.startsWith('Bearer ')) {
@@ -67,6 +76,8 @@ export class AuthVerifier {
         return atprotoData.signingKey
       },
     )
+
+    this.assertTokenLifetime(payload)
 
     const group = payload.aud
       ? await this.globalDb
@@ -114,6 +125,8 @@ export class AuthVerifier {
         return atprotoData.signingKey
       },
     )
+
+    this.assertTokenLifetime(payload)
 
     if (!payload.jti) {
       throw new AuthRequiredError('Missing jti in service auth token')

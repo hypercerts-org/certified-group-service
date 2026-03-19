@@ -2,7 +2,7 @@ import type { Kysely } from 'kysely'
 import { sql } from 'kysely'
 import type { GlobalDatabase } from '../db/schema.js'
 
-const NONCE_TTL_SECONDS = 120
+export const NONCE_TTL_SECONDS = 120
 const NONCE_EXPIRES_AT = sql<string>`datetime('now', '+${sql.raw(String(NONCE_TTL_SECONDS))} seconds')`
 
 export class NonceCache {
