@@ -24,10 +24,13 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' })
     }
 
-    const agent = createProxyAgent(req.session.user, groupDid, req)
-    const response = await agent.com.atproto.repo.uploadBlob(new Uint8Array(req.file.buffer), {
-      encoding: req.file.mimetype,
-    })
+    const agent = await createProxyAgent(req.session.user.did, groupDid)
+    const response = await agent.call(
+      'app.certified.group.repo.uploadBlob',
+      {},
+      new Uint8Array(req.file.buffer),
+      { encoding: req.file.mimetype },
+    )
     res.json(response.data)
   } catch (err: any) {
     console.error('Upload error:', err.message)

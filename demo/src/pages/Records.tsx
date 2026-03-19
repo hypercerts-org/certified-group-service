@@ -101,7 +101,7 @@ export function Records() {
     setLoading(true)
     try {
       const record = JSON.parse(json)
-      const res = await proxyPost('com.atproto.repo.createRecord', {
+      const res = await proxyPost('app.certified.group.repo.createRecord', {
         groupDid,
         repo: groupDid,
         collection: activeCollection,
@@ -121,7 +121,7 @@ export function Records() {
     setLoading(true)
     try {
       const record = JSON.parse(json)
-      const res = await proxyPost('com.atproto.repo.putRecord', {
+      const res = await proxyPost('app.certified.group.repo.putRecord', {
         groupDid,
         repo: groupDid,
         collection: activeCollection,
@@ -141,7 +141,7 @@ export function Records() {
     setResult(null)
     setLoading(true)
     try {
-      const res = await proxyPost('com.atproto.repo.deleteRecord', {
+      const res = await proxyPost('app.certified.group.repo.deleteRecord', {
         groupDid,
         repo: groupDid,
         collection: activeCollection,

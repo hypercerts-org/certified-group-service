@@ -55,7 +55,7 @@ export function Upload() {
     setError('')
     setAttachResult(null)
     try {
-      const res = await proxyPost('com.atproto.repo.createRecord', {
+      const res = await proxyPost('app.certified.group.repo.createRecord', {
         groupDid,
         repo: groupDid,
         collection: 'org.hypercerts.context.attachment',

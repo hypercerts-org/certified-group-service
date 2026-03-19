@@ -1,6 +1,6 @@
 import { Router } from 'express'
-import { AtpAgent } from '@atproto/api'
-import { createDpopFetch } from '../oauth/dpop-fetch.js'
+import { Agent } from '@atproto/api'
+import { oauthClient } from '../oauth/client.js'
 
 const router = Router()
 const GROUP_SERVICE_URL = process.env.GROUP_SERVICE_URL || 'http://localhost:3000'
@@ -25,19 +25,17 @@ router.post('/', async (req, res) => {
 
     const ownerDid = req.session.user.did
 
-    // Create a DPoP-authenticated agent to the user's PDS
-    const agent = new AtpAgent({
-      service: req.session.user.pdsUrl,
-      fetch: createDpopFetch(req.session.user, req),
-    })
+    // Restore the OAuth session to get an authenticated agent
+    const oauthSession = await oauthClient.restore(ownerDid)
+    const agent = new Agent(oauthSession)
 
-    // Fetch the user's email from their ePDS session (optional)
+    // Fetch the user's email from their PDS session (optional)
     let email: string | undefined
     try {
       const sessionRes = await agent.com.atproto.server.getSession()
       email = sessionRes.data.email
     } catch (err: any) {
-      console.warn('Could not fetch email from ePDS:', err.message)
+      console.warn('Could not fetch email from PDS:', err.message)
     }
 
     // Get a service auth JWT from the user's PDS to prove they control ownerDid

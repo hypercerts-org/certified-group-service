@@ -8,7 +8,8 @@ function handleProxyError(res: Response, err: any) {
   if (isSessionExpiredError(err)) {
     return res.status(401).json({ error: 'Session expired — please log in again', sessionExpired: true })
   }
-  res.status(err.status || 500).json({ error: err.message || 'Proxy request failed' })
+  const httpStatus = err.status >= 100 ? err.status : 502
+  res.status(httpStatus).json({ error: err.message || 'Proxy request failed' })
 }
 
 /**
@@ -28,7 +29,7 @@ router.post('/:nsid', async (req, res) => {
       return res.status(400).json({ error: 'Missing groupDid' })
     }
 
-    const agent = createProxyAgent(req.session.user, groupDid, req)
+    const agent = await createProxyAgent(req.session.user.did, groupDid)
     const response = await agent.call(nsid, {}, body, { encoding: 'application/json' })
     res.json(response.data)
   } catch (err: any) {
@@ -53,7 +54,7 @@ router.get('/:nsid', async (req, res) => {
       return res.status(400).json({ error: 'Missing groupDid query param' })
     }
 
-    const agent = createProxyAgent(req.session.user, groupDid, req)
+    const agent = await createProxyAgent(req.session.user.did, groupDid)
     const response = await agent.call(nsid, params)
     res.json(response.data)
   } catch (err: any) {

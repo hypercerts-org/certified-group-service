@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import './env.js'
 import express from 'express'
 import session from 'express-session'
 import cors from 'cors'
@@ -58,6 +58,5 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }))
 app.listen(PORT, () => {
   console.log(`BFF server running on http://localhost:${PORT}`)
   console.log(`Group Service URL: ${process.env.GROUP_SERVICE_URL || 'http://localhost:3000'}`)
-  console.log(`ePDS URL: ${process.env.EPDS_URL || 'not set'}`)
   console.log(`OAuth Client ID: ${process.env.OAUTH_CLIENT_ID || 'not set'}`)
 })

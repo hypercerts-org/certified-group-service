@@ -1,11 +1,9 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Request } from 'express'
-import { AtpAgent } from '@atproto/api'
+import { Agent } from '@atproto/api'
 import type { LexiconDoc } from '@atproto/lexicon'
-import { createDpopFetch } from './dpop-fetch.js'
-import type { SessionData } from '../session.js'
+import { oauthClient } from './client.js'
 
 /** Recursively load all .json lexicon files from a directory. */
 function loadLexicons(dir: string): LexiconDoc[] {
@@ -31,15 +29,13 @@ export function isSessionExpiredError(err: any): boolean {
 }
 
 /**
- * Creates an AtpAgent for the user's PDS with DPoP-bound OAuth fetch,
+ * Creates an AtpAgent for the user's PDS (via OAuth session),
  * proxied through the certified_group service to the given group DID.
  */
-export function createProxyAgent(session: SessionData, groupDid: string, req?: Request): AtpAgent {
-  const agent = new AtpAgent({
-    service: session.pdsUrl,
-    fetch: createDpopFetch(session, req),
-  })
-  const proxied = agent.withProxy('certified_group', groupDid) as AtpAgent
+export async function createProxyAgent(userDid: string, groupDid: string): Promise<Agent> {
+  const oauthSession = await oauthClient.restore(userDid)
+  const agent = new Agent(oauthSession)
+  const proxied = agent.withProxy('certified_group', groupDid) as Agent
   for (const doc of customLexicons) {
     proxied.lex.add(doc)
   }
