@@ -77,9 +77,9 @@ const groupAgent = agent.withProxy('certified_group', groupDid)
 
 All calls made through `groupAgent` will be forwarded by the PDS to the group service with proper service auth — you never touch the service auth JWTs directly.
 
-> **Note:** If your PDS uses DPoP-bound tokens (e.g. via OAuth), you'll need a custom
-> `fetchHandler` on the `AtpAgent` that attaches DPoP proofs. See the
-> [demo app's dpop-fetch.ts](../demo/server/oauth/dpop-fetch.ts) for a complete implementation.
+> **Note:** If your PDS uses DPoP-bound tokens (e.g. via OAuth), use `@atproto/oauth-client-node`
+> to manage sessions and create agents. See the [demo app's proxy-agent.ts](../demo/server/oauth/proxy-agent.ts)
+> for a complete implementation that restores an OAuth session and creates a proxied agent.
 
 ## Step 3: Make authenticated requests
 
@@ -263,8 +263,8 @@ Key constraints:
 ## Reference implementation
 
 The [demo app](../demo/) is a complete working example with:
-- OAuth login flow with DPoP ([`demo/server/oauth/`](../demo/server/oauth/))
-- DPoP fetch handler for AtpAgent ([`demo/server/oauth/dpop-fetch.ts`](../demo/server/oauth/dpop-fetch.ts))
+- OAuth login via `@atproto/oauth-client-node` ([`demo/server/oauth/client.ts`](../demo/server/oauth/client.ts))
+- Proxy agent creation with custom lexicons ([`demo/server/oauth/proxy-agent.ts`](../demo/server/oauth/proxy-agent.ts))
 - BFF proxy via service proxying ([`demo/server/routes/proxy.ts`](../demo/server/routes/proxy.ts))
 - Group registration ([`demo/server/routes/register.ts`](../demo/server/routes/register.ts))
 - React frontend ([`demo/src/`](../demo/src/))

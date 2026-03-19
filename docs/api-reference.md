@@ -30,7 +30,11 @@ Returns service health status. No authentication required.
 
 These endpoints proxy requests to the group's backing PDS after authentication and authorization.
 
+Each record operation accepts both the standard AT Protocol NSID and a custom alias. For example, `com.atproto.repo.createRecord` and `app.certified.group.repo.createRecord` are interchangeable. The custom NSIDs are useful when the client's PDS needs an explicit lexicon to route via `atproto-proxy`.
+
 ### `POST /xrpc/com.atproto.repo.createRecord`
+
+Alias: `POST /xrpc/app.certified.group.repo.createRecord`
 
 Create a new record in the group's repository.
 
@@ -88,6 +92,8 @@ curl -X POST https://group-service.example.com/xrpc/com.atproto.repo.createRecor
 ---
 
 ### `POST /xrpc/com.atproto.repo.putRecord`
+
+Alias: `POST /xrpc/app.certified.group.repo.putRecord`
 
 Update an existing record or create one at a specific key.
 
@@ -154,6 +160,8 @@ curl -X POST https://group-service.example.com/xrpc/com.atproto.repo.putRecord \
 
 ### `POST /xrpc/com.atproto.repo.deleteRecord`
 
+Alias: `POST /xrpc/app.certified.group.repo.deleteRecord`
+
 Delete a record from the group's repository.
 
 **Required role:**
@@ -203,6 +211,8 @@ curl -X POST https://group-service.example.com/xrpc/com.atproto.repo.deleteRecor
 ---
 
 ### `POST /xrpc/com.atproto.repo.uploadBlob`
+
+Alias: `POST /xrpc/app.certified.group.repo.uploadBlob`
 
 Upload a blob (image, file, etc.) to the group's PDS.
 

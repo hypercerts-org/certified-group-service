@@ -36,10 +36,10 @@ Every request must include an `Authorization: Bearer <JWT>` header. The verifica
 1. **Extract token** from the `Authorization` header
 2. **Parse the XRPC method** (NSID) from the request path
 3. **Validate the NSID** against the accepted whitelist:
-   - `com.atproto.repo.createRecord`
-   - `com.atproto.repo.putRecord`
-   - `com.atproto.repo.deleteRecord`
-   - `com.atproto.repo.uploadBlob`
+   - `com.atproto.repo.createRecord` (alias: `app.certified.group.repo.createRecord`)
+   - `com.atproto.repo.putRecord` (alias: `app.certified.group.repo.putRecord`)
+   - `com.atproto.repo.deleteRecord` (alias: `app.certified.group.repo.deleteRecord`)
+   - `com.atproto.repo.uploadBlob` (alias: `app.certified.group.repo.uploadBlob`)
    - `app.certified.group.member.add`
    - `app.certified.group.member.remove`
    - `app.certified.group.member.list`
@@ -50,8 +50,9 @@ Every request must include an `Authorization: Bearer <JWT>` header. The verifica
    - Token expiration (`exp`)
    - Lexicon method (`lxm`) matches the requested NSID
 5. **Validate audience** — the JWT's `aud` claim must match a group DID registered in the `groups` table
-6. **Check nonce** — the JWT's `jti` (JWT ID) is checked against the `nonce_cache` table. If it already exists, the request is rejected as a replay. Otherwise the jti is stored with a 2-minute TTL.
-7. **Return** `{ iss: callerDid, aud: groupDid }` to the endpoint handler
+6. **Enforce token lifetime** — the JWT's `exp - iat` must not exceed the nonce TTL (120 seconds). This prevents an attacker (e.g. a malicious PDS) from issuing long-lived tokens that remain valid after the nonce window closes.
+7. **Check nonce** — the JWT's `jti` (JWT ID) is checked against the `nonce_cache` table. If it already exists, the request is rejected as a replay. Otherwise the jti is stored with a 2-minute TTL.
+8. **Return** `{ iss: callerDid, aud: groupDid }` to the endpoint handler
 
 ## Service proxying
 
@@ -90,6 +91,7 @@ The `NonceCache` class manages replay prevention:
 - Each nonce has a 120-second TTL
 - A cleanup timer runs every 60 seconds to purge expired entries
 - The cleanup interval is configurable and properly stopped during graceful shutdown
+- Token lifetime is enforced: JWTs where `exp - iat` exceeds 120 seconds are rejected, ensuring tokens cannot outlive the nonce replay window
 
 ## Authorization (RBAC)
 
@@ -144,6 +146,7 @@ The `RbacChecker` class provides two key methods:
 | `did` | TEXT (PK) | The group's DID |
 | `pds_url` | TEXT | URL of the group's backing PDS |
 | `encrypted_app_password` | TEXT | AES-256-GCM encrypted app password for PDS login |
+| `encrypted_recovery_key` | TEXT (nullable) | AES-256-GCM encrypted recovery keypair for signing PLC operations |
 | `created_at` | TEXT | ISO timestamp, defaults to current time |
 
 #### `nonce_cache`
@@ -252,7 +255,7 @@ Each log entry captures:
 
 ## Group lifecycle
 
-1. **Registration**: `group.register` requires a service auth JWT proving the caller controls the `ownerDid`. It then creates a PDS account, registers a `#certified_group` service endpoint in the group's DID document, stores encrypted credentials, and seeds the owner.
+1. **Registration**: `group.register` requires a service auth JWT proving the caller controls the `ownerDid`. It then creates a PDS account, generates a recovery keypair (used to sign PLC operations directly instead of relying on the PDS's `signPlcOperation` endpoint), registers a `#certified_group` service endpoint in the group's DID document, stores encrypted credentials and the encrypted recovery key, and seeds the owner.
 2. **Database creation**: On startup, CGS loads all groups from the registry and runs per-group migrations for each, creating the group's SQLite database if it doesn't exist.
 3. **First owner**: The first owner is automatically seeded into the group's `group_members` table during `group.register`. After that, the owner can manage the group through the API.
 4. **Ongoing management**: Owners can promote admins, admins can add/remove members, and all authorized members can interact with the group's repository.
