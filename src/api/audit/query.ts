@@ -1,7 +1,7 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit, encodeCursor, decodeCursor } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit, encodeCursor, decodeCursor, sqliteToIso } from '../util.js'
 
 function parseDetail(s: string | null | undefined): unknown {
   if (!s) return undefined
@@ -62,7 +62,7 @@ export default function (server: Server, ctx: AppContext) {
           rkey: e.rkey ?? undefined,
           result: e.result,
           detail: parseDetail(e.detail),
-          createdAt: e.created_at,
+          createdAt: sqliteToIso(e.created_at),
         })),
       })
     },

@@ -6,13 +6,18 @@ import type { AuditEventDetail } from '../audit.js'
 import type { Operation } from '../rbac/permissions.js'
 import type { GroupDatabase } from '../db/schema.js'
 
-interface AuthedMethodConfig {
+export interface AuthedMethodConfig {
   opts?: RouteOptions
   handler: MethodHandler<GroupAuthResult>
 }
 
 export function jsonResponse<T>(body: T) {
   return { encoding: 'application/json' as const, body }
+}
+
+/** Convert a SQLite DATETIME string (no timezone) to ISO 8601. */
+export function sqliteToIso(timestamp: string): string {
+  return new Date(timestamp + 'Z').toISOString()
 }
 
 export function encodeCursor(payload: string): string {

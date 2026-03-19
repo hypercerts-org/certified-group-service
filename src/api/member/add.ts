@@ -2,7 +2,7 @@ import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import { ensureValidDid } from '@atproto/syntax'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse } from '../util.js'
+import { registerAuthedMethod, jsonResponse, sqliteToIso } from '../util.js'
 import { ConflictError, ForbiddenError } from '../../errors.js'
 import { ASSIGNABLE_ROLES, ROLE_HIERARCHY, type Role } from '../../rbac/permissions.js'
 
@@ -48,7 +48,7 @@ export default function (server: Server, ctx: AppContext) {
         memberDid: member.member_did,
         role: member.role,
         addedBy: callerDid,
-        addedAt: member.added_at,
+        addedAt: sqliteToIso(member.added_at),
       })
     },
   })
