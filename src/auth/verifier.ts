@@ -13,22 +13,6 @@ export type GroupAuthResult = { credentials: GroupAuthCredentials }
 
 const REGISTER_NSID = 'app.certified.group.register'
 
-const ACCEPTED_NSIDS = new Set([
-  'com.atproto.repo.createRecord',
-  'com.atproto.repo.deleteRecord',
-  'com.atproto.repo.putRecord',
-  'com.atproto.repo.uploadBlob',
-  'app.certified.group.repo.createRecord',
-  'app.certified.group.repo.deleteRecord',
-  'app.certified.group.repo.putRecord',
-  'app.certified.group.repo.uploadBlob',
-  'app.certified.group.member.list',
-  'app.certified.group.member.add',
-  'app.certified.group.member.remove',
-  'app.certified.group.role.set',
-  'app.certified.group.audit.query',
-])
-
 export class AuthVerifier {
   private verifyJwtFn: typeof defaultVerifyJwt
   private parseReqNsidFn: typeof defaultParseReqNsid
@@ -61,10 +45,6 @@ export class AuthVerifier {
     }
     const jwtStr = authHeader.slice(7)
     const nsid = this.parseReqNsidFn(req)
-
-    if (!ACCEPTED_NSIDS.has(nsid)) {
-      throw new AuthRequiredError(`Unsupported NSID: ${nsid}`)
-    }
 
     // verifyJwt checks: aud, lxm, exp, signature against DID doc.
     // Pass null for aud — we check it ourselves because we support multiple groups.

@@ -60,13 +60,6 @@ describe('AuthVerifier', () => {
     await expect(verifier.verify(makeReq({ authorization: 'Basic abc' }))).rejects.toThrow('Missing auth token')
   })
 
-  it('rejects unsupported NSID', async () => {
-    fakeParseReqNsid.mockReturnValue('com.atproto.repo.getRecord')
-    await expect(verifier.verify(makeReq({ authorization: 'Bearer jwt' }))).rejects.toThrow(
-      'Unsupported NSID: com.atproto.repo.getRecord',
-    )
-  })
-
   it('rejects invalid audience (group not in DB)', async () => {
     const now = Math.floor(Date.now() / 1000)
     fakeVerifyJwt.mockResolvedValue({ iss: 'did:plc:user', aud: 'did:plc:unknown', jti: 'jti-1', iat: now, exp: now + 60 })
