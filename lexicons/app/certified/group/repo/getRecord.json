@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.repo.getRecord",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get a single record from the group's repository. Proxied through the user's PDS.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "collection", "rkey"],
+        "properties": {
+          "repo": { "type": "string", "format": "at-identifier" },
+          "collection": { "type": "string", "format": "nsid" },
+          "rkey": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri", "value"],
+          "properties": {
+            "uri": { "type": "string", "format": "at-uri" },
+            "cid": { "type": "string" },
+            "value": { "type": "unknown" }
+          }
+        }
+      }
+    }
+  }
+}
