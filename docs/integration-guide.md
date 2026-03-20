@@ -42,6 +42,8 @@ The group service uses **custom NSIDs** for record operations instead of the sta
 | Create a record | `app.certified.group.repo.createRecord` |
 | Update a record | `app.certified.group.repo.putRecord` |
 | Delete a record | `app.certified.group.repo.deleteRecord` |
+| Get a record | `app.certified.group.repo.getRecord` |
+| List records | `app.certified.group.repo.listRecords` |
 | Upload a blob | `app.certified.group.repo.uploadBlob` |
 
 **Why not `com.atproto.repo.*`?** The recommended integration pattern uses service proxying: your app sends requests to the user's PDS with an `atproto-proxy` header, and the PDS forwards them to the group service. When the PDS sees a `com.atproto.repo.createRecord` call, it handles it itself (writing to its own repo) — it has no reason to forward it anywhere. Custom NSIDs like `app.certified.group.repo.createRecord` are unrecognized by the PDS, so it looks up the target service in the group's DID document and proxies the request there. **This is the only way record operations can reach the group service through the proxy pattern.**
@@ -254,19 +256,57 @@ await groupAgent.call(
 
 ## Reading records
 
-Reading records (`getRecord`, `listRecords`) does **not** go through the group service. The group's data lives on a real PDS, so reads go directly to that PDS using standard `com.atproto.repo.*` NSIDs — no RBAC, no custom lexicons, no group service involvement.
+You have two options for reading records:
 
-The PDS forwards `com.atproto.repo.getRecord` and `com.atproto.repo.listRecords` when an `atproto-proxy` header is present, so your proxy agent works for reads too:
+### Option 1: Through the group service (RBAC-enforced)
+
+Use the custom `app.certified.group.repo.*` NSIDs. These go through the group service, require the **member** role, and are logged in the audit trail — just like writes.
 
 ```typescript
 // Read a single record
+const { data: record } = await groupAgent.call(
+  'app.certified.group.repo.getRecord',
+  {
+    repo: groupDid,
+    collection: 'app.bsky.feed.post',
+    rkey: '3abc123',
+  },
+)
+
+// List records in a collection (paginated)
+const { data: { records, cursor } } = await groupAgent.call(
+  'app.certified.group.repo.listRecords',
+  {
+    repo: groupDid,
+    collection: 'app.bsky.feed.post',
+    limit: 50,
+  },
+)
+
+// Fetch next page using cursor
+const { data: nextPage } = await groupAgent.call(
+  'app.certified.group.repo.listRecords',
+  {
+    repo: groupDid,
+    collection: 'app.bsky.feed.post',
+    limit: 50,
+    cursor,
+  },
+)
+```
+
+### Option 2: Directly from the PDS (public, no auth)
+
+The group's data lives on a real PDS. Since AT Protocol repos are public, you can read records directly using the standard `com.atproto.repo.*` NSIDs — no group service involvement, no RBAC, no authentication required.
+
+```typescript
+// Read directly from the PDS — works without group membership
 const { data: record } = await groupAgent.com.atproto.repo.getRecord({
   repo: groupDid,
   collection: 'app.bsky.feed.post',
   rkey: '3abc123',
 })
 
-// List records in a collection
 const { data: { records } } = await groupAgent.com.atproto.repo.listRecords({
   repo: groupDid,
   collection: 'app.bsky.feed.post',
@@ -274,7 +314,7 @@ const { data: { records } } = await groupAgent.com.atproto.repo.listRecords({
 })
 ```
 
-These are standard AT Protocol read operations — no authentication is required beyond what the PDS needs to resolve the proxy target. Any `com.atproto.repo.*` read works here because the PDS recognizes these as reads and proxies them, unlike writes which the PDS handles locally (see [Custom lexicons](#custom-lexicons-why-appcertifiedgrouprepo) above).
+**Which to use?** Use Option 1 if you want reads gated behind group membership and logged in the audit trail. Use Option 2 if the data is meant to be publicly readable or you need unauthenticated access.
 
 ## Writing records
 
@@ -448,6 +488,8 @@ All error responses follow this shape:
 | `app.certified.group.repo.createRecord` | procedure | member | Create a record |
 | `app.certified.group.repo.putRecord` | procedure | member/admin | Update or create a record |
 | `app.certified.group.repo.deleteRecord` | procedure | member/admin | Delete a record |
+| `app.certified.group.repo.getRecord` | query | member | Get a single record |
+| `app.certified.group.repo.listRecords` | query | member | List records in a collection |
 | `app.certified.group.repo.uploadBlob` | procedure | member | Upload a blob (max 5 MB) |
 | `app.certified.group.member.add` | procedure | admin | Add a member |
 | `app.certified.group.member.remove` | procedure | admin/self | Remove a member |
@@ -461,8 +503,7 @@ Roles are **per-group**, not global. A user can be an owner of one group, a memb
 
 | Role | Can do (within that group) |
 |------|--------|
-| *(anyone)* | Read records (`getRecord`, `listRecords`) — reads go to the PDS, not the group service |
-| **member** | Create records, edit any record, delete own records, upload blobs, list members |
+| **member** | Read records, create records, edit any record, delete own records, upload blobs, list members |
 | **admin** | Everything above + delete any record, edit group profile, add/remove members, query audit log |
 | **owner** | Everything above + change member roles (promote/demote to any level including owner) |
 
