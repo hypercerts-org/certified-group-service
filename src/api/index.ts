@@ -4,8 +4,6 @@ import type { AppContext } from '../context.js'
 
 import createRecord from './repo/createRecord.js'
 import deleteRecord from './repo/deleteRecord.js'
-import getRecord from './repo/getRecord.js'
-import listRecords from './repo/listRecords.js'
 import putRecord from './repo/putRecord.js'
 import uploadBlob from './repo/uploadBlob.js'
 import memberAdd from './member/add.js'
@@ -18,8 +16,6 @@ import groupRegister from './group/register.js'
 export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   createRecord(server, ctx)
   deleteRecord(server, ctx)
-  getRecord(server, ctx)
-  listRecords(server, ctx)
   putRecord(server, ctx)
   uploadBlob(server, ctx)
   memberAdd(server, ctx)

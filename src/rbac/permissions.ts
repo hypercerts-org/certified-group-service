@@ -2,8 +2,6 @@ export type Role = 'member' | 'admin' | 'owner'
 
 export type Operation =
   | 'createRecord'
-  | 'getRecord'
-  | 'listRecords'
   | 'uploadBlob'
   | 'deleteOwnRecord'
   | 'deleteAnyRecord'
@@ -26,8 +24,6 @@ export const ASSIGNABLE_ROLES: Role[] = ['member', 'admin']
 
 const MIN_ROLE_FOR_OPERATION: Record<Operation, Role> = {
   createRecord: 'member',
-  getRecord: 'member',
-  listRecords: 'member',
   uploadBlob: 'member',
   deleteOwnRecord: 'member',
   putOwnRecord: 'member',
