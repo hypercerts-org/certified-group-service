@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useGroup } from '../App'
-import { proxyPost } from '../api'
+import { proxyGet, proxyPost } from '../api'
 import { JsonEditor } from '../components/JsonEditor'
 
 const COLLECTIONS = [
@@ -70,7 +70,7 @@ const btnStyle: React.CSSProperties = {
 
 const dangerBtn: React.CSSProperties = { ...btnStyle, background: '#e74c3c' }
 
-type Tab = 'create' | 'update' | 'delete'
+type Tab = 'create' | 'update' | 'delete' | 'list' | 'get'
 
 export function Records() {
   const { group } = useGroup()
@@ -84,6 +84,8 @@ export function Records() {
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [limit, setLimit] = useState('50')
+  const [cursor, setCursor] = useState('')
 
   const activeCollection = useCustom ? customCollection : collection
 
@@ -127,6 +129,48 @@ export function Records() {
         collection: activeCollection,
         rkey,
         record,
+      })
+      setResult(res)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const listRecords = async (cursorOverride?: string) => {
+    setError('')
+    setResult(null)
+    setLoading(true)
+    try {
+      const effectiveCursor = cursorOverride ?? cursor
+      const params: Record<string, string> = {
+        groupDid,
+        repo: groupDid,
+        collection: activeCollection,
+        limit,
+      }
+      if (effectiveCursor) params.cursor = effectiveCursor
+      const res = await proxyGet('app.certified.group.repo.listRecords', params)
+      setResult(res)
+      if (res.cursor) setCursor(res.cursor)
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getRecord = async () => {
+    setError('')
+    setResult(null)
+    setLoading(true)
+    try {
+      const res = await proxyGet('app.certified.group.repo.getRecord', {
+        groupDid,
+        repo: groupDid,
+        collection: activeCollection,
+        rkey,
       })
       setResult(res)
     } catch (err: any) {
@@ -185,6 +229,8 @@ export function Records() {
         <button style={tabStyle('create')} onClick={() => setTab('create')}>Create</button>
         <button style={tabStyle('update')} onClick={() => setTab('update')}>Update</button>
         <button style={tabStyle('delete')} onClick={() => setTab('delete')}>Delete</button>
+        <button style={tabStyle('list')} onClick={() => setTab('list')}>List</button>
+        <button style={tabStyle('get')} onClick={() => setTab('get')}>Get</button>
       </div>
 
       <div style={{ background: '#fff', padding: 16, borderRadius: '0 6px 6px 6px', border: '1px solid #ddd' }}>
@@ -232,8 +278,8 @@ export function Records() {
           )}
         </div>
 
-        {/* Rkey for update/delete */}
-        {(tab === 'update' || tab === 'delete') && (
+        {/* Rkey for update/delete/get */}
+        {(tab === 'update' || tab === 'delete' || tab === 'get') && (
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 13, fontWeight: 600 }}>Record Key (rkey)</label>
             <input
@@ -245,8 +291,33 @@ export function Records() {
           </div>
         )}
 
+        {/* Limit/cursor for list */}
+        {tab === 'list' && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 13, fontWeight: 600 }}>Limit</label>
+              <input
+                style={{ ...inputStyle, width: '100%', marginTop: 4 }}
+                type="number"
+                value={limit}
+                onChange={(e) => setLimit(e.target.value)}
+                placeholder="50"
+              />
+            </div>
+            <div style={{ flex: 2 }}>
+              <label style={{ fontSize: 13, fontWeight: 600 }}>Cursor</label>
+              <input
+                style={{ ...inputStyle, width: '100%', marginTop: 4 }}
+                value={cursor}
+                onChange={(e) => setCursor(e.target.value)}
+                placeholder="(leave empty for first page)"
+              />
+            </div>
+          </div>
+        )}
+
         {/* JSON editor for create/update */}
-        {tab !== 'delete' && (
+        {(tab === 'create' || tab === 'update') && (
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 13, fontWeight: 600 }}>Record JSON</label>
             <div style={{ marginTop: 4 }}>
@@ -276,6 +347,26 @@ export function Records() {
           {tab === 'delete' && (
             <button onClick={deleteRecord} disabled={loading} style={dangerBtn}>
               {loading ? 'Deleting...' : 'Delete Record'}
+            </button>
+          )}
+          {tab === 'list' && (
+            <>
+              <button onClick={() => listRecords()} disabled={loading} style={btnStyle}>
+                {loading ? 'Loading...' : 'List Records'}
+              </button>
+              {result?.cursor && (
+                <button
+                  onClick={() => listRecords(result.cursor)}
+                  style={{ ...btnStyle, background: '#2d7d46' }}
+                >
+                  Next Page
+                </button>
+              )}
+            </>
+          )}
+          {tab === 'get' && (
+            <button onClick={getRecord} disabled={loading} style={btnStyle}>
+              {loading ? 'Loading...' : 'Get Record'}
             </button>
           )}
         </div>

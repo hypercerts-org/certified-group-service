@@ -25,7 +25,12 @@ const customLexicons = loadLexicons(
 )
 
 export function isSessionExpiredError(err: any): boolean {
-  return err.status === 401 || err.message?.includes('log in again')
+  // Only treat OAuth-layer failures as session-expired.
+  // Upstream XRPC 401s (e.g. "not a member") are authorization errors, not session errors.
+  if (err.message?.includes('log in again')) return true
+  // OAuthSessionError or token-refresh failures set status 401 but lack XRPC `error` field
+  if (err.status === 401 && !err.error) return true
+  return false
 }
 
 /**
