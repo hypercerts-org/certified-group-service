@@ -252,9 +252,33 @@ await groupAgent.call(
 )
 ```
 
-## Record operations
+## Reading records
 
-All record operations enforce RBAC and log to the audit trail. The `repo` field must always match the group DID.
+Reading records (`getRecord`, `listRecords`) does **not** go through the group service. The group's data lives on a real PDS, so reads go directly to that PDS using standard `com.atproto.repo.*` NSIDs — no RBAC, no custom lexicons, no group service involvement.
+
+The PDS forwards `com.atproto.repo.getRecord` and `com.atproto.repo.listRecords` when an `atproto-proxy` header is present, so your proxy agent works for reads too:
+
+```typescript
+// Read a single record
+const { data: record } = await groupAgent.com.atproto.repo.getRecord({
+  repo: groupDid,
+  collection: 'app.bsky.feed.post',
+  rkey: '3abc123',
+})
+
+// List records in a collection
+const { data: { records } } = await groupAgent.com.atproto.repo.listRecords({
+  repo: groupDid,
+  collection: 'app.bsky.feed.post',
+  limit: 50,
+})
+```
+
+These are standard AT Protocol read operations — no authentication is required beyond what the PDS needs to resolve the proxy target. Any `com.atproto.repo.*` read works here because the PDS recognizes these as reads and proxies them, unlike writes which the PDS handles locally (see [Custom lexicons](#custom-lexicons-why-appcertifiedgrouprepo) above).
+
+## Writing records
+
+All write operations go through the group service, which enforces RBAC and logs to the audit trail. The `repo` field must always match the group DID.
 
 ### createRecord
 
@@ -437,6 +461,7 @@ Roles are **per-group**, not global. A user can be an owner of one group, a memb
 
 | Role | Can do (within that group) |
 |------|--------|
+| *(anyone)* | Read records (`getRecord`, `listRecords`) — reads go to the PDS, not the group service |
 | **member** | Create records, edit any record, delete own records, upload blobs, list members |
 | **admin** | Everything above + delete any record, edit group profile, add/remove members, query audit log |
 | **owner** | Everything above + change member roles (promote/demote to any level including owner) |
