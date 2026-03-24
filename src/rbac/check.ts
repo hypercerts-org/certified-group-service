@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely'
 import { canPerform, ROLE_HIERARCHY, type Operation, type Role } from './permissions.js'
-import { UnauthorizedError, ForbiddenError } from '../errors.js'
+import { ForbiddenError } from '../errors.js'
 import type { GroupDatabase } from '../db/schema.js'
 
 export class RbacChecker {
@@ -16,7 +16,7 @@ export class RbacChecker {
       .executeTakeFirst()
 
     if (!member) {
-      throw new UnauthorizedError('Not a member of this group')
+      throw new ForbiddenError('Not a member of this group')
     }
 
     const role = member.role as Role

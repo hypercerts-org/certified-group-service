@@ -179,12 +179,12 @@ describe('member.remove', () => {
     expect(res.status).toBe(404)
   })
 
-  it('self-removal of non-member returns 401', async () => {
+  it('self-removal of non-member returns 403', async () => {
     app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:stranger') })
     const res = await request(app)
       .post('/xrpc/app.certified.group.member.remove')
       .send({ memberDid: 'did:plc:stranger' })
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(403)
   })
 
   it('admin cannot remove another admin (equal role)', async () => {
@@ -254,10 +254,10 @@ describe('member.list', () => {
     expect(res2.body.members.length).toBeGreaterThan(0)
   })
 
-  it('non-members get 401', async () => {
+  it('non-members get 403', async () => {
     app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:stranger') })
     const res = await request(app).get('/xrpc/app.certified.group.member.list')
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(403)
   })
 
   it('limit=0 is rejected (lexicon minimum is 1)', async () => {

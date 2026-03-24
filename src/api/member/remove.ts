@@ -27,7 +27,7 @@ export default function (server: Server, ctx: AppContext) {
 
       if (!target) {
         if (callerDid === memberDid) {
-          throw new XRPCError(401, 'Not a member of this group', 'Unauthorized')
+          throw new XRPCError(403, 'Not a member of this group', 'Forbidden')
         }
         throw new XRPCError(404, 'Member not found', 'MemberNotFound')
       }

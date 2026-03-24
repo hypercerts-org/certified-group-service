@@ -49,7 +49,7 @@ describe('uploadBlob', () => {
       .post('/xrpc/com.atproto.repo.uploadBlob')
       .set('Content-Type', 'application/octet-stream')
       .send(Buffer.alloc(10))
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(403)
 
     const logs = await groupDb.selectFrom('group_audit_log').selectAll().execute()
     expect(logs).toHaveLength(1)

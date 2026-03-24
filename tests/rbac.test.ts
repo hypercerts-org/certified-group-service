@@ -47,7 +47,7 @@ describe('RbacChecker', () => {
     expect(role).toBe('member')
   })
 
-  it('assertCan throws UnauthorizedError for non-member', async () => {
+  it('assertCan throws ForbiddenError for non-member', async () => {
     await expect(rbac.assertCan(groupDb, 'did:plc:nobody', 'createRecord')).rejects.toThrow('Not a member')
   })
 

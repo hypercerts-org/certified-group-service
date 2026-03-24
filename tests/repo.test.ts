@@ -56,7 +56,7 @@ describe('createRecord', () => {
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.createRecord')
       .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: {} })
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(403)
   })
 
   it('audit logs permitted actions', async () => {
