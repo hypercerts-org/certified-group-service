@@ -1,6 +1,6 @@
 import type { Server } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit, type AuthedMethodConfig } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit, proxyToPds, type AuthedMethodConfig } from '../util.js'
 import { ForbiddenError } from '../../errors.js'
 import type { Operation } from '../../rbac/permissions.js'
 
@@ -21,7 +21,7 @@ export default function (server: Server, ctx: AppContext) {
       await assertCanWithAudit(ctx, groupDb, callerDid, operation, { collection: input.collection })
 
       // 3. Forward to group's PDS via withAgent
-      const response = await ctx.pdsAgents.withAgent(groupDid, (agent) =>
+      const response = await proxyToPds(ctx.pdsAgents, groupDid, (agent) =>
         agent.com.atproto.repo.createRecord(input),
       )
 

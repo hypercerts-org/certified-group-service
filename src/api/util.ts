@@ -5,6 +5,8 @@ import type { GroupAuthResult } from '../auth/verifier.js'
 import type { AuditEventDetail } from '../audit.js'
 import type { Operation } from '../rbac/permissions.js'
 import type { GroupDatabase } from '../db/schema.js'
+import { UpstreamFailureError } from '../errors.js'
+import type { PdsAgentPool } from '../pds/agent.js'
 
 export interface AuthedMethodConfig {
   opts?: RouteOptions
@@ -43,6 +45,25 @@ export async function assertCanWithAudit(
       reason: (err as Error).message,
     })
     throw err
+  }
+}
+
+/**
+ * Proxy a call to the group's PDS, wrapping any PDS/network errors as 502.
+ * Without this, PDS errors leak through with their original status codes
+ * (e.g. a PDS 401 becomes a CGS 401, confusing the caller).
+ */
+export async function proxyToPds<T>(
+  pdsAgents: PdsAgentPool,
+  groupDid: string,
+  fn: (agent: import('@atproto/api').Agent) => Promise<T>,
+): Promise<T> {
+  try {
+    return await pdsAgents.withAgent(groupDid, fn)
+  } catch (err) {
+    if (err instanceof UpstreamFailureError) throw err
+    const msg = err instanceof Error ? err.message : String(err)
+    throw new UpstreamFailureError(`Upstream PDS error: ${msg}`)
   }
 }
 

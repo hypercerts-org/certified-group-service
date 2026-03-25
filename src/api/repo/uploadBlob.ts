@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream'
 import type { Server } from '@atproto/xrpc-server'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit, type AuthedMethodConfig } from '../util.js'
+import { registerAuthedMethod, jsonResponse, assertCanWithAudit, proxyToPds, type AuthedMethodConfig } from '../util.js'
 import type { AppContext } from '../../context.js'
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -25,7 +25,7 @@ export default function (server: Server, ctx: AppContext) {
       const blobData = await streamToBuffer(input?.body as Readable)
       const contentType = input?.encoding ?? 'application/octet-stream'
 
-      const response = await ctx.pdsAgents.withAgent(groupDid, (agent) =>
+      const response = await proxyToPds(ctx.pdsAgents, groupDid, (agent) =>
         agent.com.atproto.repo.uploadBlob(blobData, { encoding: contentType }),
       )
 
