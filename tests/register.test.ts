@@ -157,6 +157,31 @@ describe('group.register', () => {
     expect(res.body.error).toBe('HandleNotAvailable')
   })
 
+  it('forwards PDS handle-validation errors as 400', async () => {
+    vi.mocked(AtpAgent).mockImplementationOnce(() => ({
+      resumeSession: vi.fn().mockResolvedValue(undefined),
+      com: {
+        atproto: {
+          server: {
+            createAccount: vi.fn().mockRejectedValue(
+              Object.assign(new Error('Handle too long'), { status: 400, error: 'InvalidHandle' }),
+            ),
+            createAppPassword: vi.fn(),
+          },
+          identity: {
+            getRecommendedDidCredentials: vi.fn(),
+          },
+        },
+      },
+    }) as any)
+
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.register')
+      .send(validBody)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe('Handle too long')
+  })
+
   it('returns 400 for invalid ownerDid', async () => {
     const res = await request(app)
       .post('/xrpc/app.certified.group.register')

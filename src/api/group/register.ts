@@ -75,6 +75,9 @@ export default function (app: Express, ctx: AppContext) {
         ) {
           throw new ConflictError('Handle already taken on the PDS', 'HandleNotAvailable')
         }
+        if (err?.status === 400) {
+          throw new InvalidRequestError(err?.message ?? 'Invalid request')
+        }
         throw err
       }
 
