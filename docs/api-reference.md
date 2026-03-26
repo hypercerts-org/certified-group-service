@@ -489,6 +489,38 @@ Query the group's audit log.
 
 Entries are ordered newest first (`id DESC`). The `detail` field is a JSON object parsed from the stored JSON string.
 
+#### Action values
+
+Every audited operation produces one of the following `action` strings. Denied operations use the same action value with `"result": "denied"` and an additional `reason` field in `detail`.
+
+| Action | Trigger | `detail` fields |
+|--------|---------|-----------------|
+| `group.register` | Group created via `app.certified.group.register` | `{ handle }` |
+| `member.add` | Member added via `member.add` | `{ memberDid, role }` |
+| `member.remove` | Member removed via `member.remove` | `{ memberDid }` |
+| `role.set` | Role changed via `role.set` | `{ memberDid, previousRole, newRole }` |
+| `createRecord` | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }` |
+| `putOwnRecord` | Caller updated a record they authored | `{ collection, rkey }` |
+| `putAnyRecord` | Caller updated another member's record | `{ collection, rkey }` |
+| `putRecord:profile` | Group profile updated (`app.bsky.actor.profile` rkey `self`) | `{ collection, rkey }` |
+| `deleteOwnRecord` | Caller deleted a record they authored | `{ collection, rkey }` |
+| `deleteAnyRecord` | Caller deleted another member's record | `{ collection, rkey }` |
+| `uploadBlob` | Blob uploaded via `uploadBlob` | *(none)* |
+
+**Denied entries** include the same `detail` fields as permitted entries, plus a `reason` string explaining why the operation was denied:
+
+```json
+{
+  "action": "deleteAnyRecord",
+  "result": "denied",
+  "detail": {
+    "collection": "app.bsky.feed.post",
+    "rkey": "3abc123",
+    "reason": "Forbidden: role 'member' cannot perform 'deleteAnyRecord'"
+  }
+}
+```
+
 **Example:**
 
 ```bash

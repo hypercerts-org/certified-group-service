@@ -410,14 +410,14 @@ Audit entries look like:
 {
   "id": "42",
   "actorDid": "did:plc:member1",
-  "action": "createRecord",
-  "collection": "app.bsky.feed.post",
-  "rkey": "3abc123",
+  "action": "member.add",
   "result": "permitted",
-  "detail": { "collection": "app.bsky.feed.post", "rkey": "3abc123" },
+  "detail": { "memberDid": "did:plc:newmember", "role": "admin" },
   "createdAt": "2026-01-15T12:00:00.000Z"
 }
 ```
+
+For the full list of `action` values and what each `detail` object contains, see [Action values](./api-reference.md#action-values) in the API reference.
 
 ## Error handling
 
