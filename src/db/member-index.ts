@@ -35,7 +35,7 @@ export class MemberIndex implements MemberIndexWriter {
   }
 
   private withGlobalAttached(groupRaw: Database.Database, fn: (raw: Database.Database) => void): void {
-    groupRaw.exec(`ATTACH DATABASE '${this.globalDbPath}' AS global_db`)
+    groupRaw.prepare('ATTACH DATABASE ? AS global_db').run(this.globalDbPath)
     try {
       groupRaw.transaction(() => fn(groupRaw))()
     } finally {
@@ -87,7 +87,13 @@ export async function backfillMemberIndex(
           added_by: m.added_by,
           added_at: m.added_at,
         })
-        .onConflict((oc) => oc.columns(['member_did', 'group_did']).doNothing())
+        .onConflict((oc) =>
+          oc.columns(['member_did', 'group_did']).doUpdateSet({
+            role: m.role,
+            added_by: m.added_by,
+            added_at: m.added_at,
+          }),
+        )
         .execute()
       count++
     }
