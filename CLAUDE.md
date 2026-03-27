@@ -17,6 +17,7 @@
 - **Owner can only be created** via `group.register` (seeds DB) or `role.set` (owner-only). `member.add` caps at admin.
 - **Record authorship is immutable**: `onConflict(...).doNothing()` preserves original author on putRecord. Used for "who can delete this" (only admins can `deleteAnyRecord`); any member can edit any record regardless of authorship.
 - **Profile edits** (`app.bsky.actor.profile` + rkey `self`) use a special operation `putRecord:profile` requiring admin, regardless of authorship.
+- **`datetime('now')` is step-stable, not transaction-stable**: each `prepare().run()` maps to a separate `sqlite3_step()`, so two INSERTs in the same transaction can produce different timestamps. When the same timestamp must appear in multiple tables, read it back from the first INSERT and reuse it.
 
 ## Testing
 - `pnpm test` exits after one run (no watch mode). Redirect output to a temp file so you can inspect failures without re-running: `pnpm test > /tmp/test-output.log 2>&1` then read the file.
