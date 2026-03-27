@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import express from 'express'
 import request from 'supertest'
-import { createTestContext, seedMember, createTestApp, mockAuth } from './helpers/mock-server.js'
+import { createTestContext, seedMember, seedMemberWithIndex, createTestApp, mockAuth } from './helpers/mock-server.js'
 import memberAddHandler from '../src/api/member/add.js'
 import memberRemoveHandler from '../src/api/member/remove.js'
 import memberListHandler from '../src/api/member/list.js'
@@ -9,7 +9,7 @@ import roleSetHandler from '../src/api/role/set.js'
 import auditQueryHandler from '../src/api/audit/query.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
-import type { GroupDatabase } from '../src/db/schema.js'
+import type { GlobalDatabase, GroupDatabase } from '../src/db/schema.js'
 
 function buildApp(ctx: AppContext) {
   return createTestApp(ctx, (server, appCtx) => {
@@ -23,12 +23,14 @@ function buildApp(ctx: AppContext) {
 
 describe('member.add', () => {
   let ctx: AppContext
+  let globalDb: Kysely<GlobalDatabase>
   let groupDb: Kysely<GroupDatabase>
   let app: express.Express
 
   beforeEach(async () => {
     const test = await createTestContext()
     ctx = test.ctx
+    globalDb = test.globalDb
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'admin')
     app = buildApp(ctx)
@@ -47,6 +49,16 @@ describe('member.add', () => {
     expect(res.body.role).toBe('member')
     expect(res.body.addedBy).toBe('did:plc:testuser')
     expect(res.body.addedAt).toBeDefined()
+
+    // Verify member_index is in sync
+    const indexRow = await globalDb
+      .selectFrom('member_index')
+      .selectAll()
+      .where('member_did', '=', 'did:plc:newuser')
+      .executeTakeFirst()
+    expect(indexRow).toBeDefined()
+    expect(indexRow!.role).toBe('member')
+    expect(indexRow!.group_did).toBe('did:plc:testgroup')
   })
 
   it('admin cannot add another admin (role >= own)', async () => {
@@ -131,12 +143,14 @@ describe('member.add', () => {
 
 describe('member.remove', () => {
   let ctx: AppContext
+  let globalDb: Kysely<GlobalDatabase>
   let groupDb: Kysely<GroupDatabase>
   let app: express.Express
 
   beforeEach(async () => {
     const test = await createTestContext()
     ctx = test.ctx
+    globalDb = test.globalDb
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'admin')
     app = buildApp(ctx)
@@ -154,6 +168,14 @@ describe('member.remove', () => {
     expect(res.status).toBe(200)
     const remaining = await groupDb.selectFrom('group_members').selectAll().where('member_did', '=', 'did:plc:target').execute()
     expect(remaining).toHaveLength(0)
+
+    // Verify member_index row is also removed
+    const indexRow = await globalDb
+      .selectFrom('member_index')
+      .selectAll()
+      .where('member_did', '=', 'did:plc:target')
+      .executeTakeFirst()
+    expect(indexRow).toBeUndefined()
   })
 
   it('cannot remove owner', async () => {
@@ -286,12 +308,14 @@ describe('member.list', () => {
 
 describe('role.set', () => {
   let ctx: AppContext
+  let globalDb: Kysely<GlobalDatabase>
   let groupDb: Kysely<GroupDatabase>
   let app: express.Express
 
   beforeEach(async () => {
     const test = await createTestContext()
     ctx = test.ctx
+    globalDb = test.globalDb
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
     app = buildApp(ctx)
@@ -302,12 +326,21 @@ describe('role.set', () => {
   })
 
   it('owner promotes member to admin', async () => {
-    await seedMember(groupDb, 'did:plc:target', 'member')
+    await seedMemberWithIndex(groupDb, globalDb, 'did:plc:target', 'did:plc:testgroup', 'member')
     const res = await request(app)
       .post('/xrpc/app.certified.group.role.set')
       .send({ memberDid: 'did:plc:target', role: 'admin' })
     expect(res.status).toBe(200)
     expect(res.body.role).toBe('admin')
+
+    // Verify member_index role is updated
+    const indexRow = await globalDb
+      .selectFrom('member_index')
+      .selectAll()
+      .where('member_did', '=', 'did:plc:target')
+      .executeTakeFirst()
+    expect(indexRow).toBeDefined()
+    expect(indexRow!.role).toBe('admin')
   })
 
   it('rejects changing owner role with CannotModifyOwner', async () => {

@@ -160,4 +160,103 @@ describe('groups.membership.list', () => {
     const joinedAt = res.body.groups[0].joinedAt
     expect(new Date(joinedAt).toISOString()).toBe(joinedAt)
   })
+
+  it('paginates correctly when added_at timestamps are identical', async () => {
+    const timestamp = '2025-01-01 00:00:00'
+    const dids = ['did:plc:aaa', 'did:plc:bbb', 'did:plc:ccc', 'did:plc:ddd']
+
+    // Register groups in global DB
+    for (const did of dids) {
+      await globalDb.insertInto('groups').values({
+        did,
+        pds_url: 'https://pds.example.com',
+        encrypted_app_password: 'enc',
+      }).execute()
+    }
+
+    // Insert directly into member_index with identical timestamps
+    for (const did of dids) {
+      await globalDb.insertInto('member_index').values({
+        member_did: 'did:plc:testuser',
+        group_did: did,
+        role: 'member',
+        added_by: 'did:plc:owner',
+        added_at: timestamp,
+      }).execute()
+    }
+
+    const res1 = await request(app).get('/xrpc/app.certified.groups.membership.list?limit=2')
+    expect(res1.status).toBe(200)
+    expect(res1.body.groups).toHaveLength(2)
+    expect(res1.body.cursor).toBeDefined()
+
+    const res2 = await request(app).get(
+      `/xrpc/app.certified.groups.membership.list?limit=2&cursor=${res1.body.cursor}`,
+    )
+    expect(res2.status).toBe(200)
+    expect(res2.body.groups).toHaveLength(2)
+    expect(res2.body.cursor).toBeUndefined()
+
+    // Verify all 4 DIDs returned with no duplicates
+    const allDids = [
+      ...res1.body.groups.map((g: any) => g.groupDid),
+      ...res2.body.groups.map((g: any) => g.groupDid),
+    ]
+    expect(allDids).toEqual(dids) // lexicographic order
+    expect(new Set(allDids).size).toBe(4)
+  })
+
+  it('multi-page pagination returns all results without duplicates', async () => {
+    // Register 7 groups
+    const groupDids = Array.from({ length: 7 }, (_, i) => `did:plc:page${i}`)
+    for (const did of groupDids) {
+      await globalDb.insertInto('groups').values({
+        did,
+        pds_url: 'https://pds.example.com',
+        encrypted_app_password: 'enc',
+      }).execute()
+    }
+
+    // Insert into member_index with ascending timestamps
+    for (let i = 0; i < 7; i++) {
+      await globalDb.insertInto('member_index').values({
+        member_did: 'did:plc:testuser',
+        group_did: groupDids[i],
+        role: 'member',
+        added_by: 'did:plc:owner',
+        added_at: `2025-01-01 00:00:0${i + 1}`,
+      }).execute()
+    }
+
+    // Page 1
+    const res1 = await request(app).get('/xrpc/app.certified.groups.membership.list?limit=3')
+    expect(res1.status).toBe(200)
+    expect(res1.body.groups).toHaveLength(3)
+    expect(res1.body.cursor).toBeDefined()
+
+    // Page 2
+    const res2 = await request(app).get(
+      `/xrpc/app.certified.groups.membership.list?limit=3&cursor=${res1.body.cursor}`,
+    )
+    expect(res2.status).toBe(200)
+    expect(res2.body.groups).toHaveLength(3)
+    expect(res2.body.cursor).toBeDefined()
+
+    // Page 3
+    const res3 = await request(app).get(
+      `/xrpc/app.certified.groups.membership.list?limit=3&cursor=${res2.body.cursor}`,
+    )
+    expect(res3.status).toBe(200)
+    expect(res3.body.groups).toHaveLength(1)
+    expect(res3.body.cursor).toBeUndefined()
+
+    // Verify union of all pages
+    const allDids = [
+      ...res1.body.groups.map((g: any) => g.groupDid),
+      ...res2.body.groups.map((g: any) => g.groupDid),
+      ...res3.body.groups.map((g: any) => g.groupDid),
+    ]
+    expect(new Set(allDids).size).toBe(7)
+    expect(new Set(allDids)).toEqual(new Set(groupDids))
+  })
 })
