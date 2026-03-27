@@ -310,20 +310,21 @@ describe('role.set', () => {
     expect(res.body.role).toBe('admin')
   })
 
-  it('prevents last owner demotion', async () => {
+  it('rejects changing owner role with CannotModifyOwner', async () => {
     const res = await request(app)
       .post('/xrpc/app.certified.group.role.set')
       .send({ memberDid: 'did:plc:testuser', role: 'admin' })
     expect(res.status).toBe(400)
-    expect(res.body.error).toBe('LastOwnerDemotion')
+    expect(res.body.error).toBe('CannotModifyOwner')
   })
 
-  it('allows owner demotion when another owner exists', async () => {
-    await seedMember(groupDb, 'did:plc:owner2', 'owner')
+  it('rejects promoting to owner with CannotPromoteToOwner', async () => {
+    await seedMember(groupDb, 'did:plc:admin1', 'admin')
     const res = await request(app)
       .post('/xrpc/app.certified.group.role.set')
-      .send({ memberDid: 'did:plc:testuser', role: 'admin' })
-    expect(res.status).toBe(200)
+      .send({ memberDid: 'did:plc:admin1', role: 'owner' })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('CannotPromoteToOwner')
   })
 
   it('non-owner cannot set roles', async () => {
