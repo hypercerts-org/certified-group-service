@@ -1,7 +1,9 @@
+import type Database from 'better-sqlite3'
 import type { AppContext } from '../../src/context.js'
 import type { Config } from '../../src/config.js'
 import { RbacChecker } from '../../src/rbac/check.js'
 import { AuditLogger } from '../../src/audit.js'
+import { TestMemberIndex } from '../../src/db/member-index.js'
 import { createTestGlobalDb, createTestGroupDb } from './test-db.js'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase, GroupDatabase } from '../../src/db/schema.js'
@@ -18,10 +20,12 @@ const LEXICON_DIR = join(__dirname, '../../lexicons')
 export async function createTestContext(overrides?: Partial<AppContext>): Promise<{
   ctx: AppContext
   globalDb: Kysely<GlobalDatabase>
+  globalRaw: Database.Database
   groupDb: Kysely<GroupDatabase>
+  groupRaw: Database.Database
 }> {
-  const globalDb = await createTestGlobalDb()
-  const groupDb = await createTestGroupDb()
+  const { db: globalDb, raw: globalRaw } = await createTestGlobalDb()
+  const { db: groupDb, raw: groupRaw } = await createTestGroupDb()
 
   const mockConfig: Config = {
     port: 3000,
@@ -38,6 +42,7 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
 
   const mockGroupDbs = {
     get: () => groupDb,
+    getRaw: () => groupRaw,
     migrateGroup: async () => {},
     destroyAll: async () => {},
   }
@@ -68,19 +73,23 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     invalidate: () => {},
   }
 
+  const memberIndex = new TestMemberIndex(globalRaw)
+
   const ctx: AppContext = {
     config: mockConfig,
     globalDb,
+    globalDbPath: ':memory:',
     groupDbs: mockGroupDbs as any,
     authVerifier: mockAuth('did:plc:testuser'),
     rbac: new RbacChecker(),
     pdsAgents: mockPdsAgents as any,
     audit: new AuditLogger(),
+    memberIndex,
     logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} } as any,
     ...overrides,
   }
 
-  return { ctx, globalDb, groupDb }
+  return { ctx, globalDb, globalRaw, groupDb, groupRaw }
 }
 
 export const silentLogger = { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
@@ -97,6 +106,40 @@ export async function seedMember(
       member_did: memberDid,
       role,
       added_by: addedBy,
+    })
+    .execute()
+}
+
+export async function seedMemberWithIndex(
+  groupDb: Kysely<GroupDatabase>,
+  globalDb: Kysely<GlobalDatabase>,
+  memberDid: string,
+  groupDid: string,
+  role: string,
+  addedBy = 'did:plc:owner',
+): Promise<void> {
+  await groupDb
+    .insertInto('group_members')
+    .values({
+      member_did: memberDid,
+      role,
+      added_by: addedBy,
+    })
+    .execute()
+  // Read back added_at from group DB to keep index in sync
+  const row = await groupDb
+    .selectFrom('group_members')
+    .select('added_at')
+    .where('member_did', '=', memberDid)
+    .executeTakeFirstOrThrow()
+  await globalDb
+    .insertInto('member_index')
+    .values({
+      member_did: memberDid,
+      group_did: groupDid,
+      role,
+      added_by: addedBy,
+      added_at: row.added_at,
     })
     .execute()
 }
@@ -134,10 +177,16 @@ export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
   return {
     verify: async () => ({ iss, aud }),
     verifyRegistration: async () => ({ iss }),
+    verifyServiceAuth: async () => ({ iss }),
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
         const { iss, aud } = await this.verify(req)
         return { credentials: { callerDid: iss, groupDid: aud } }
+      }
+    },
+    xrpcServiceAuth() {
+      return async () => {
+        return { credentials: { callerDid: iss } }
       }
     },
   } as any
