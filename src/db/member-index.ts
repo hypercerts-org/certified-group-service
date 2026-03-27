@@ -16,7 +16,8 @@ export class MemberIndex implements MemberIndexWriter {
   add(groupRaw: Database.Database, groupDid: string, memberDid: string, role: string, addedBy: string): void {
     this.withGlobalAttached(groupRaw, (raw) => {
       raw.prepare(`INSERT INTO group_members (member_did, role, added_by) VALUES (?, ?, ?)`).run(memberDid, role, addedBy)
-      raw.prepare(`INSERT INTO global_db.member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, datetime('now'))`).run(memberDid, groupDid, role, addedBy)
+      const row = raw.prepare(`SELECT added_at FROM group_members WHERE member_did = ?`).get(memberDid) as { added_at: string }
+      raw.prepare(`INSERT INTO global_db.member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, ?)`).run(memberDid, groupDid, role, addedBy, row.added_at)
     })
   }
 
@@ -50,7 +51,8 @@ export class TestMemberIndex implements MemberIndexWriter {
 
   add(groupRaw: Database.Database, groupDid: string, memberDid: string, role: string, addedBy: string): void {
     groupRaw.prepare(`INSERT INTO group_members (member_did, role, added_by) VALUES (?, ?, ?)`).run(memberDid, role, addedBy)
-    this.globalRaw.prepare(`INSERT INTO member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, datetime('now'))`).run(memberDid, groupDid, role, addedBy)
+    const row = groupRaw.prepare(`SELECT added_at FROM group_members WHERE member_did = ?`).get(memberDid) as { added_at: string }
+    this.globalRaw.prepare(`INSERT INTO member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, ?)`).run(memberDid, groupDid, role, addedBy, row.added_at)
   }
 
   remove(groupRaw: Database.Database, groupDid: string, memberDid: string): void {
