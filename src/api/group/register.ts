@@ -155,12 +155,10 @@ export default function (app: Express, ctx: AppContext) {
       // Initialize per-group database and run migrations
       await ctx.groupDbs.migrateGroup(groupDid)
 
-      // Seed owner
+      // Seed owner (atomic write to both group DB and member_index)
       const groupDb = ctx.groupDbs.get(groupDid)
-      await groupDb
-        .insertInto('group_members')
-        .values({ member_did: ownerDid, role: 'owner', added_by: ownerDid })
-        .execute()
+      const groupRaw = ctx.groupDbs.getRaw(groupDid)
+      ctx.memberIndex.add(groupRaw, groupDid, ownerDid, 'owner', ownerDid)
 
       // Audit log the group creation
       await ctx.audit.log(groupDb, ownerDid, 'group.register', 'permitted', {

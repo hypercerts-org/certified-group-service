@@ -46,10 +46,8 @@ export default function (server: Server, ctx: AppContext) {
         throw new ForbiddenError('Cannot promote above your own role')
       }
 
-      await groupDb.updateTable('group_members')
-        .set({ role: newRole as Role })
-        .where('member_did', '=', memberDid)
-        .execute()
+      const groupRaw = ctx.groupDbs.getRaw(groupDid)
+      ctx.memberIndex.updateRole(groupRaw, groupDid, memberDid, newRole)
 
       await ctx.audit.log(groupDb, callerDid, 'role.set', 'permitted', {
         memberDid, previousRole: target.role, newRole,

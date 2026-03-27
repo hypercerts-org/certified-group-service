@@ -19,6 +19,7 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       const groupDb = ctx.groupDbs.get(groupDid)
+      const groupRaw = ctx.groupDbs.getRaw(groupDid)
 
       const callerRole = await ctx.rbac.assertCan(groupDb, callerDid, 'member.add')
 
@@ -27,13 +28,8 @@ export default function (server: Server, ctx: AppContext) {
         throw new ForbiddenError('Cannot assign a role equal to or higher than your own')
       }
 
-      let member
       try {
-        member = await groupDb
-          .insertInto('group_members')
-          .values({ member_did: memberDid, role, added_by: callerDid })
-          .returning(['member_did', 'role', 'added_at'])
-          .executeTakeFirstOrThrow()
+        ctx.memberIndex.add(groupRaw, groupDid, memberDid, role, callerDid)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         if (msg.includes('UNIQUE constraint failed: group_members.member_did')) {
@@ -41,6 +37,12 @@ export default function (server: Server, ctx: AppContext) {
         }
         throw err
       }
+
+      const member = await groupDb
+        .selectFrom('group_members')
+        .select(['member_did', 'role', 'added_at'])
+        .where('member_did', '=', memberDid)
+        .executeTakeFirstOrThrow()
 
       await ctx.audit.log(groupDb, callerDid, 'member.add', 'permitted', { memberDid, role })
 
