@@ -37,7 +37,8 @@ describe('RbacChecker', () => {
   let rbac: RbacChecker
 
   beforeEach(async () => {
-    groupDb = await createTestGroupDb()
+    const testGroup = await createTestGroupDb()
+    groupDb = testGroup.db
     rbac = new RbacChecker()
     await seedMember(groupDb, 'did:plc:member1', 'member')
   })

@@ -11,6 +11,11 @@ export interface GroupAuthCredentials {
 }
 export type GroupAuthResult = { credentials: GroupAuthCredentials }
 
+export interface ServiceAuthCredentials {
+  callerDid: string
+}
+export type ServiceAuthResult = { credentials: ServiceAuthCredentials }
+
 const REGISTER_NSID = 'app.certified.group.register'
 
 export class AuthVerifier {
@@ -128,6 +133,53 @@ export class AuthVerifier {
       const { iss, aud } = await this.verify(req)
       return {
         credentials: { callerDid: iss, groupDid: aud },
+      }
+    }
+  }
+
+  /**
+   * Verify a service auth JWT for service-level (cross-group) endpoints.
+   * Audience must be this service's DID rather than a specific group DID.
+   */
+  async verifyServiceAuth(req: Request): Promise<{ iss: string }> {
+    const authHeader = req.headers.authorization
+    if (!authHeader?.startsWith('Bearer ')) {
+      throw new AuthRequiredError('Missing auth token')
+    }
+    const jwtStr = authHeader.slice(7)
+    const nsid = this.parseReqNsidFn(req)
+
+    const payload = await this.verifyJwtFn(
+      jwtStr,
+      this.serviceDid,
+      nsid,
+      async (did: string, forceRefresh: boolean): Promise<string> => {
+        const atprotoData = await this.idResolver.did.resolveAtprotoData(
+          did,
+          forceRefresh,
+        )
+        return atprotoData.signingKey
+      },
+    )
+
+    this.assertTokenLifetime(payload)
+
+    if (!payload.jti) {
+      throw new AuthRequiredError('Missing jti in service auth token')
+    }
+    const isNew = await this.nonceCache.checkAndStore(payload.jti)
+    if (!isNew) {
+      throw new AuthRequiredError('Replayed token')
+    }
+
+    return { iss: payload.iss }
+  }
+
+  xrpcServiceAuth(): MethodAuthVerifier<ServiceAuthResult> {
+    return async ({ req }) => {
+      const { iss } = await this.verifyServiceAuth(req)
+      return {
+        credentials: { callerDid: iss },
       }
     }
   }

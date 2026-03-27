@@ -24,7 +24,8 @@ describe('AuthVerifier', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
-    globalDb = await createTestGlobalDb()
+    const testGlobal = await createTestGlobalDb()
+    globalDb = testGlobal.db
     await globalDb.insertInto('groups').values({
       did: 'did:plc:testgroup',
       pds_url: 'https://pds.example.com',
@@ -165,5 +166,127 @@ describe('AuthVerifier', () => {
     const key = await getSigningKey('did:plc:caller', false)
     expect(key).toBe('test-signing-key')
     expect(mockIdResolver.did.resolveAtprotoData).toHaveBeenCalledWith('did:plc:caller', false)
+  })
+})
+
+describe('verifyServiceAuth', () => {
+  let globalDb: Kysely<GlobalDatabase>
+  let nonceCache: NonceCache
+  let verifier: AuthVerifier
+
+  const fakeVerifyJwt = vi.fn()
+  const fakeParseReqNsid = vi.fn()
+  const mockIdResolver = {
+    did: {
+      resolveAtprotoData: vi.fn().mockResolvedValue({ signingKey: 'test-signing-key' }),
+    },
+  }
+
+  const SERVICE_DID = 'did:web:test.example.com'
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    const testGlobal = await createTestGlobalDb()
+    globalDb = testGlobal.db
+    nonceCache = new NonceCache(globalDb)
+    verifier = new AuthVerifier(
+      mockIdResolver as any,
+      nonceCache,
+      globalDb,
+      SERVICE_DID,
+      fakeVerifyJwt,
+      fakeParseReqNsid,
+    )
+
+    fakeParseReqNsid.mockReturnValue('app.certified.groups.membership.list')
+    const now = Math.floor(Date.now() / 1000)
+    fakeVerifyJwt.mockResolvedValue({
+      iss: 'did:plc:caller',
+      aud: SERVICE_DID,
+      jti: 'jti-unique',
+      iat: now,
+      exp: now + 60,
+    })
+  })
+
+  it('rejects missing Authorization header', async () => {
+    const req = makeReq({}, '/xrpc/app.certified.groups.membership.list')
+    await expect(verifier.verifyServiceAuth(req)).rejects.toThrow('Missing auth token')
+  })
+
+  it('rejects non-Bearer token', async () => {
+    const req = makeReq({ authorization: 'Basic abc' }, '/xrpc/app.certified.groups.membership.list')
+    await expect(verifier.verifyServiceAuth(req)).rejects.toThrow('Missing auth token')
+  })
+
+  it('rejects token lifetime exceeding nonce TTL', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    fakeVerifyJwt.mockResolvedValue({
+      iss: 'did:plc:caller',
+      aud: SERVICE_DID,
+      jti: 'jti-long',
+      iat: now,
+      exp: now + NONCE_TTL_SECONDS + 60,
+    })
+    const req = makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.groups.membership.list')
+    await expect(verifier.verifyServiceAuth(req)).rejects.toThrow('Token lifetime exceeds nonce window')
+  })
+
+  it('rejects missing iat', async () => {
+    fakeVerifyJwt.mockResolvedValue({
+      iss: 'did:plc:caller',
+      aud: SERVICE_DID,
+      jti: 'jti-no-iat',
+      exp: Math.floor(Date.now() / 1000) + 60,
+    })
+    const req = makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.groups.membership.list')
+    await expect(verifier.verifyServiceAuth(req)).rejects.toThrow('Missing iat in service auth token')
+  })
+
+  it('rejects missing jti', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    fakeVerifyJwt.mockResolvedValue({
+      iss: 'did:plc:caller',
+      aud: SERVICE_DID,
+      jti: undefined,
+      iat: now,
+      exp: now + 60,
+    })
+    const req = makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.groups.membership.list')
+    await expect(verifier.verifyServiceAuth(req)).rejects.toThrow('Missing jti in service auth token')
+  })
+
+  it('rejects replayed token (duplicate jti)', async () => {
+    await nonceCache.checkAndStore('jti-replayed')
+    const now = Math.floor(Date.now() / 1000)
+    fakeVerifyJwt.mockResolvedValue({
+      iss: 'did:plc:caller',
+      aud: SERVICE_DID,
+      jti: 'jti-replayed',
+      iat: now,
+      exp: now + 60,
+    })
+    const req = makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.groups.membership.list')
+    await expect(verifier.verifyServiceAuth(req)).rejects.toThrow('Replayed token')
+  })
+
+  it('valid token returns only iss (no aud)', async () => {
+    const req = makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.groups.membership.list')
+    const result = await verifier.verifyServiceAuth(req)
+    expect(result).toEqual({ iss: 'did:plc:caller' })
+  })
+
+  it('passes serviceDid as audience to verifyJwt', async () => {
+    const req = makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.groups.membership.list')
+    await verifier.verifyServiceAuth(req)
+    expect(fakeVerifyJwt).toHaveBeenCalled()
+    expect(fakeVerifyJwt.mock.calls[0][1]).toBe(SERVICE_DID)
+  })
+
+  it('passes parsed NSID to verifyJwt', async () => {
+    fakeParseReqNsid.mockReturnValue('app.certified.groups.membership.list')
+    const req = makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.groups.membership.list')
+    await verifier.verifyServiceAuth(req)
+    expect(fakeVerifyJwt.mock.calls[0][2]).toBe('app.certified.groups.membership.list')
   })
 })

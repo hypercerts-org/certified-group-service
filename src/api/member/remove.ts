@@ -41,12 +41,10 @@ export default function (server: Server, ctx: AppContext) {
         throw new ForbiddenError('Cannot remove a member with equal or higher role')
       }
 
-      await Promise.all([
-        groupDb.deleteFrom('group_members')
-          .where('member_did', '=', memberDid)
-          .execute(),
-        ctx.audit.log(groupDb, callerDid, 'member.remove', 'permitted', { memberDid }),
-      ])
+      const groupRaw = ctx.groupDbs.getRaw(groupDid)
+      ctx.memberIndex.remove(groupRaw, groupDid, memberDid)
+
+      await ctx.audit.log(groupDb, callerDid, 'member.remove', 'permitted', { memberDid })
 
       return jsonResponse({})
     },

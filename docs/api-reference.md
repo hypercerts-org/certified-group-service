@@ -3,10 +3,12 @@
 All endpoints (except `/health`) require authentication via a signed JWT in the `Authorization: Bearer <token>` header. The JWT must include:
 
 - `iss` — the caller's DID
-- `aud` — the target group's DID
+- `aud` — the target group's DID (or the service DID for cross-group queries)
 - `lxm` — the XRPC method being called
 - `jti` — a unique nonce (each token can only be used once)
 - `exp` — expiration timestamp
+
+Most endpoints target a specific group (`aud` = group DID). Cross-group endpoints under `app.certified.groups.*` target the service itself (`aud` = service DID).
 
 ## Health check
 
@@ -446,6 +448,87 @@ curl -X POST https://group-service.example.com/xrpc/app.certified.group.role.set
 
 ---
 
+## Cross-group queries
+
+These endpoints operate at the service level rather than on a single group. The JWT `aud` must be the **service DID** (not a group DID), and `lxm` must match the endpoint's NSID.
+
+**Discovering the service DID:** The service DID is published at the `/.well-known/did.json` endpoint. Resolve it once and cache it for the lifetime of your session.
+
+**Minting a service-level JWT:** Build the JWT exactly as you would for a group-level call, but set `aud` to the service DID instead of a group DID. The `iss`, `lxm`, `jti`, and `exp` fields work the same way. Sign the token with your DID's signing key as usual.
+
+### `GET /xrpc/app.certified.groups.membership.list`
+
+List all groups the authenticated user belongs to on this group service.
+
+**Authentication:** service-level (JWT `aud` = service DID)
+
+**Required role:** none (any authenticated user can list their own memberships)
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | number | 50 | Results per page (1-100) |
+| `cursor` | string | — | Pagination cursor from a previous response |
+
+**Response (200):**
+
+```json
+{
+  "groups": [
+    {
+      "groupDid": "did:plc:group123",
+      "role": "admin",
+      "joinedAt": "2026-01-15T12:00:00.000Z"
+    },
+    {
+      "groupDid": "did:plc:group456",
+      "role": "member",
+      "joinedAt": "2026-02-01T09:30:00.000Z"
+    }
+  ],
+  "cursor": "MjAyNi0wMi0wMVQwOTozMDowMFo6OmRpZDpwbGM6Z3JvdXA0NTY="
+}
+```
+
+Groups are ordered by `joinedAt ASC, groupDid ASC`. Paginate by passing the returned `cursor` value into the next request until `cursor` is absent from the response, which indicates the final page.
+
+> **Treat the cursor as opaque.** Its internal format may change between service versions. Do not construct, parse, or modify cursor values — always use them exactly as returned.
+
+**Errors:**
+
+| Code | Name | Description |
+|------|------|-------------|
+| 400 | InvalidCursor | Malformed pagination cursor |
+| 401 | AuthenticationRequired | Missing or invalid JWT |
+
+**Error response format:**
+
+```json
+{
+  "error": "InvalidCursor",
+  "message": "Invalid cursor"
+}
+```
+
+```json
+{
+  "error": "AuthenticationRequired",
+  "message": "Authentication Required"
+}
+```
+
+> **Important — single-instance scope:** This endpoint only lists groups managed by **this** group service instance. If the caller is a member of groups on other group service instances, those memberships will not appear here. There is currently no cross-service federation or discovery mechanism for memberships.
+
+**Example:**
+
+```bash
+curl "https://group-service.example.com/xrpc/app.certified.groups.membership.list?limit=10" \
+  -H "Authorization: Bearer $JWT"
+```
+
+---
+
 ## Audit log
 
 ### `GET /xrpc/app.certified.group.audit.query`
@@ -494,7 +577,7 @@ Entries are ordered newest first (`id DESC`). The `detail` field is a JSON objec
 Every audited operation produces one of the following `action` strings. Denied operations use the same action value with `"result": "denied"` and an additional `reason` field in `detail`.
 
 | Action | Trigger | `detail` fields |
-|--------|---------|-----------------|
+|--------|---------|------------------|
 | `group.register` | Group created via `app.certified.group.register` | `{ handle }` |
 | `member.add` | Member added via `member.add` | `{ memberDid, role }` |
 | `member.remove` | Member removed via `member.remove` | `{ memberDid }` |

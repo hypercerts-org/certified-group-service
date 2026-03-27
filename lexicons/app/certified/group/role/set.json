@@ -35,7 +35,9 @@
         { "name": "Unauthorized" },
         { "name": "Forbidden" },
         { "name": "MemberNotFound" },
-        { "name": "LastOwnerDemotion", "description": "Cannot demote the last owner — promote a replacement first" }
+        { "name": "InvalidRole", "description": "Role must be one of: member, admin, owner" },
+        { "name": "CannotModifyOwner", "description": "Cannot change owner role — use ownership transfer instead" },
+        { "name": "CannotPromoteToOwner", "description": "Cannot promote to owner — use ownership transfer instead" }
       ]
     }
   }

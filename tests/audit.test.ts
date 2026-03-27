@@ -9,7 +9,8 @@ describe('AuditLogger', () => {
   let audit: AuditLogger
 
   beforeEach(async () => {
-    groupDb = await createTestGroupDb()
+    const testGroup = await createTestGroupDb()
+    groupDb = testGroup.db
     audit = new AuditLogger()
   })
 

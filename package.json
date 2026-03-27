@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "vitest",
+    "test": "vitest run",
     "migrate": "tsx src/db/migrate.ts",
     "migrate:create": "tsx src/db/create-migration.ts"
   },

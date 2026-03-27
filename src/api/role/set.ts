@@ -30,31 +30,24 @@ export default function (server: Server, ctx: AppContext) {
         throw new XRPCError(404, 'Member not found', 'MemberNotFound')
       }
 
+      // Owner role is immutable via role.set. Each group has exactly one owner
+      // (the registrant). Ownership transfer is a distinct operation that should
+      // be handled separately — it requires additional safeguards (confirmation,
+      // audit trail, potential cooldown) beyond a simple role change.
+      if (target.role === 'owner') {
+        throw new XRPCError(400, 'Cannot change the owner role — use ownership transfer instead', 'CannotModifyOwner')
+      }
+      if (newRole === 'owner') {
+        throw new XRPCError(400, 'Cannot promote to owner — use ownership transfer instead', 'CannotPromoteToOwner')
+      }
+
       // Cannot promote above own role
       if (ROLE_HIERARCHY[callerRole] < ROLE_HIERARCHY[newRole as Role]) {
         throw new ForbiddenError('Cannot promote above your own role')
       }
 
-      // All updates run inside a transaction. For owner demotions the count check
-      // and UPDATE are atomic together, preventing TOCTOU races where two
-      // concurrent demotions both pass the guard.
-      await groupDb.transaction().execute(async (trx) => {
-        if (target.role === 'owner' && newRole !== 'owner') {
-          const ownerCount = await trx
-            .selectFrom('group_members')
-            .where('role', '=', 'owner')
-            .select(trx.fn.countAll().as('count'))
-            .executeTakeFirstOrThrow()
-          if (Number(ownerCount.count) <= 1) {
-            throw new XRPCError(400,
-              'Cannot demote the last owner — promote a replacement first', 'LastOwnerDemotion')
-          }
-        }
-        await trx.updateTable('group_members')
-          .set({ role: newRole as Role })
-          .where('member_did', '=', memberDid)
-          .execute()
-      })
+      const groupRaw = ctx.groupDbs.getRaw(groupDid)
+      ctx.memberIndex.updateRole(groupRaw, groupDid, memberDid, newRole)
 
       await ctx.audit.log(groupDb, callerDid, 'role.set', 'permitted', {
         memberDid, previousRole: target.role, newRole,

@@ -11,6 +11,7 @@ import memberRemove from './member/remove.js'
 import memberList from './member/list.js'
 import roleSet from './role/set.js'
 import auditQuery from './audit/query.js'
+import membershipList from './membership/list.js'
 import groupRegister from './group/register.js'
 
 export function registerXrpcMethods(server: Server, ctx: AppContext): void {
@@ -23,6 +24,7 @@ export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   memberList(server, ctx)
   roleSet(server, ctx)
   auditQuery(server, ctx)
+  membershipList(server, ctx)
 }
 
 /** Routes that live outside the XRPC server (unauthenticated, non-standard). */

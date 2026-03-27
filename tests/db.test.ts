@@ -22,21 +22,21 @@ describe('openSqliteDb', () => {
   })
 
   it('returns usable Kysely instance', async () => {
-    const db = openSqliteDb(join(tmpDir, 'test.sqlite'))
+    const { db } = openSqliteDb(join(tmpDir, 'test.sqlite'))
     const result = await sql<{ val: number }>`SELECT 1 as val`.execute(db)
     expect(result.rows).toHaveLength(1)
     await db.destroy()
   })
 
   it('sets WAL journal mode', async () => {
-    const db = openSqliteDb(join(tmpDir, 'test.sqlite'))
+    const { db } = openSqliteDb(join(tmpDir, 'test.sqlite'))
     const result = await sql<{ journal_mode: string }>`PRAGMA journal_mode`.execute(db)
     expect(result.rows[0].journal_mode).toBe('wal')
     await db.destroy()
   })
 
   it('sets busy_timeout to 5000', async () => {
-    const db = openSqliteDb(join(tmpDir, 'test.sqlite'))
+    const { db } = openSqliteDb(join(tmpDir, 'test.sqlite'))
     const result = await sql<{ timeout: number }>`PRAGMA busy_timeout`.execute(db)
     expect(result.rows[0].timeout).toBe(5000)
     await db.destroy()
@@ -101,14 +101,14 @@ describe('GroupDbPool', () => {
 
 describe('migrations', () => {
   it('global migrations create groups and nonce_cache tables', async () => {
-    const db = await createTestGlobalDb()
+    const { db } = await createTestGlobalDb()
     await db.selectFrom('groups').selectAll().execute()
     await db.selectFrom('nonce_cache').selectAll().execute()
     await db.destroy()
   })
 
   it('group migrations create group_members, group_record_authors, group_audit_log', async () => {
-    const db = await createTestGroupDb()
+    const { db } = await createTestGroupDb()
     await db.selectFrom('group_members').selectAll().execute()
     await db.selectFrom('group_record_authors').selectAll().execute()
     await db.selectFrom('group_audit_log').selectAll().execute()
@@ -116,12 +116,12 @@ describe('migrations', () => {
   })
 
   it('migrations are idempotent', async () => {
-    const db = await createTestGlobalDb()
+    const { db } = await createTestGlobalDb()
     await runGlobalMigrations(db)
     await db.selectFrom('groups').selectAll().execute()
     await db.destroy()
 
-    const db2 = await createTestGroupDb()
+    const { db: db2 } = await createTestGroupDb()
     await runGroupMigrations(db2)
     await db2.selectFrom('group_members').selectAll().execute()
     await db2.destroy()

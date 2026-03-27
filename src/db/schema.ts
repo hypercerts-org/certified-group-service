@@ -4,6 +4,7 @@ import type { Generated } from 'kysely'
 export interface GlobalDatabase {
   groups: GroupsTable
   nonce_cache: NonceCacheTable
+  member_index: MemberIndexTable
 }
 
 /** Per-group tables stored in per-group SQLite files */
@@ -29,6 +30,14 @@ interface NonceCacheTable {
 interface GroupMembersTable {
   member_did: string
   role: 'member' | 'admin' | 'owner'
+  added_by: string
+  added_at: Generated<string>
+}
+
+interface MemberIndexTable {
+  member_did: string
+  group_did: string
+  role: string
   added_by: string
   added_at: Generated<string>
 }
