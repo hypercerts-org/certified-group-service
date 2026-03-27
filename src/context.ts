@@ -7,14 +7,17 @@ import type { AuthVerifier } from './auth/verifier.js'
 import type { RbacChecker } from './rbac/check.js'
 import type { PdsAgentPool } from './pds/agent.js'
 import type { AuditLogger } from './audit.js'
+import type { MemberIndexWriter } from './db/member-index.js'
 
 export interface AppContext {
   config: Config
   globalDb: Kysely<GlobalDatabase>
+  globalDbPath: string
   groupDbs: GroupDbPool
   authVerifier: AuthVerifier
   rbac: RbacChecker
   pdsAgents: PdsAgentPool
   audit: AuditLogger
+  memberIndex: MemberIndexWriter
   logger: Logger
 }

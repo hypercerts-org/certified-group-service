@@ -16,6 +16,7 @@ import { createFallbackErrorHandler } from './api/error-handler.js'
 import { runGlobalMigrations } from './db/migrate.js'
 import { openSqliteDb } from './db/sqlite.js'
 import { GroupDbPool } from './db/group-db-pool.js'
+import { MemberIndex, backfillMemberIndex } from './db/member-index.js'
 import { PdsAgentPool } from './pds/agent.js'
 import { AuditLogger } from './audit.js'
 import type { AppContext } from './context.js'
@@ -28,7 +29,8 @@ async function main() {
   mkdirSync(config.dataDir, { recursive: true })
 
   // Global SQLite database
-  const globalDb = openSqliteDb<GlobalDatabase>(join(config.dataDir, 'global.sqlite'))
+  const globalDbPath = join(config.dataDir, 'global.sqlite')
+  const { db: globalDb } = openSqliteDb<GlobalDatabase>(globalDbPath)
 
   await runGlobalMigrations(globalDb)
   logger.info('Global migrations complete')
@@ -45,6 +47,10 @@ async function main() {
 
   await Promise.all(groups.map((group) => groupDbs.migrateGroup(group.did)))
   logger.info({ groups: groups.length }, 'Per-group databases initialized')
+
+  // Backfill member_index from existing group DBs (idempotent)
+  const backfilled = await backfillMemberIndex(globalDb, groupDbs)
+  logger.info({ backfilled }, 'Member index backfill complete')
 
   // Auth & RBAC
   const nonceCache = new NonceCache(globalDb)
@@ -63,8 +69,9 @@ async function main() {
   // XRPC routes
   const pdsAgents = new PdsAgentPool(globalDb, Buffer.from(config.encryptionKey, 'hex'))
   const audit = new AuditLogger()
+  const memberIndex = new MemberIndex(globalDbPath)
   const ctx: AppContext = {
-    config, globalDb, groupDbs, authVerifier, rbac, pdsAgents, audit, logger,
+    config, globalDb, globalDbPath, groupDbs, authVerifier, rbac, pdsAgents, audit, memberIndex, logger,
   }
 
   // Health check (unchanged)
