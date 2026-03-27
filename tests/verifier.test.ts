@@ -24,7 +24,8 @@ describe('AuthVerifier', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
-    globalDb = await createTestGlobalDb()
+    const testGlobal = await createTestGlobalDb()
+    globalDb = testGlobal.db
     await globalDb.insertInto('groups').values({
       did: 'did:plc:testgroup',
       pds_url: 'https://pds.example.com',

@@ -10,7 +10,8 @@ describe('GET /health', () => {
   let app: express.Express
 
   beforeEach(async () => {
-    globalDb = await createTestGlobalDb()
+    const testGlobal = await createTestGlobalDb()
+    globalDb = testGlobal.db
     app = express()
     app.get('/health', async (_req, res) => {
       try {

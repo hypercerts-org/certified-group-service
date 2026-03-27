@@ -16,11 +16,12 @@ describe('role.set', () => {
   let app: express.Express
 
   beforeEach(async () => {
-    groupDb = await createTestGroupDb()
+    const testGroup = await createTestGroupDb()
+    groupDb = testGroup.db
     // createTestContext mock auth always returns callerDid = 'did:plc:testuser'
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
     const { ctx } = await createTestContext({
-      groupDbs: { get: () => groupDb, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
+      groupDbs: { get: () => groupDb, getRaw: () => testGroup.raw, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
     })
     app = createTestApp(ctx, (server, appCtx) => {
       roleSetHandler(server, appCtx)

@@ -20,12 +20,13 @@ describe('putRecord — cross-member update', () => {
   let app: Express
 
   beforeEach(async () => {
-    groupDb = await createTestGroupDb()
+    const testGroup = await createTestGroupDb()
+    groupDb = testGroup.db
     await seedMember(groupDb, CALLER_DID, 'member')
     // Seed a record authored by a different user
     await seedAuthorship(groupDb, RECORD_URI, OTHER_AUTHOR, COLLECTION)
     const { ctx } = await createTestContext({
-      groupDbs: { get: () => groupDb, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
+      groupDbs: { get: () => groupDb, getRaw: () => testGroup.raw, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
     })
     app = createTestApp(ctx, (server, appCtx) => {
       putRecordHandler(server, appCtx)

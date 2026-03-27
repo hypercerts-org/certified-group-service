@@ -9,7 +9,8 @@ describe('NonceCache', () => {
   let cache: NonceCache
 
   beforeEach(async () => {
-    db = await createTestGlobalDb()
+    const testGlobal = await createTestGlobalDb()
+    db = testGlobal.db
     cache = new NonceCache(db)
   })
 
