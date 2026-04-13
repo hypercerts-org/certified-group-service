@@ -14,6 +14,10 @@ const sessionSecret = process.env.SESSION_SECRET
 if (!sessionSecret) throw new Error('SESSION_SECRET must be set')
 
 app.use(cors({ origin: true, credentials: true }))
+
+// Mount upload route before express.json() to preserve raw stream access
+app.use('/api/upload-blob', uploadRoutes)
+
 app.use(express.json())
 
 app.use(
@@ -52,7 +56,6 @@ app.get('/client-metadata.json', (_req, res) => {
 // Routes
 app.use('/api', authRoutes)
 app.use('/api/proxy', proxyRoutes)
-app.use('/api/upload-blob', uploadRoutes)
 app.use('/api/register', registerRoutes)
 
 // Health check
