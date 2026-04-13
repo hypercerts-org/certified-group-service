@@ -10,12 +10,19 @@ import registerRoutes from './routes/register.js'
 const app = express()
 const PORT = parseInt(process.env.BFF_PORT || '3001', 10)
 
+const sessionSecret = process.env.SESSION_SECRET
+if (!sessionSecret) throw new Error('SESSION_SECRET must be set')
+
 app.use(cors({ origin: true, credentials: true }))
+
+// Mount upload route before express.json() to preserve raw stream access
+app.use('/api/upload-blob', uploadRoutes)
+
 app.use(express.json())
 
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || 'dev-secret',
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -49,7 +56,6 @@ app.get('/client-metadata.json', (_req, res) => {
 // Routes
 app.use('/api', authRoutes)
 app.use('/api/proxy', proxyRoutes)
-app.use('/api/upload-blob', uploadRoutes)
 app.use('/api/register', registerRoutes)
 
 // Health check
