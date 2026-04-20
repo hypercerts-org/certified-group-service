@@ -37,7 +37,7 @@ describe('putRecord — cross-member update', () => {
     await groupDb.destroy()
   })
 
-  it('allows a member to update a record created by another member', async () => {
+  it('forbids a member from updating a record created by another member', async () => {
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.putRecord')
       .send({
@@ -47,14 +47,14 @@ describe('putRecord — cross-member update', () => {
         record: { $type: COLLECTION, text: 'hello' },
       })
 
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(403)
 
     const auditRows = await groupDb
       .selectFrom('group_audit_log')
       .select(['action', 'result'])
       .where('actor_did', '=', CALLER_DID)
       .where('action', '=', 'putAnyRecord')
-      .where('result', '=', 'permitted')
+      .where('result', '=', 'denied')
       .execute()
 
     expect(auditRows).toHaveLength(1)

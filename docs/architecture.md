@@ -111,8 +111,8 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 | `uploadBlob` | member | Upload media/blobs |
 | `deleteOwnRecord` | member | Delete records you authored |
 | `putOwnRecord` | member | Edit records you authored |
-| `putAnyRecord` | member | Edit any member's records |
 | `member.list` | member | List group members |
+| `putAnyRecord` | admin | Edit any member's records |
 | `deleteAnyRecord` | admin | Delete any member's records |
 | `putRecord:profile` | admin | Edit the group's profile (`app.bsky.actor.profile` / `self`) |
 | `member.add` | admin | Add new members |
@@ -126,7 +126,7 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 - **Cannot assign roles above assignable set**: `member.add` only allows assigning `member` or `admin` — not `owner`
 - **Self-removal always succeeds**: Any member can remove themselves regardless of role
 - **Last-owner protection**: The system prevents demoting or removing the last owner via an atomic transaction check
-- **Author-based record ownership**: `putRecord` and `deleteRecord` check the `group_record_authors` table to determine if the caller authored the record, then select the appropriate operation (`putOwnRecord` / `putAnyRecord` vs `putRecord:profile`, `deleteOwnRecord` vs `deleteAnyRecord`). Any member can edit any record; authorship only restricts deletion (`deleteAnyRecord` requires admin).
+- **Author-based record ownership**: `putRecord` and `deleteRecord` check the `group_record_authors` table to determine if the caller authored the record, then select the appropriate operation (`putOwnRecord` / `putAnyRecord` vs `putRecord:profile`, `deleteOwnRecord` vs `deleteAnyRecord`). Members can only edit or delete their own records; editing or deleting another member's record requires admin.
 
 ### RBAC enforcement
 

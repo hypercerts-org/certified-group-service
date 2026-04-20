@@ -105,7 +105,7 @@ Update an existing record or create one at a specific key.
 |----------|-----------|---------------|
 | Updating `app.bsky.actor.profile` with rkey `self` | `putRecord:profile` | admin |
 | Updating a record you authored | `putOwnRecord` | member |
-| Updating another member's record | `putAnyRecord` | member |
+| Updating another member's record | `putAnyRecord` | admin |
 | Creating a new record (no existing author) | `createRecord` | member |
 
 **Request body:**

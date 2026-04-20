@@ -215,12 +215,34 @@ describe('putRecord', () => {
     expect(res.status).toBe(200)
   })
 
-  it('can update record authored by others', async () => {
+  it('member cannot update record authored by others', async () => {
     await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/xyz', 'did:plc:other', 'app.bsky.feed.post')
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.putRecord')
       .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'xyz', record: {} })
+    expect(res.status).toBe(403)
+  })
+
+  it('admin can update record authored by others', async () => {
+    await seedMember(groupDb, 'did:plc:admin1', 'admin')
+    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/xyz', 'did:plc:other', 'app.bsky.feed.post')
+    const overriddenCtx = { ...ctx, authVerifier: mockAuth('did:plc:admin1') }
+    app = createTestApp(overriddenCtx, (server, appCtx) => {
+      putRecordHandler(server, appCtx)
+    })
+    const res = await request(app)
+      .post('/xrpc/com.atproto.repo.putRecord')
+      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'xyz', record: {} })
     expect(res.status).toBe(200)
+
+    const auditRows = await groupDb
+      .selectFrom('group_audit_log')
+      .select(['action', 'result'])
+      .where('actor_did', '=', 'did:plc:admin1')
+      .where('action', '=', 'putAnyRecord')
+      .where('result', '=', 'permitted')
+      .execute()
+    expect(auditRows).toHaveLength(1)
   })
 
   it('new record via putRecord treated as createRecord permission', async () => {
