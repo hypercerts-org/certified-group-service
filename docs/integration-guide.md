@@ -462,8 +462,8 @@ Roles are **per-group**, not global. A user can be an owner of one group, a memb
 | Role | Can do (within that group) |
 |------|--------|
 | *(anyone)* | Read records (`getRecord`, `listRecords`) — reads go to the PDS, not the group service |
-| **member** | Create records, edit any record, delete own records, upload blobs, list members |
-| **admin** | Everything above + delete any record, edit group profile, add/remove members, query audit log |
+| **member** | Create records, edit/delete own records, upload blobs, list members |
+| **admin** | Everything above + edit/delete any member's records, edit group profile, add/remove members, query audit log |
 | **owner** | Everything above + change member roles (promote/demote to any level including owner) |
 
 Key constraints:
