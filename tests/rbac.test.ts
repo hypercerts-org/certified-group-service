@@ -7,8 +7,8 @@ import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 
 describe('canPerform', () => {
-  const memberOps: Operation[] = ['createRecord', 'uploadBlob', 'deleteOwnRecord', 'putOwnRecord', 'putAnyRecord', 'member.list']
-  const adminOps: Operation[] = ['deleteAnyRecord', 'putRecord:profile', 'member.add', 'member.remove', 'audit.query']
+  const memberOps: Operation[] = ['createRecord', 'uploadBlob', 'deleteOwnRecord', 'putOwnRecord', 'member.list']
+  const adminOps: Operation[] = ['putAnyRecord', 'deleteAnyRecord', 'putRecord:profile', 'member.add', 'member.remove', 'audit.query']
   const ownerOps: Operation[] = ['role.set']
 
   it('member can perform member-level ops', () => {
@@ -89,13 +89,13 @@ describe('RBAC constants', () => {
 
   it('canPerform covers all 12 operations', () => {
     const allOps: Operation[] = [
-      'createRecord', 'uploadBlob', 'deleteOwnRecord', 'putOwnRecord', 'putAnyRecord', 'member.list',
-      'deleteAnyRecord', 'putRecord:profile', 'member.add', 'member.remove', 'audit.query',
+      'createRecord', 'uploadBlob', 'deleteOwnRecord', 'putOwnRecord', 'member.list',
+      'putAnyRecord', 'deleteAnyRecord', 'putRecord:profile', 'member.add', 'member.remove', 'audit.query',
       'role.set',
     ]
-    // member: 6 ops
+    // member: 5 ops
     const memberOps = allOps.filter((op) => canPerform('member', op))
-    expect(memberOps).toHaveLength(6)
+    expect(memberOps).toHaveLength(5)
     // admin: 11 ops
     const adminOps = allOps.filter((op) => canPerform('admin', op))
     expect(adminOps).toHaveLength(11)
