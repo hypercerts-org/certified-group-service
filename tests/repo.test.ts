@@ -234,6 +234,15 @@ describe('putRecord', () => {
       .post('/xrpc/com.atproto.repo.putRecord')
       .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'xyz', record: {} })
     expect(res.status).toBe(200)
+
+    const auditRows = await groupDb
+      .selectFrom('group_audit_log')
+      .select(['action', 'result'])
+      .where('actor_did', '=', 'did:plc:admin1')
+      .where('action', '=', 'putAnyRecord')
+      .where('result', '=', 'permitted')
+      .execute()
+    expect(auditRows).toHaveLength(1)
   })
 
   it('new record via putRecord treated as createRecord permission', async () => {
