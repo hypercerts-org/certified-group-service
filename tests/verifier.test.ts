@@ -358,3 +358,95 @@ describe('verifyServiceAuth', () => {
     expect(fakeVerifyJwt.mock.calls[0][2]).toBe('app.certified.groups.membership.list')
   })
 })
+
+describe('AuthVerifier auth-failure logging', () => {
+  let globalDb: Kysely<GlobalDatabase>
+  let nonceCache: NonceCache
+  let verifier: AuthVerifier
+  let logger: { warn: ReturnType<typeof vi.fn> }
+
+  const fakeVerifyJwt = vi.fn()
+  const fakeParseReqNsid = vi.fn()
+  const mockIdResolver = {
+    did: {
+      resolveAtprotoData: vi.fn().mockResolvedValue({ signingKey: 'test-signing-key' }),
+    },
+  }
+
+  // Encode a fake JWT (header+payload only — signature is irrelevant for the
+  // log decoder, which never verifies it).
+  function encodeJwt(header: object, payload: object): string {
+    const b64 = (o: object) =>
+      Buffer.from(JSON.stringify(o)).toString('base64url')
+    return `${b64(header)}.${b64(payload)}.sig`
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    const testGlobal = await createTestGlobalDb()
+    globalDb = testGlobal.db
+    await globalDb.insertInto('groups').values({
+      did: 'did:plc:testgroup',
+      pds_url: 'https://pds.example.com',
+      encrypted_app_password: 'encrypted',
+    }).execute()
+    nonceCache = new NonceCache(globalDb)
+    logger = { warn: vi.fn() }
+    verifier = new AuthVerifier(
+      mockIdResolver as any,
+      nonceCache,
+      globalDb,
+      'did:web:test.example.com',
+      fakeVerifyJwt,
+      fakeParseReqNsid,
+      logger as any,
+    )
+    fakeParseReqNsid.mockReturnValue('com.atproto.repo.putRecord')
+  })
+
+  it('logs decoded JWT header+payload on Invalid audience without leaking signature', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const jwtPayload = { iss: 'did:plc:caller', aud: 'did:plc:wronggroup', jti: 'jti-x', iat: now, exp: now + 60 }
+    const jwtHeader = { alg: 'ES256K', typ: 'JWT' }
+    const jwt = encodeJwt(jwtHeader, jwtPayload)
+    fakeVerifyJwt.mockResolvedValue(jwtPayload)
+
+    await expect(verifier.verify(makeReq({ authorization: `Bearer ${jwt}` }))).rejects.toThrow('Invalid audience')
+
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+    const [logCtx, logMsg] = logger.warn.mock.calls[0]
+    expect(logMsg).toBe('Auth verification failed')
+    expect(logCtx.reason).toBe('Invalid audience')
+    expect(logCtx.nsid).toBe('com.atproto.repo.putRecord')
+    expect(logCtx.jwt).toEqual({ header: jwtHeader, payload: jwtPayload })
+    // Signature is the third dot-segment; the logged jwt object must not
+    // contain it under any key.
+    expect(JSON.stringify(logCtx.jwt)).not.toContain('sig')
+  })
+
+  it('logs reason for missing Authorization header without a JWT field', async () => {
+    await expect(verifier.verify(makeReq({}))).rejects.toThrow('Missing auth token')
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+    const [logCtx] = logger.warn.mock.calls[0]
+    expect(logCtx.reason).toBe('Missing auth token')
+    expect(logCtx.jwt).toBeUndefined()
+  })
+
+  it('does not log on successful auth', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    fakeVerifyJwt.mockResolvedValue({ iss: 'did:plc:caller', aud: 'did:plc:testgroup', jti: 'jti-ok', iat: now, exp: now + 60 })
+    await verifier.verify(makeReq({ authorization: 'Bearer jwt' }))
+    expect(logger.warn).not.toHaveBeenCalled()
+  })
+
+  it('logs when verifyJwt itself throws (bad signature/lxm/exp)', async () => {
+    fakeVerifyJwt.mockRejectedValue(new Error('jwt signature invalid'))
+    const jwt = encodeJwt({ alg: 'ES256K' }, { iss: 'did:plc:caller', aud: 'did:plc:testgroup' })
+    await expect(verifier.verify(makeReq({ authorization: `Bearer ${jwt}` }))).rejects.toThrow('jwt signature invalid')
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+    const [logCtx] = logger.warn.mock.calls[0]
+    expect(logCtx.reason).toBe('verifyJwt threw')
+    expect(logCtx.error).toBe('jwt signature invalid')
+    expect(logCtx.jwt).toBeTruthy()
+  })
+})

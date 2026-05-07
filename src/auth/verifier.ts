@@ -7,8 +7,26 @@ import {
 } from '@atproto/xrpc-server'
 import type { Kysely } from 'kysely'
 import type { Request } from 'express'
+import type { Logger } from 'pino'
 import type { GlobalDatabase } from '../db/schema.js'
 import { NonceCache, NONCE_TTL_SECONDS } from './nonce.js'
+
+/**
+ * Decode the header+payload of a JWT without verifying its signature, for
+ * logging purposes only. Returns null on malformed input. The signature is
+ * deliberately dropped — it's a bearer credential and must not be logged.
+ */
+function decodeJwtForLog(jwt: string): { header: unknown; payload: unknown } | null {
+  const parts = jwt.split('.')
+  if (parts.length < 2) return null
+  try {
+    const decode = (s: string): unknown =>
+      JSON.parse(Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'))
+    return { header: decode(parts[0]), payload: decode(parts[1]) }
+  } catch {
+    return null
+  }
+}
 
 export interface GroupAuthCredentials {
   callerDid: string
@@ -26,6 +44,7 @@ const REGISTER_NSID = 'app.certified.group.register'
 export class AuthVerifier {
   private verifyJwtFn: typeof defaultVerifyJwt
   private parseReqNsidFn: typeof defaultParseReqNsid
+  private logger?: Logger
 
   constructor(
     private idResolver: IdResolver,
@@ -34,9 +53,29 @@ export class AuthVerifier {
     private serviceDid: string,
     verifyJwtFn?: typeof defaultVerifyJwt,
     parseReqNsidFn?: typeof defaultParseReqNsid,
+    logger?: Logger,
   ) {
     this.verifyJwtFn = verifyJwtFn ?? defaultVerifyJwt
     this.parseReqNsidFn = parseReqNsidFn ?? defaultParseReqNsid
+    this.logger = logger
+  }
+
+  /**
+   * Log an auth failure with enough context to diagnose prod 401s without
+   * leaking the JWT signature. Header+payload only; raw token is never logged.
+   */
+  private logAuthFailure(
+    reason: string,
+    nsid: string | undefined,
+    jwt: string,
+    extra: Record<string, unknown> = {},
+  ): void {
+    if (!this.logger) return
+    const decoded = decodeJwtForLog(jwt)
+    this.logger.warn(
+      { reason, nsid, jwt: decoded, ...extra },
+      'Auth verification failed',
+    )
   }
 
   private assertTokenLifetime(payload: { iat?: number; exp?: number }): void {
@@ -51,6 +90,10 @@ export class AuthVerifier {
   async verify(req: Request): Promise<{ iss: string; aud: string }> {
     const authHeader = req.headers.authorization
     if (!authHeader?.startsWith('Bearer ')) {
+      this.logger?.warn(
+        { reason: 'Missing auth token', path: req.originalUrl ?? req.path },
+        'Auth verification failed',
+      )
       throw new AuthRequiredError('Missing auth token')
     }
     const jwtStr = authHeader.slice(7)
@@ -58,17 +101,32 @@ export class AuthVerifier {
 
     // verifyJwt checks: aud, lxm, exp, signature against DID doc.
     // Pass null for aud — we check it ourselves because we support multiple groups.
-    const payload = await this.verifyJwtFn(
-      jwtStr,
-      null,
-      nsid,
-      async (did: string, forceRefresh: boolean): Promise<string> => {
-        const atprotoData = await this.idResolver.did.resolveAtprotoData(did, forceRefresh)
-        return atprotoData.signingKey
-      },
-    )
+    let payload
+    try {
+      payload = await this.verifyJwtFn(
+        jwtStr,
+        null,
+        nsid,
+        async (did: string, forceRefresh: boolean): Promise<string> => {
+          const atprotoData = await this.idResolver.did.resolveAtprotoData(did, forceRefresh)
+          return atprotoData.signingKey
+        },
+      )
+    } catch (err) {
+      this.logAuthFailure('verifyJwt threw', nsid, jwtStr, {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
 
-    this.assertTokenLifetime(payload)
+    try {
+      this.assertTokenLifetime(payload)
+    } catch (err) {
+      this.logAuthFailure('Token lifetime check failed', nsid, jwtStr, {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
 
     const group = payload.aud
       ? await this.globalDb
@@ -78,14 +136,19 @@ export class AuthVerifier {
           .executeTakeFirst()
       : undefined
     if (!group) {
+      this.logAuthFailure('Invalid audience', nsid, jwtStr, {
+        groupFound: false,
+      })
       throw new AuthRequiredError('Invalid audience')
     }
 
     if (!payload.jti) {
+      this.logAuthFailure('Missing jti', nsid, jwtStr)
       throw new AuthRequiredError('Missing jti in service auth token')
     }
     const isNew = await this.nonceCache.checkAndStore(payload.jti)
     if (!isNew) {
+      this.logAuthFailure('Replayed token', nsid, jwtStr)
       throw new AuthRequiredError('Replayed token')
     }
 
@@ -100,27 +163,48 @@ export class AuthVerifier {
   async verifyRegistration(req: Request): Promise<{ iss: string }> {
     const authHeader = req.headers.authorization
     if (!authHeader?.startsWith('Bearer ')) {
+      this.logger?.warn(
+        { reason: 'Missing auth token', nsid: REGISTER_NSID, path: req.originalUrl ?? req.path },
+        'Auth verification failed',
+      )
       throw new AuthRequiredError('Missing auth token')
     }
     const jwtStr = authHeader.slice(7)
 
-    const payload = await this.verifyJwtFn(
-      jwtStr,
-      this.serviceDid,
-      REGISTER_NSID,
-      async (did: string, forceRefresh: boolean): Promise<string> => {
-        const atprotoData = await this.idResolver.did.resolveAtprotoData(did, forceRefresh)
-        return atprotoData.signingKey
-      },
-    )
+    let payload
+    try {
+      payload = await this.verifyJwtFn(
+        jwtStr,
+        this.serviceDid,
+        REGISTER_NSID,
+        async (did: string, forceRefresh: boolean): Promise<string> => {
+          const atprotoData = await this.idResolver.did.resolveAtprotoData(did, forceRefresh)
+          return atprotoData.signingKey
+        },
+      )
+    } catch (err) {
+      this.logAuthFailure('verifyJwt threw', REGISTER_NSID, jwtStr, {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
 
-    this.assertTokenLifetime(payload)
+    try {
+      this.assertTokenLifetime(payload)
+    } catch (err) {
+      this.logAuthFailure('Token lifetime check failed', REGISTER_NSID, jwtStr, {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
 
     if (!payload.jti) {
+      this.logAuthFailure('Missing jti', REGISTER_NSID, jwtStr)
       throw new AuthRequiredError('Missing jti in service auth token')
     }
     const isNew = await this.nonceCache.checkAndStore(payload.jti)
     if (!isNew) {
+      this.logAuthFailure('Replayed token', REGISTER_NSID, jwtStr)
       throw new AuthRequiredError('Replayed token')
     }
 
@@ -143,28 +227,49 @@ export class AuthVerifier {
   async verifyServiceAuth(req: Request): Promise<{ iss: string }> {
     const authHeader = req.headers.authorization
     if (!authHeader?.startsWith('Bearer ')) {
+      this.logger?.warn(
+        { reason: 'Missing auth token', path: req.originalUrl ?? req.path },
+        'Auth verification failed',
+      )
       throw new AuthRequiredError('Missing auth token')
     }
     const jwtStr = authHeader.slice(7)
     const nsid = this.parseReqNsidFn(req)
 
-    const payload = await this.verifyJwtFn(
-      jwtStr,
-      this.serviceDid,
-      nsid,
-      async (did: string, forceRefresh: boolean): Promise<string> => {
-        const atprotoData = await this.idResolver.did.resolveAtprotoData(did, forceRefresh)
-        return atprotoData.signingKey
-      },
-    )
+    let payload
+    try {
+      payload = await this.verifyJwtFn(
+        jwtStr,
+        this.serviceDid,
+        nsid,
+        async (did: string, forceRefresh: boolean): Promise<string> => {
+          const atprotoData = await this.idResolver.did.resolveAtprotoData(did, forceRefresh)
+          return atprotoData.signingKey
+        },
+      )
+    } catch (err) {
+      this.logAuthFailure('verifyJwt threw', nsid, jwtStr, {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
 
-    this.assertTokenLifetime(payload)
+    try {
+      this.assertTokenLifetime(payload)
+    } catch (err) {
+      this.logAuthFailure('Token lifetime check failed', nsid, jwtStr, {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      throw err
+    }
 
     if (!payload.jti) {
+      this.logAuthFailure('Missing jti', nsid, jwtStr)
       throw new AuthRequiredError('Missing jti in service auth token')
     }
     const isNew = await this.nonceCache.checkAndStore(payload.jti)
     if (!isNew) {
+      this.logAuthFailure('Replayed token', nsid, jwtStr)
       throw new AuthRequiredError('Replayed token')
     }
 
