@@ -6,7 +6,7 @@ CGS requires:
 
 - **Node.js 22+** runtime
 - **Persistent storage** for SQLite databases (the `DATA_DIR` directory)
-- **Two required environment variables**: `ENCRYPTION_KEY` and `SERVICE_URL`
+- **Three required environment variables**: `ENCRYPTION_KEY`, `SERVICE_URL`, and `GROUP_PDS_URL`
 
 The service exposes a health check at `GET /health` that returns `{"status":"ok"}`.
 
@@ -19,6 +19,7 @@ docker build -t group-service .
 docker run -p 3000:3000 \
   -e SERVICE_URL=https://group-service.example.com \
   -e ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
+  -e GROUP_PDS_URL=https://pds.example.com \
   -v $(pwd)/data:/app/data \
   group-service
 ```
@@ -39,6 +40,7 @@ CGS is pre-configured for [Railway](https://railway.app/) via `railway.toml`.
    | ---------------- | ---------------------------------------------------------------------------------------- |
    | `SERVICE_URL`    | Full public URL (e.g. `https://your-app.up.railway.app`)                                 |
    | `ENCRYPTION_KEY` | Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+   | `GROUP_PDS_URL`  | URL of the PDS where group accounts are created (e.g. `https://pds.example.com`)         |
    | `DATA_DIR`       | `/app/data`                                                                              |
 
    `PORT` is injected automatically by Railway — do not set it manually. All other variables have sensible defaults (see the [environment variables table](../README.md#environment-variables)).
@@ -65,9 +67,16 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
-healthcheckTimeout = 10
+healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+drainingSeconds = 30
+
+[environments.staging.deploy]
 restartPolicyMaxRetries = 3
+
+[environments.production.deploy]
+restartPolicyMaxRetries = 10
 ```
 
 ### SQLite on Railway
