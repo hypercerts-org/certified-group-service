@@ -68,11 +68,10 @@ Create a new record in the group's repository.
 
 **Errors:**
 
-| Code | Name                   | Description                         |
-| ---- | ---------------------- | ----------------------------------- |
-| 400  | InvalidRequest         | `repo` does not match the group DID |
-| 401  | AuthenticationRequired | Missing or invalid JWT              |
-| 403  | Forbidden              | Caller lacks member role            |
+| Code | Name                   | Description                                                      |
+| ---- | ---------------------- | ---------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                           |
+| 403  | Forbidden              | `repo` does not match the group DID, or caller lacks member role |
 
 **Example:**
 
@@ -134,11 +133,10 @@ Update an existing record or create one at a specific key.
 
 **Errors:**
 
-| Code | Name                   | Description                                   |
-| ---- | ---------------------- | --------------------------------------------- |
-| 400  | InvalidRequest         | `repo` does not match the group DID           |
-| 401  | AuthenticationRequired | Missing or invalid JWT                        |
-| 403  | Forbidden              | Caller lacks required role for this operation |
+| Code | Name                   | Description                                                                           |
+| ---- | ---------------------- | ------------------------------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                |
+| 403  | Forbidden              | `repo` does not match the group DID, or caller lacks required role for this operation |
 
 **Example:**
 
@@ -191,11 +189,10 @@ Delete a record from the group's repository.
 
 **Errors:**
 
-| Code | Name                   | Description                         |
-| ---- | ---------------------- | ----------------------------------- |
-| 400  | InvalidRequest         | `repo` does not match the group DID |
-| 401  | AuthenticationRequired | Missing or invalid JWT              |
-| 403  | Forbidden              | Caller lacks required role          |
+| Code | Name                   | Description                                                        |
+| ---- | ---------------------- | ------------------------------------------------------------------ |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                             |
+| 403  | Forbidden              | `repo` does not match the group DID, or caller lacks required role |
 
 **Example:**
 
@@ -275,7 +272,7 @@ Add a new member to the group.
 }
 ```
 
-The `role` field must be `"member"` or `"admin"`. Owners cannot be added via this endpoint — use `role.set` to promote an existing member to owner.
+The `role` field must be `"member"` or `"admin"`. The owner role cannot be assigned via any endpoint — it is fixed at registration and is immutable.
 
 **Response (200):**
 
@@ -283,6 +280,7 @@ The `role` field must be `"member"` or `"admin"`. Owners cannot be added via thi
 {
   "memberDid": "did:plc:newmember",
   "role": "member",
+  "addedBy": "did:plc:caller",
   "addedAt": "2026-01-15T12:00:00Z"
 }
 ```
@@ -332,13 +330,12 @@ Remove a member from the group.
 
 **Errors:**
 
-| Code | Name                   | Description                                        |
-| ---- | ---------------------- | -------------------------------------------------- |
-| 400  | CannotRemoveOwner      | Cannot remove a member with the owner role         |
-| 400  | CannotRemoveHigherRole | Target has equal or higher role than caller        |
-| 401  | AuthenticationRequired | Missing or invalid JWT                             |
-| 403  | Forbidden              | Caller lacks admin role (and is not removing self) |
-| 404  | MemberNotFound         | Target is not a group member                       |
+| Code | Name                   | Description                                                                                     |
+| ---- | ---------------------- | ----------------------------------------------------------------------------------------------- |
+| 400  | CannotRemoveOwner      | Cannot remove a member with the owner role                                                      |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                          |
+| 403  | Forbidden              | Caller lacks admin role, or target has equal/higher role than caller (and is not removing self) |
+| 404  | MemberNotFound         | Target is not a group member                                                                    |
 
 **Example:**
 
@@ -414,7 +411,7 @@ Change a member's role.
 }
 ```
 
-The `role` field can be `"member"`, `"admin"`, or `"owner"`.
+The `role` field can be `"member"` or `"admin"`. The owner role is immutable: a member cannot be promoted to owner, and an existing owner's role cannot be changed. Ownership transfer is a separate operation (not yet implemented).
 
 **Response (200):**
 
@@ -427,12 +424,14 @@ The `role` field can be `"member"`, `"admin"`, or `"owner"`.
 
 **Errors:**
 
-| Code | Name                   | Description                  |
-| ---- | ---------------------- | ---------------------------- |
-| 400  | LastOwner              | Cannot demote the last owner |
-| 401  | AuthenticationRequired | Missing or invalid JWT       |
-| 403  | Forbidden              | Caller lacks owner role      |
-| 404  | MemberNotFound         | Target is not a group member |
+| Code | Name                   | Description                                                     |
+| ---- | ---------------------- | --------------------------------------------------------------- |
+| 400  | InvalidRole            | Role is not a recognized role (`member`, `admin`, or `owner`)   |
+| 400  | CannotModifyOwner      | Target already holds the owner role                             |
+| 400  | CannotPromoteToOwner   | Cannot promote a member to owner                                |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                          |
+| 403  | Forbidden              | Caller lacks owner role, or attempted to promote above own role |
+| 404  | MemberNotFound         | Target is not a group member                                    |
 
 **Example:**
 

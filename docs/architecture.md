@@ -125,7 +125,7 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 - **Cannot modify equal or higher roles**: An admin cannot remove another admin; only owners can
 - **Cannot assign roles above assignable set**: `member.add` only allows assigning `member` or `admin` — not `owner`
 - **Self-removal always succeeds**: Any member can remove themselves regardless of role
-- **Last-owner protection**: The system prevents demoting or removing the last owner via an atomic transaction check
+- **Owner role is immutable**: `role.set` rejects both promoting a member to owner (`CannotPromoteToOwner`) and changing an existing owner's role (`CannotModifyOwner`); `member.remove` rejects removing an owner (`CannotRemoveOwner`). Each group has exactly one owner (the registrant). Ownership transfer is a separate operation that is not yet implemented.
 - **Author-based record ownership**: `putRecord` and `deleteRecord` check the `group_record_authors` table to determine if the caller authored the record, then select the appropriate operation (`putOwnRecord` / `putAnyRecord` vs `putRecord:profile`, `deleteOwnRecord` vs `deleteAnyRecord`). Members can only edit or delete their own records; editing or deleting another member's record requires admin.
 
 ### RBAC enforcement
@@ -157,6 +157,20 @@ The `RbacChecker` class provides two key methods:
 | `expires_at` | TEXT      | Expiration timestamp |
 
 Indexed on `expires_at` for efficient cleanup.
+
+#### `member_index`
+
+A reverse index of group membership, populated whenever a member is added, removed, or has their role changed. It backs the cross-group `app.certified.groups.membership.list` endpoint (find every group a DID belongs to), which the per-group databases cannot answer since there is no reverse mapping from member to group.
+
+| Column       | Type      | Description                                  |
+| ------------ | --------- | -------------------------------------------- |
+| `member_did` | TEXT (PK) | Member's DID (composite PK with `group_did`) |
+| `group_did`  | TEXT (PK) | Group's DID (composite PK with `member_did`) |
+| `role`       | TEXT      | The member's role in that group              |
+| `added_by`   | TEXT      | DID of the member who added this person      |
+| `added_at`   | TEXT      | ISO timestamp                                |
+
+Indexed on `group_did`.
 
 ### Per-group databases (`data/groups/{hash}.sqlite`)
 

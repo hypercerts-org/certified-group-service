@@ -363,7 +363,7 @@ await groupAgent.call(
 )
 
 // Change a member's role (requires owner)
-// role can be 'member', 'admin', or 'owner'
+// role can be 'member' or 'admin' (the owner role is immutable)
 await groupAgent.call(
   'app.certified.group.role.set',
   {},
@@ -464,15 +464,15 @@ Roles are **per-group**, not global. A user can be an owner of one group, a memb
 | _(anyone)_ | Read records (`getRecord`, `listRecords`) — reads go to the PDS, not the group service                       |
 | **member** | Create records, edit/delete own records, upload blobs, list members                                          |
 | **admin**  | Everything above + edit/delete any member's records, edit group profile, add/remove members, query audit log |
-| **owner**  | Everything above + change member roles (promote/demote to any level including owner)                         |
+| **owner**  | Everything above + change member/admin roles (the owner role itself is immutable)                            |
 
 Key constraints:
 
 - Admins can add members at `member` or `admin` level — but not at or above their own role
 - Admins can remove members below their own role level
 - Any member can remove themselves (self-removal)
-- The last owner can't be demoted
-- `member.add` can only assign `member` or `admin` — use `role.set` to promote to `owner`
+- The owner role is immutable — it cannot be demoted, removed, or reassigned
+- `member.add` and `role.set` can only assign `member` or `admin`; the owner role cannot be assigned via any endpoint
 
 ## Reference implementation
 
