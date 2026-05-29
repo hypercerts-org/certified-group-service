@@ -21,6 +21,8 @@ export default tseslint.config(
       '.claude/worktrees/',
       'vitest.config.ts',
       'eslint.config.js',
+      // Standalone Node scripts not covered by any tsconfig
+      'scripts/**',
     ],
   },
 
