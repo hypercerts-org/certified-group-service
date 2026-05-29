@@ -43,7 +43,7 @@ CGS is pre-configured for [Railway](https://railway.app/) via `railway.toml`.
    | `GROUP_PDS_URL`  | URL of the PDS where group accounts are created (e.g. `https://pds.example.com`)         |
    | `DATA_DIR`       | `/app/data`                                                                              |
 
-   `PORT` is injected automatically by Railway — do not set it manually. All other variables have sensible defaults (see the [environment variables table](../README.md#environment-variables)).
+   `PORT` is injected automatically by Railway — do not set it manually. The three required variables above must be provided; the remaining optional variables have sensible defaults (see the [environment variables table](../README.md#environment-variables)).
 
    > **Note:** `SERVICE_URL` is written into each group's DID document as the service endpoint. It must be a full public URL (scheme + host) so that atproto-proxy resolution works — a bare hostname will not resolve correctly.
 

@@ -426,7 +426,7 @@ The `role` field can be `"member"` or `"admin"`. The owner role is immutable: a 
 
 | Code | Name                   | Description                                                     |
 | ---- | ---------------------- | --------------------------------------------------------------- |
-| 400  | InvalidRole            | Role is not `member` or `admin`                                 |
+| 400  | InvalidRole            | Role is not a recognized role (`member`, `admin`, or `owner`)   |
 | 400  | CannotModifyOwner      | Target already holds the owner role                             |
 | 400  | CannotPromoteToOwner   | Cannot promote a member to owner                                |
 | 401  | AuthenticationRequired | Missing or invalid JWT                                          |

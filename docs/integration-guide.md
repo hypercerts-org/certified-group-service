@@ -363,7 +363,7 @@ await groupAgent.call(
 )
 
 // Change a member's role (requires owner)
-// role can be 'member', 'admin', or 'owner'
+// role can be 'member' or 'admin' (the owner role is immutable)
 await groupAgent.call(
   'app.certified.group.role.set',
   {},
