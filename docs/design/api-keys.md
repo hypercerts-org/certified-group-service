@@ -277,7 +277,7 @@ problem.
 
 ## Design overview
 
-```
+```text
 Platform backend                 Group Service                  Per-group DB
      |                                |                              |
      |  (one-time, owner JWT auth)    |                              |
@@ -308,7 +308,7 @@ Three new pieces:
 
 ## Key format
 
-```
+```text
 cgsk_<keyRef>.<secret>
 ```
 
@@ -344,16 +344,20 @@ data. Because the group is named by the request and located by forward hash,
 
 ### Per-group DB — `group_api_keys` (new)
 
-| column         | type     | notes                                           |
-| -------------- | -------- | ----------------------------------------------- |
-| `key_ref`      | TEXT     | PK; the non-secret `<keyRef>` in the key string |
-| `key_hash`     | TEXT     | SHA-256 of the secret; never the plaintext      |
-| `name`         | TEXT     | owner-supplied label (e.g. "Ma Earth backend")  |
-| `scopes`       | TEXT     | JSON array of scope strings                     |
-| `created_by`   | TEXT     | owner DID that minted the key                   |
-| `created_at`   | DATETIME | mirror existing `added_at` conventions          |
-| `last_used_at` | DATETIME | nullable; updated on use (best-effort)          |
-| `revoked_at`   | DATETIME | nullable; set by `keys.delete` (soft delete)    |
+| column         | type | notes                                                          |
+| -------------- | ---- | -------------------------------------------------------------- |
+| `key_ref`      | text | PK; the non-secret `<keyRef>` in the key string                |
+| `key_hash`     | text | SHA-256 of the secret; never the plaintext                     |
+| `name`         | text | owner-supplied label (e.g. "Ma Earth backend")                 |
+| `scopes`       | text | JSON array of scope strings                                    |
+| `created_by`   | text | owner DID that minted the key                                  |
+| `created_at`   | text | `defaultTo(sql\`(datetime('now'))\`)`, per existing convention |
+| `last_used_at` | text | nullable; updated on use (best-effort)                         |
+| `revoked_at`   | text | nullable; set by `keys.delete` (soft delete)                   |
+
+All columns are Kysely `text` — timestamps are stored as SQLite `text` via
+`datetime('now')`, matching every existing migration (`created_at`, `added_at`,
+`expires_at` in `src/db/migrations/`), not a `DATETIME` affinity type.
 
 Notes:
 
@@ -378,7 +382,7 @@ Proposed shape in `AuthVerifier` (`src/auth/verifier.ts`):
 ```ts
 // New credential variant
 export interface ApiKeyCredentials {
-  callerDid: string // synthetic principal: the key's group-scoped identity
+  callerDid: string // the issuing owner's DID (see Open questions); key id travels in audit detail
   groupDid: string
   scopes: string[] // scope strings granted to this key
   authKind: 'apiKey'
