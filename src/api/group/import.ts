@@ -1,8 +1,9 @@
-import type { Express } from 'express'
+import type { Server } from '@atproto/xrpc-server'
 import { AtpAgent } from '@atproto/api'
 import { ensureValidDid } from '@atproto/syntax'
 import { AuthRequiredError, InvalidRequestError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
+import { registerServiceAuthMethod, jsonResponse } from '../util.js'
 import { finalizeGroup } from './finalize.js'
 
 /**
@@ -18,19 +19,22 @@ import { finalizeGroup } from './finalize.js'
  * password cannot perform PLC operations anyway (that needs the ACCESS_FULL
  * scope). See docs/design/group-import.md.
  *
- * Mounted as a raw Express route (like register) because the target group does
- * not yet exist in the service, so it cannot be authenticated via the normal
- * group-scoped XRPC path.
+ * Auth is service-level (aud = the service DID), because the group does not yet
+ * exist in the service. The handler additionally verifies the authenticated
+ * caller matches the ownerDid it is about to seed.
  */
-export default function (app: Express, ctx: AppContext) {
-  app.post('/xrpc/app.certified.group.import', async (req, res, next) => {
-    try {
-      const { groupDid, appPassword, ownerDid } = req.body
-
-      // Validate inputs
-      if (!groupDid || !appPassword || !ownerDid) {
-        throw new InvalidRequestError('Missing required fields: groupDid, appPassword, ownerDid')
+export default function (server: Server, ctx: AppContext) {
+  registerServiceAuthMethod(server, 'app.certified.group.import', ctx, {
+    handler: async ({ auth, input }) => {
+      const { callerDid } = auth.credentials
+      const { groupDid, appPassword, ownerDid } = input?.body as {
+        groupDid: string
+        appPassword: string
+        ownerDid: string
       }
+
+      // Validate inputs (the lexicon enforces presence + did format; we also
+      // guard explicitly so a malformed DID fails as a clean 400)
       try {
         ensureValidDid(groupDid)
       } catch {
@@ -42,9 +46,8 @@ export default function (app: Express, ctx: AppContext) {
         throw new InvalidRequestError('Invalid ownerDid')
       }
 
-      // Verify the caller controls the claimed ownerDid
-      const { iss } = await ctx.authVerifier.verifyImport(req)
-      if (iss !== ownerDid) {
+      // The authenticated caller must be the owner they are seeding
+      if (callerDid !== ownerDid) {
         throw new AuthRequiredError('Service auth token issuer does not match ownerDid')
       }
 
@@ -91,12 +94,7 @@ export default function (app: Express, ctx: AppContext) {
         handle,
       })
 
-      res.json({
-        groupDid,
-        handle,
-      })
-    } catch (err) {
-      next(err)
-    }
+      return jsonResponse({ groupDid, handle })
+    },
   })
 }

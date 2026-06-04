@@ -21,9 +21,6 @@ export interface ServiceAuthCredentials {
 }
 export type ServiceAuthResult = { credentials: ServiceAuthCredentials }
 
-const REGISTER_NSID = 'app.certified.group.register'
-const IMPORT_NSID = 'app.certified.group.import'
-
 export class AuthVerifier {
   private verifyJwtFn: typeof defaultVerifyJwt
   private parseReqNsidFn: typeof defaultParseReqNsid
@@ -91,57 +88,6 @@ export class AuthVerifier {
     }
 
     return { iss: payload.iss, aud: payload.aud }
-  }
-
-  /**
-   * Verify a service auth JWT for a group-bootstrapping endpoint (register or
-   * import), where the target group does not yet exist in the service and the
-   * audience is therefore this service's DID rather than a group DID. Proves the
-   * caller controls the claimed DID by checking the JWT signature against their
-   * DID document's signing key, with the given lxm bound to the endpoint's NSID.
-   *
-   * The NSID is passed in literally rather than derived via parseReqNsid because
-   * these endpoints are mounted as raw Express routes (outside the XRPC server),
-   * where the request path available to parseReqNsid is not guaranteed.
-   */
-  private async verifyFixedNsidServiceAuth(req: Request, nsid: string): Promise<{ iss: string }> {
-    const authHeader = req.headers.authorization
-    if (!authHeader?.startsWith('Bearer ')) {
-      throw new AuthRequiredError('Missing auth token')
-    }
-    const jwtStr = authHeader.slice(7)
-
-    const payload = await this.verifyJwtFn(
-      jwtStr,
-      this.serviceDid,
-      nsid,
-      async (did: string, forceRefresh: boolean): Promise<string> => {
-        const atprotoData = await this.idResolver.did.resolveAtprotoData(did, forceRefresh)
-        return atprotoData.signingKey
-      },
-    )
-
-    this.assertTokenLifetime(payload)
-
-    if (!payload.jti) {
-      throw new AuthRequiredError('Missing jti in service auth token')
-    }
-    const isNew = await this.nonceCache.checkAndStore(payload.jti)
-    if (!isNew) {
-      throw new AuthRequiredError('Replayed token')
-    }
-
-    return { iss: payload.iss }
-  }
-
-  /** Verify a service auth JWT for the `group.register` endpoint. */
-  async verifyRegistration(req: Request): Promise<{ iss: string }> {
-    return this.verifyFixedNsidServiceAuth(req, REGISTER_NSID)
-  }
-
-  /** Verify a service auth JWT for the `group.import` endpoint. */
-  async verifyImport(req: Request): Promise<{ iss: string }> {
-    return this.verifyFixedNsidServiceAuth(req, IMPORT_NSID)
   }
 
   xrpcAuth(): MethodAuthVerifier<GroupAuthResult> {

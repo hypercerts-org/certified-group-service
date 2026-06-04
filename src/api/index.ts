@@ -1,5 +1,4 @@
 import type { Server } from '@atproto/xrpc-server'
-import type { Express } from 'express'
 import type { AppContext } from '../context.js'
 
 import createRecord from './repo/createRecord.js'
@@ -26,10 +25,6 @@ export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   roleSet(server, ctx)
   auditQuery(server, ctx)
   membershipList(server, ctx)
-}
-
-/** Routes that live outside the XRPC server (unauthenticated, non-standard). */
-export function registerRawRoutes(app: Express, ctx: AppContext): void {
-  groupRegister(app, ctx)
-  groupImport(app, ctx)
+  groupRegister(server, ctx)
+  groupImport(server, ctx)
 }

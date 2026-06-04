@@ -2,9 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import express from 'express'
 import request from 'supertest'
 import { AuthRequiredError } from '@atproto/xrpc-server'
-import { createTestContext, silentLogger, mockAuth, mockIdResolver } from './helpers/mock-server.js'
+import {
+  createTestContext,
+  createTestApp,
+  mockAuth,
+  mockIdResolver,
+} from './helpers/mock-server.js'
 import groupImportHandler from '../src/api/group/import.js'
-import { createFallbackErrorHandler } from '../src/api/error-handler.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase, GroupDatabase } from '../src/db/schema.js'
@@ -19,14 +23,6 @@ vi.mock('@atproto/api', () => {
 })
 
 import { AtpAgent } from '@atproto/api'
-
-function createApp(ctx: AppContext) {
-  const app = express()
-  app.use(express.json())
-  groupImportHandler(app, ctx)
-  app.use(createFallbackErrorHandler(silentLogger as any))
-  return app
-}
 
 const ENDPOINT = '/xrpc/app.certified.group.import'
 
@@ -51,7 +47,7 @@ describe('group.import', () => {
     ctx = test.ctx
     globalDb = test.globalDb
     groupDb = test.groupDb
-    app = createApp(ctx)
+    app = createTestApp(ctx, groupImportHandler)
   })
 
   afterEach(async () => {
@@ -103,7 +99,7 @@ describe('group.import', () => {
       authVerifier: mockAuth('did:plc:owner'),
       idResolver: mockIdResolver('https://other-pds.example.net'),
     })
-    const otherApp = createApp(test.ctx)
+    const otherApp = createTestApp(test.ctx, groupImportHandler)
 
     const res = await request(otherApp).post(ENDPOINT).send(validBody)
     expect(res.status).toBe(200)
@@ -181,7 +177,7 @@ describe('group.import', () => {
       // Caller authenticates as someone other than the claimed owner
       authVerifier: mockAuth('did:plc:someoneelse'),
     })
-    const otherApp = createApp(test.ctx)
+    const otherApp = createTestApp(test.ctx, groupImportHandler)
 
     const res = await request(otherApp).post(ENDPOINT).send(validBody)
     expect(res.status).toBe(401)
@@ -194,12 +190,12 @@ describe('group.import', () => {
     const test = await createTestContext({
       authVerifier: {
         ...mockAuth('did:plc:owner'),
-        verifyImport: async () => {
+        verifyServiceAuth: async () => {
           throw new AuthRequiredError('Missing auth token')
         },
       },
     })
-    const otherApp = createApp(test.ctx)
+    const otherApp = createTestApp(test.ctx, groupImportHandler)
 
     const res = await request(otherApp).post(ENDPOINT).send(validBody)
     expect(res.status).toBe(401)

@@ -170,7 +170,7 @@ describe('AuthVerifier', () => {
     expect(result).toEqual({ iss: 'did:plc:caller', aud: 'did:plc:testgroup' })
   })
 
-  it('enforces token lifetime in verifyRegistration', async () => {
+  it('enforces token lifetime in verifyServiceAuth', async () => {
     const now = Math.floor(Date.now() / 1000)
     fakeVerifyJwt.mockResolvedValue({
       iss: 'did:plc:caller',
@@ -179,19 +179,19 @@ describe('AuthVerifier', () => {
       exp: now + NONCE_TTL_SECONDS + 60,
     })
     const regReq = makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.group.register')
-    await expect(verifier.verifyRegistration(regReq)).rejects.toThrow(
+    await expect(verifier.verifyServiceAuth(regReq)).rejects.toThrow(
       'Token lifetime exceeds nonce window',
     )
   })
 
-  it('rejects missing iat in verifyRegistration', async () => {
+  it('rejects missing iat in verifyServiceAuth', async () => {
     fakeVerifyJwt.mockResolvedValue({
       iss: 'did:plc:caller',
       jti: 'jti-reg-no-iat',
       exp: Math.floor(Date.now() / 1000) + 60,
     })
     const regReq = makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.group.register')
-    await expect(verifier.verifyRegistration(regReq)).rejects.toThrow(
+    await expect(verifier.verifyServiceAuth(regReq)).rejects.toThrow(
       'Missing iat in service auth token',
     )
   })

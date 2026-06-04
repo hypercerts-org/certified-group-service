@@ -200,8 +200,6 @@ export function createTestApp(
 export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
   return {
     verify: async () => ({ iss, aud }),
-    verifyRegistration: async () => ({ iss }),
-    verifyImport: async () => ({ iss }),
     verifyServiceAuth: async () => ({ iss }),
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
@@ -210,7 +208,8 @@ export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
       }
     },
     xrpcServiceAuth() {
-      return async () => {
+      return async ({ req }: { req: any }) => {
+        const { iss } = await this.verifyServiceAuth(req)
         return { credentials: { callerDid: iss } }
       }
     },

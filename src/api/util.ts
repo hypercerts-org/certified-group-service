@@ -1,7 +1,7 @@
 import type { Server, MethodHandler, RouteOptions } from '@atproto/xrpc-server'
 import type { Kysely } from 'kysely'
 import type { AppContext } from '../context.js'
-import type { GroupAuthResult } from '../auth/verifier.js'
+import type { GroupAuthResult, ServiceAuthResult } from '../auth/verifier.js'
 import type { AuditEventDetail } from '../audit.js'
 import type { Operation } from '../rbac/permissions.js'
 import type { GroupDatabase } from '../db/schema.js'
@@ -12,6 +12,11 @@ import type { PdsAgentPool } from '../pds/agent.js'
 export interface AuthedMethodConfig {
   opts?: RouteOptions
   handler: MethodHandler<GroupAuthResult>
+}
+
+export interface ServiceAuthMethodConfig {
+  opts?: RouteOptions
+  handler: MethodHandler<ServiceAuthResult>
 }
 
 export function jsonResponse<T>(body: T) {
@@ -88,6 +93,27 @@ export function registerAuthedMethod(
 ): void {
   server.method(nsid, {
     auth: ctx.authVerifier.xrpcAuth(),
+    opts: config.opts,
+    handler: config.handler,
+  })
+}
+
+/**
+ * Register a group-bootstrapping XRPC method (register, import) — one whose
+ * audience is the service's own DID rather than a group DID, and whose target
+ * group does not yet exist in the service. Unlike registerAuthedMethod, the
+ * auth verifier does not open a per-group DB or check group membership; it only
+ * proves the caller controls the issuing DID. The handler is responsible for
+ * any ownerDid / authorship checks.
+ */
+export function registerServiceAuthMethod(
+  server: Server,
+  nsid: string,
+  ctx: AppContext,
+  config: ServiceAuthMethodConfig,
+): void {
+  server.method(nsid, {
+    auth: ctx.authVerifier.xrpcServiceAuth(),
     opts: config.opts,
     handler: config.handler,
   })

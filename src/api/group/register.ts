@@ -1,10 +1,11 @@
 import { randomBytes } from 'node:crypto'
-import type { Express } from 'express'
+import type { Server } from '@atproto/xrpc-server'
 import { AtpAgent } from '@atproto/api'
 import { ensureValidDid } from '@atproto/syntax'
 import { AuthRequiredError, InvalidRequestError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
 import { ConflictError } from '../../errors.js'
+import { registerServiceAuthMethod, jsonResponse } from '../util.js'
 import {
   generateRecoveryKey,
   getLatestPlcCid,
@@ -13,24 +14,34 @@ import {
 } from '../../pds/plc.js'
 import { finalizeGroup } from './finalize.js'
 
-export default function (app: Express, ctx: AppContext) {
-  app.post('/xrpc/app.certified.group.register', async (req, res, next) => {
-    try {
-      const { handle, ownerDid, email } = req.body
-
-      // Validate inputs
-      if (!handle || !ownerDid) {
-        throw new InvalidRequestError('Missing required fields: handle, ownerDid')
+/**
+ * app.certified.group.register — create a new group account and bring it under
+ * service management.
+ *
+ * Auth is service-level (aud = the service DID), because the group does not yet
+ * exist in the service. The handler additionally verifies the authenticated
+ * caller matches the ownerDid it is about to seed.
+ */
+export default function (server: Server, ctx: AppContext) {
+  registerServiceAuthMethod(server, 'app.certified.group.register', ctx, {
+    handler: async ({ auth, input }) => {
+      const { callerDid } = auth.credentials
+      const { handle, ownerDid, email } = input?.body as {
+        handle: string
+        ownerDid: string
+        email?: string
       }
+
+      // Validate inputs (the lexicon enforces presence + did format; we also
+      // guard explicitly for the handle charset and a clean DID error)
       try {
         ensureValidDid(ownerDid)
       } catch {
         throw new InvalidRequestError('Invalid ownerDid')
       }
 
-      // Verify the caller controls the claimed ownerDid
-      const { iss } = await ctx.authVerifier.verifyRegistration(req)
-      if (iss !== ownerDid) {
+      // The authenticated caller must be the owner they are seeding
+      if (callerDid !== ownerDid) {
         throw new AuthRequiredError('Service auth token issuer does not match ownerDid')
       }
       if (!/^[a-zA-Z0-9-]+$/.test(handle)) {
@@ -138,12 +149,7 @@ export default function (app: Express, ctx: AppContext) {
         handle: fullHandle,
       })
 
-      res.json({
-        groupDid,
-        handle: fullHandle,
-      })
-    } catch (err) {
-      next(err)
-    }
+      return jsonResponse({ groupDid, handle: fullHandle })
+    },
   })
 }
