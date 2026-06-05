@@ -189,6 +189,8 @@ const groupAgent = createGroupAgent(agent, groupDid)
 
 With a `groupAgent` configured, call group service endpoints. Use the custom `app.certified.group.repo.*` NSIDs for record operations (the PDS needs these to route correctly), and the `app.certified.group.*` NSIDs for member/role/audit operations.
 
+> **Forward-looking note (#27):** for per-group methods, the group service currently identifies the target group from the JWT `aud` claim (which the proxy agent sets to the group DID). That overload of `aud` is being deprecated — a future release will read the group from an explicit request field (the `repo` field, or a new explicit field for methods that lack one) and expect `aud` to be the group service's own DID. The contract described in this section is the current, supported one; see `docs/design/api-keys.md` for the planned change and migration window.
+
 ```typescript
 // Add a member (returns { memberDid, role, addedBy, addedAt })
 const { data: member } = await groupAgent.call(
@@ -216,7 +218,7 @@ const { data: post } = await groupAgent.call(
 // post.uri → "at://did:plc:abc123/app.bsky.feed.post/3xyz789"
 ```
 
-**Important:** The `repo` field in all record operations must match the group DID. The group service rejects requests where `repo` doesn't match the JWT's `aud` claim.
+**Important:** The `repo` field in all record operations must match the DID of the group the request is scoped to; the group service rejects a mismatch. (Today the group is named by the JWT `aud`, so in practice `repo` must equal `aud` — but see the note below: that coupling is changing under #27.)
 
 ## Putting it all together
 
