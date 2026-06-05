@@ -373,22 +373,24 @@ jobs:
           exit 1
 
       - name: Run e2e suite
+        # Account identifiers (handles/DIDs) and the service DID are public, so
+        # they are repository VARIABLES (vars.*); only the passwords are secrets.
         env:
           CGS_URL: ${{ steps.url.outputs.cgs_url }}
-          CGS_SERVICE_DID: ${{ secrets.CGS_SERVICE_DID }}
+          CGS_SERVICE_DID: ${{ vars.CGS_SERVICE_DID }}
           # Importer + owner (commonly the same pre-provisioned account).
-          IMPORTER_IDENTIFIER: ${{ secrets.IMPORTER_IDENTIFIER }}
+          IMPORTER_IDENTIFIER: ${{ vars.IMPORTER_IDENTIFIER }}
           IMPORTER_PASSWORD: ${{ secrets.IMPORTER_PASSWORD }}
           IMPORTER_APP_PASSWORD: ${{ secrets.IMPORTER_APP_PASSWORD }}
-          GROUP_OWNER_IDENTIFIER: ${{ secrets.GROUP_OWNER_IDENTIFIER }}
+          GROUP_OWNER_IDENTIFIER: ${{ vars.GROUP_OWNER_IDENTIFIER }}
           GROUP_OWNER_PASSWORD: ${{ secrets.GROUP_OWNER_PASSWORD }}
           # RBAC accounts — the @needs-rbac-accounts feature runs only when all
           # six are set; when unset cucumber.mjs auto-excludes that feature.
-          ADMIN_IDENTIFIER: ${{ secrets.ADMIN_IDENTIFIER }}
+          ADMIN_IDENTIFIER: ${{ vars.ADMIN_IDENTIFIER }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          MEMBER_IDENTIFIER: ${{ secrets.MEMBER_IDENTIFIER }}
+          MEMBER_IDENTIFIER: ${{ vars.MEMBER_IDENTIFIER }}
           MEMBER_PASSWORD: ${{ secrets.MEMBER_PASSWORD }}
-          OUTSIDER_IDENTIFIER: ${{ secrets.OUTSIDER_IDENTIFIER }}
+          OUTSIDER_IDENTIFIER: ${{ vars.OUTSIDER_IDENTIFIER }}
           OUTSIDER_PASSWORD: ${{ secrets.OUTSIDER_PASSWORD }}
         run: pnpm test:e2e
 

@@ -100,6 +100,8 @@ re-runnable indefinitely against the same account.
 on `push` to `main`, and manual `workflow_dispatch`). It mirrors the ePDS
 workflow: a `gate` job skips the run unless relevant paths changed; the run job
 finds the PR's Railway preview deployment, derives the CGS URL from the env name,
-health-checks `/health`, then runs the suite. The test accounts come from
-repository secrets (see `e2e/.env.example` for the names). `workflow_dispatch`
+health-checks `/health`, then runs the suite. The account **passwords** come from
+repository **secrets**; the account **identifiers** (public handles/DIDs) and
+`CGS_SERVICE_DID` come from repository **variables** (`vars.*`). Populate both
+from a filled `e2e/.env` with `scripts/set-e2e-secrets.sh`. `workflow_dispatch`
 takes an `env_name` input for re-running against a known Railway env.

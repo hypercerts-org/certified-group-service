@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 #
-# Push the e2e account credentials from a dotenv-style file into GitHub Actions
-# repository secrets, so the E2E workflow (.github/workflows/e2e.yml) can run.
+# Push the e2e account config from a dotenv-style file into GitHub Actions
+# repository config, so the E2E workflow (.github/workflows/e2e.yml) can run.
+#
+# Only the passwords are SECRETS. The account identifiers (public atproto
+# handles/DIDs) and the service DID are non-sensitive, so they go in as
+# repository VARIABLES (vars.*), which the workflow reads accordingly.
 #
 # Usage:
 #   scripts/set-e2e-secrets.sh [ENV_FILE] [--repo OWNER/REPO] [--dry-run]
@@ -12,11 +16,11 @@
 #
 # Notes:
 #   - CGS_URL is intentionally NOT pushed: the workflow derives the service URL
-#     from the Railway deployment, so a CGS_URL secret would be ignored/stale.
+#     from the Railway deployment, so a CGS_URL value would be ignored/stale.
 #   - Blank vars and comment lines are skipped (e.g. unset RBAC accounts).
 #   - Values are read literally; surrounding single/double quotes are stripped.
 #
-# Requires: gh (authenticated, with repo admin to write secrets).
+# Requires: gh (authenticated, with repo admin to write secrets + variables).
 set -euo pipefail
 
 ENV_FILE="e2e/.env"
@@ -38,31 +42,48 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 2
 fi
 
-# Secrets the workflow consumes (see .github/workflows/e2e.yml). CGS_URL is
-# deliberately excluded — the workflow derives it from the Railway deployment.
-ALLOWED="
-CGS_SERVICE_DID
-IMPORTER_IDENTIFIER
+# SECRETS — credentials only.
+SECRETS="
 IMPORTER_PASSWORD
 IMPORTER_APP_PASSWORD
-GROUP_OWNER_IDENTIFIER
 GROUP_OWNER_PASSWORD
-ADMIN_IDENTIFIER
 ADMIN_PASSWORD
-MEMBER_IDENTIFIER
 MEMBER_PASSWORD
-OUTSIDER_IDENTIFIER
 OUTSIDER_PASSWORD
 "
 
-is_allowed() {
-  printf '%s\n' "$ALLOWED" | grep -qx "$1"
+# VARIABLES — public, non-sensitive values.
+VARIABLES="
+CGS_SERVICE_DID
+IMPORTER_IDENTIFIER
+GROUP_OWNER_IDENTIFIER
+ADMIN_IDENTIFIER
+MEMBER_IDENTIFIER
+OUTSIDER_IDENTIFIER
+"
+
+# Classify a key as "secret", "variable", or "" (unrecognised).
+classify() {
+  if printf '%s\n' "$SECRETS" | grep -qx "$1"; then
+    echo secret
+  elif printf '%s\n' "$VARIABLES" | grep -qx "$1"; then
+    echo variable
+  else
+    echo ""
+  fi
 }
 
-gh_args=(secret set)
-[ -n "$REPO" ] && gh_args+=(--repo "$REPO")
+# `--app actions` is explicit (not relying on the default) so secrets are
+# unambiguously GitHub *Actions* repository secrets, never Dependabot/Codespaces.
+secret_args=(secret set --app actions)
+variable_args=(variable set)
+if [ -n "$REPO" ]; then
+  secret_args+=(--repo "$REPO")
+  variable_args+=(--repo "$REPO")
+fi
 
-set_count=0
+secret_count=0
+var_count=0
 skip_count=0
 
 while IFS= read -r line || [ -n "$line" ]; do
@@ -84,29 +105,42 @@ while IFS= read -r line || [ -n "$line" ]; do
   esac
 
   if [ "$key" = "CGS_URL" ]; then
-    echo "skip  $key (derived from the Railway deployment, not a secret)"
+    echo "skip      $key (derived from the Railway deployment)"
     skip_count=$((skip_count + 1))
     continue
   fi
-  if ! is_allowed "$key"; then
-    echo "skip  $key (not a recognised e2e secret)"
+
+  kind="$(classify "$key")"
+  if [ -z "$kind" ]; then
+    echo "skip      $key (not a recognised e2e var)"
     skip_count=$((skip_count + 1))
     continue
   fi
   if [ -z "$value" ]; then
-    echo "skip  $key (empty)"
+    echo "skip      $key (empty)"
     skip_count=$((skip_count + 1))
     continue
   fi
 
-  if $DRY_RUN; then
-    echo "would set  $key"
+  if [ "$kind" = secret ]; then
+    if $DRY_RUN; then
+      echo "would set secret   $key"
+    else
+      printf '%s' "$value" | gh "${secret_args[@]}" "$key"
+      echo "set       secret   $key"
+    fi
+    secret_count=$((secret_count + 1))
   else
-    printf '%s' "$value" | gh "${gh_args[@]}" "$key"
-    echo "set   $key"
+    if $DRY_RUN; then
+      echo "would set variable $key"
+    else
+      gh "${variable_args[@]}" "$key" --body "$value"
+      echo "set       variable $key"
+    fi
+    var_count=$((var_count + 1))
   fi
-  set_count=$((set_count + 1))
 done < "$ENV_FILE"
 
 echo "---"
-echo "$( $DRY_RUN && echo 'would set' || echo 'set') $set_count secret(s); skipped $skip_count."
+prefix="$( $DRY_RUN && echo 'would set' || echo 'set')"
+echo "$prefix $secret_count secret(s) and $var_count variable(s); skipped $skip_count."
