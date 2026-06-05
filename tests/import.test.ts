@@ -41,8 +41,10 @@ describe('group.import', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     const test = await createTestContext({
-      // Owner is did:plc:owner; idResolver resolves to the test PDS by default.
-      authVerifier: mockAuth('did:plc:owner'),
+      // The JWT is signed by the account being imported (iss = groupDid);
+      // idResolver resolves to the test PDS by default. ownerDid (the grantee)
+      // may differ and is not separately authenticated.
+      authVerifier: mockAuth('did:plc:existingaccount'),
     })
     ctx = test.ctx
     globalDb = test.globalDb
@@ -80,7 +82,7 @@ describe('group.import', () => {
     expect(group!.encrypted_recovery_key).toBeNull()
   })
 
-  it('seeds the caller as owner', async () => {
+  it('seeds the supplied ownerDid as owner (may differ from the signing groupDid)', async () => {
     const res = await request(app).post(ENDPOINT).send(validBody)
     expect(res.status).toBe(200)
 
@@ -96,7 +98,7 @@ describe('group.import', () => {
   it('stores the resolved PDS url, not the configured group PDS', async () => {
     // Resolve the account to a different PDS than config.groupPdsUrl
     const test = await createTestContext({
-      authVerifier: mockAuth('did:plc:owner'),
+      authVerifier: mockAuth('did:plc:existingaccount'),
       idResolver: mockIdResolver('https://other-pds.example.net'),
     })
     const otherApp = createTestApp(test.ctx, groupImportHandler)
@@ -172,15 +174,39 @@ describe('group.import', () => {
     expect(res.status).toBe(400)
   })
 
-  it('rejects when the auth issuer does not match ownerDid', async () => {
+  it('rejects when the auth issuer does not match groupDid', async () => {
     const test = await createTestContext({
-      // Caller authenticates as someone other than the claimed owner
+      // Caller signs as some unrelated DID, not the account being imported
       authVerifier: mockAuth('did:plc:someoneelse'),
     })
     const otherApp = createTestApp(test.ctx, groupImportHandler)
 
     const res = await request(otherApp).post(ENDPOINT).send(validBody)
     expect(res.status).toBe(401)
+
+    await test.globalDb.destroy()
+    await test.groupDb.destroy()
+  })
+
+  it('rejects when only the grantee (ownerDid) signs, not groupDid', async () => {
+    // Authenticate as the recipient of ownership rather than the account being
+    // imported. Under option a we gate on the grantor (iss = groupDid), so
+    // proving control of ownerDid alone is not sufficient.
+    const test = await createTestContext({
+      authVerifier: mockAuth('did:plc:owner'),
+    })
+    const otherApp = createTestApp(test.ctx, groupImportHandler)
+
+    const res = await request(otherApp).post(ENDPOINT).send(validBody)
+    expect(res.status).toBe(401)
+
+    // Nothing persisted on rejection
+    const group = await test.globalDb
+      .selectFrom('groups')
+      .where('did', '=', 'did:plc:existingaccount')
+      .selectAll()
+      .executeTakeFirst()
+    expect(group).toBeUndefined()
 
     await test.globalDb.destroy()
     await test.groupDb.destroy()

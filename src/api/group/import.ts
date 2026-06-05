@@ -20,8 +20,13 @@ import { finalizeGroup } from './finalize.js'
  * scope). See docs/design/group-import.md.
  *
  * Auth is service-level (aud = the service DID), because the group does not yet
- * exist in the service. The handler additionally verifies the authenticated
- * caller matches the ownerDid it is about to seed.
+ * exist in the service. The handler additionally verifies that the JWT was
+ * signed by the account being imported (iss = groupDid) — i.e. it authenticates
+ * the grantor of the privilege, not the grantee. The recipient ownerDid is
+ * named but not separately authenticated: an attacker is the natural beneficiary
+ * of any escalation, so proving control of the recipient DID is no evidence of
+ * entitlement, whereas proving control of groupDid (which an app password alone
+ * cannot do) is the claim worth gating on. See docs/design/group-import.md.
  */
 export default function (server: Server, ctx: AppContext) {
   registerServiceAuthMethod(server, 'app.certified.group.import', ctx, {
@@ -46,9 +51,12 @@ export default function (server: Server, ctx: AppContext) {
         throw new InvalidRequestError('Invalid ownerDid')
       }
 
-      // The authenticated caller must be the owner they are seeding
-      if (callerDid !== ownerDid) {
-        throw new AuthRequiredError('Service auth token issuer does not match ownerDid')
+      // The JWT must be signed by the account being imported (the grantor).
+      // An app password cannot mint a service-auth JWT, so this proves control
+      // of groupDid beyond merely holding its app password. ownerDid (the
+      // grantee) is seeded as supplied without separate proof — see the header.
+      if (callerDid !== groupDid) {
+        throw new AuthRequiredError('Service auth token issuer does not match groupDid')
       }
 
       // Resolve the account's PDS and handle from its DID document. An imported
