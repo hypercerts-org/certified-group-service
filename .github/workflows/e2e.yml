@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       env_name:
-        description: "Railway env name, e.g. 'certified-group-service / certified-group-service-pr-48' or 'certified-group-service / pr-base'"
+        description: "Railway env name, e.g. 'CGS / certified-group-service-pr-48' or 'CGS / pr-base'"
         required: true
         type: string
 
@@ -180,8 +180,10 @@ jobs:
               TARGET_DESC="PR #$PR_NUMBER preview"
               ;;
             push)
-              SHA_FILTER='.creator.login == "railway-app[bot]" and .environment == "certified-group-service / pr-base"'
-              FALLBACK_URL="repos/${GH_REPOSITORY}/deployments?environment=certified-group-service%20%2F%20pr-base&per_page=10"
+              # Railway's project scope for CGS is "CGS" (the env names are
+              # "CGS / certified-group-service-pr-<N>" and "CGS / pr-base").
+              SHA_FILTER='.creator.login == "railway-app[bot]" and .environment == "CGS / pr-base"'
+              FALLBACK_URL="repos/${GH_REPOSITORY}/deployments?environment=CGS%20%2F%20pr-base&per_page=10"
               FALLBACK_FILTER='.creator.login == "railway-app[bot]"'
               TARGET_DESC="pr-base env"
               ;;
@@ -330,8 +332,8 @@ jobs:
         env:
           # On workflow_dispatch read the env name from inputs; otherwise from
           # the wait-deploy step's output (the Railway deployment's
-          # `environment` field, e.g. "certified-group-service /
-          # certified-group-service-pr-48" or ".../ pr-base").
+          # `environment` field, e.g. "CGS / certified-group-service-pr-48" or
+          # "CGS / pr-base").
           FULL_ENV: ${{ github.event_name == 'workflow_dispatch' && inputs.env_name || steps.wait-deploy.outputs.env_name }}
         run: |
           echo "Deriving the CGS URL from Railway environment: $FULL_ENV"
