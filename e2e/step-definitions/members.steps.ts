@@ -6,7 +6,7 @@
  * across groups. (CGS already mixes service- and group-scoped aud today; #27
  * tracks making that consistent.) The caller varies by role — owner, admin,
  * member, or outsider — and each signs its own JWT, so the negative cases
- * exercise real authorization (ForbiddenError → 403), not a simulated denial.
+ * exercise real authorization (Forbidden, 403), not a simulated denial.
  */
 import { Given, When, Then } from '@cucumber/cucumber'
 import { strict as assert } from 'node:assert'

@@ -295,7 +295,7 @@ Asserts `{groupDid, handle, accountPassword}`. No config var needed.
 **`features/membership.feature`** (`@needs-rbac-accounts`) — RBAC across roles,
 using the pre-provisioned admin/member/outsider accounts. The owner seeds the
 roles, then each account **signs its own JWTs** so we test real authorization,
-positive and negative (`ForbiddenError` → HTTP **403**):
+positive and negative (HTTP **403**, wire error `Forbidden`):
 
 _Seeding & owner happy-path_
 
@@ -310,7 +310,7 @@ _Positive — each role does what it's allowed_
 - **Member** (signing as itself) creates a record (`repo.createRecord`) and lists
   members (`member.list`) — member-gated, allowed.
 
-_Negative — denials (assert 403 + `ForbiddenError`)_
+_Negative — denials (assert 403 + error `Forbidden`)_
 
 - **Member** attempts an admin-only op (`member.add` / `audit.query`) →
   `403 "Role 'member' cannot perform '…'"`.
@@ -430,7 +430,7 @@ the rest of the suite runs without them.
   only proves the methods' happy path, never that authorization is actually
   _enforced_. Real RBAC coverage needs each role to sign **its own** JWTs, so the
   env supplies pre-provisioned admin/member/outsider accounts with passwords and
-  the feature asserts both allow and deny (403 `ForbiddenError`). Caveat: one
+  the feature asserts both allow and deny (403, wire error `Forbidden`). Caveat: one
   negative case is "admin attempts `group.destroy` → 403"; if RBAC were broken
   this would destroy the group mid-suite, but the clean-slate import + `AfterAll`
   recover the next run, and a failing 403 assertion surfaces the bug anyway.
