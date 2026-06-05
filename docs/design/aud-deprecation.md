@@ -150,10 +150,13 @@ and is cheap to add. Rate-limiting the log prevents a chatty legacy client
 from flooding logs (one warn per caller-DID per N minutes is enough to be
 noticed without being noise).
 
-**Implementation wrinkle (open, see below):** the `MethodAuthVerifier` returns
-credentials and does **not** own the Express response, so headers cannot be set
-from the verifier directly. The credential must carry a `legacyAud: boolean`
-flag that a later stage (handler wrapper or route option) reads to set headers.
+**Header injection mechanism (settled).** The auth verifier returns credentials
+and does not set response headers — but `@atproto/xrpc-server` passes the
+verifier `{ req, res, params }` and the handler context also carries `res`
+(verified in `server.js`). The credential carries a `legacyAud: boolean`; a
+handler wrapper in `registerAuthedMethod` reads it and sets the headers on
+`res`. (Setting them in the verifier via its `res` is also possible, but the
+wrapper keeps all authed methods uniform in one place.)
 
 ### 3. Removal trigger: undecided (out of scope for this PR)
 
@@ -165,58 +168,157 @@ set.
 
 ---
 
+## Developer experience: the stock atproto SDK works unmodified
+
+CGS's consumers are atproto app developers using standard SDKs (`@atproto/api`).
+**Stellar DX is a primary goal**, and it is the decisive argument for this fix:
+
+- The **current** `aud = groupDid` overload is **not expressible** through a
+  stock SDK as a resource selector. `getServiceAuth` accepts only `aud` (the
+  service), `exp`, and `lxm` (verified against the canonical lexicon); `aud` is
+  the audience, not a resource. A developer wanting the current behaviour must
+  understand CGS-specific semantics and rely on the group happening to equal the
+  audience — fighting the SDK's model.
+- The **fixed** shape is what a stock SDK already emits: `getServiceAuth({ aud:
+  serviceDid, lxm })` plus `repo` in the standard place for each method
+  (`agent.com.atproto.repo.createRecord({ repo, … })`). No bespoke JWT, no
+  SDK-bypassing fetch, no non-standard claims.
+
+So the fix is not only correct per RFC 7519 — it is the version that an atproto
+app dev can call **without thinking about CGS at all**, which is the bar.
+
+## Security: `repo` is unsigned (a deliberate reduction to atproto parity)
+
+Moving the group selector from the signed `aud` claim to an **unsigned `repo`
+request field** is a real change to the security posture, stated plainly:
+
+- **Today**, the group lives in the JWT `aud`, which is **signed**. A token is
+  cryptographically locked to one group; a caller cannot retarget it without
+  re-minting (which needs their signing key).
+- **After the fix**, the group lives in `repo`, which is **not** a JWT claim and
+  is **not signed** (the service-auth JWT signs only `iss, aud, exp, lxm, jti` —
+  verified in `@atproto/xrpc-server` `auth.js`; `getServiceAuth` exposes no
+  resource/repo binding, and `createServiceJwt` has no claim passthrough). A
+  caller can change `repo` freely within the token's life.
+
+**This is a deliberate weakening**, not a free parity move: a compromised token's
+reach widens from **one group** to **every group the caller is privileged in**,
+for the token's lifetime. It is accepted because:
+
+- **There is no convention-respecting alternative.** Binding `repo` to the
+  signature would require a non-standard JWT — the exact deviation this issue
+  removes, and the thing that breaks stock-SDK DX. "Keep `repo` signed" and
+  "conform to atproto" are mutually exclusive; we chose conformance.
+- **It is atproto-standard.** Every PDS treats `repo` as an unsigned request
+  field and authorises it server-side. The fix lands CGS at the ecosystem's
+  normal posture; the _current_ behaviour is the outlier (an extra lock atproto
+  never gives `repo`).
+- **No privilege escalation.** RBAC re-checks the signed `iss` against the
+  target group's DB on every call, so a retargeted token only reaches groups the
+  caller **already** holds a role in. The widening is in blast radius, not in
+  reachable privilege.
+- **Bounded window.** `exp ≤ 120s` (nonce-window cap) and single-use `jti`
+  keep the exposure of any one token brief and non-replayable.
+
+This mirrors — at lower severity — the blast-radius tradeoff
+[`api-keys.md`](./api-keys.md) already accepts for long-lived keys. Scope
+minimality (RBAC + short JWT life) is the mitigation in both.
+
+---
+
 ## What changes
 
-The fix has one **chokepoint** (the auth verifier) plus **lexicon param
-additions**. Because every handler already reads `groupDid` from
-`auth.credentials` (e.g. `member/list.ts:16`), handler bodies are largely
-untouched — they keep reading the credential; only _how the verifier populates
-it_ changes.
+### Where `repo` lives: follow the stock SDK (the DX constraint)
 
-### `src/auth/verifier.ts` — `verify()` / `xrpcAuth()`
+The shape is dictated by **what an unmodified `@atproto/api` client emits**, not
+by server convenience. A stock SDK call is:
 
-New precedence for determining the group, both forms accepted:
+```ts
+const { token } = await agent.com.atproto.server.getServiceAuth({
+  aud: cgsServiceDid,                       // the SERVICE — the only thing aud can mean
+  lxm: 'com.atproto.repo.createRecord',
+})
+await agent.com.atproto.repo.createRecord(  // repo in the BODY, via the typed call
+  { repo: groupDid, collection, record },
+  { headers: { Authorization: `Bearer ${token}` } },
+)
+```
 
-1. **New form (preferred):** read the `repo` field from the request
-   (body for procedures, query params for queries). If present:
-   - resolve it to a DID via `ctx.idResolver` if it's a handle; use as-is if
-     already a DID (see _`repo` format and value handling_ above),
+Two facts follow, and they set the design:
+
+- **Procedures carry `repo` in the request _body_** (`createRecord` is a
+  body-input procedure). The stock SDK has no way to put `repo` in the
+  querystring on a typed procedure call. So CGS **must** read procedure `repo`
+  from the body, or the developer is forced to bypass the SDK — a DX failure.
+- **The SDK mints `aud = serviceDid`.** It cannot place a group DID in `aud`;
+  `aud` is the audience/service. So today's `aud = groupDid` overload is
+  **unreachable through a stock SDK** without hand-crafting — the fix is what
+  makes CGS callable from vanilla atproto tooling.
+
+This forces a **split by method type** (which is exactly the atproto
+convention — body for procedures, querystring for queries):
+
+| method kind        | where `repo` is read        | who resolves the group |
+| ------------------ | --------------------------- | ---------------------- |
+| query (`member.list`, `audit.query`) | querystring (`params.repo`) | the **verifier** (it receives `params`) |
+| procedure (`createRecord`, `putRecord`, `deleteRecord`) | request **body** (`input.body.repo`) | the **handler** (the verifier cannot see the body) |
+| `uploadBlob`       | querystring (raw body, no JSON `repo` possible) | the **handler** |
+
+**Why the verifier can't do it uniformly.** In `@atproto/xrpc-server` the auth
+verifier runs **before** the body is parsed — it is handed `{ req, res, params }`
+but not the input (verified in `server.js`: `paramsVerifier` → `authVerifier` →
+`inputVerifier`). So a query's `repo` (in `params`) is visible to the verifier,
+but a procedure's `repo` (in the body) is not. Rather than force `repo` into the
+querystring on procedures (breaking stock-SDK calls), the group resolution for
+procedures moves into the handler, which does see `input.body.repo`.
+
+### `src/auth/verifier.ts` — `verify()` / `xrpcAuth()` (queries + legacy)
+
+New precedence for the group, both forms accepted:
+
+1. **New form (preferred):** `params.repo` present (queries). Then:
+   - resolve it to a DID via `idResolver` if it's a handle; use as-is if already
+     a DID (see _`repo` format and value handling_ above),
    - validate the resolved DID against the `groups` table (unchanged lookup),
-   - `aud` must equal the **service DID** (`this.serviceDid`) — verify it the
-     correct way. Accept `aud === serviceDid`.
-2. **Legacy form (deprecated):** no `repo` field present. Fall back to today's
-   behaviour — group from `payload.aud`, `verifyJwt(…, null, …)` skipping the
-   audience check. Set `legacyAud = true` on the result so the deprecation
-   signal fires.
+   - require `aud === serviceDid` (verified the correct way).
+2. **Legacy form (deprecated):** no `repo`. Fall back to today's behaviour —
+   group from `payload.aud`, `verifyJwt(…, null, …)` skipping the audience check.
+   Set `legacyAud = true` so the deprecation signal fires.
 3. **Reject** if neither yields a registered group.
 
-The returned credential gains a `legacyAud` flag:
+For **procedures**, the verifier authenticates the JWT and accepts either
+`aud === serviceDid` (new) or `aud === <a registered group>` (legacy,
+`legacyAud = true`); the **handler** then resolves `input.body.repo` to the
+group DID. A shared helper (`resolveGroupFromRepo(repo)` in `src/api/util.ts`)
+does the handle→DID resolution + `groups`-table validation once, reused by the
+verifier (queries) and the procedure handlers, so the logic is not duplicated.
+
+The returned credential gains a `legacyAud` flag, and `groupDid` becomes
+optional (procedures fill it from the body):
 
 ```ts
 export interface GroupAuthCredentials {
   callerDid: string
-  groupDid: string
-  legacyAud: boolean // true when the group came from aud, not the repo field
+  groupDid?: string // set by the verifier for queries; by the handler for procedures
+  legacyAud: boolean // true when the group came from aud, not an explicit repo
 }
 ```
 
 `assertTokenLifetime`, nonce/replay (`jti`), and signature checks are unchanged
 for both forms — only the audience check and the group-source differ.
 
-Note both forms can be sent **together** during migration (a client that adds
-`repo` but still sets `aud=groupDid`). Precedence rule: **if `repo` is present,
-it wins and is treated as the new path** (no deprecation warning), even if `aud`
-is also the group DID — so a client migrates by _adding_ `repo`, and the warning
-stops the moment they do, regardless of what they leave in `aud`. A client that
-sets `repo` and a _correct_ `aud=serviceDid` is fully migrated.
+Both forms can be sent **together** during migration (a client adds `repo` but
+still sets `aud=groupDid`). Precedence: **explicit `repo` wins** (new path, no
+warning), regardless of `aud`. A client migrates by _adding_ `repo`; the warning
+stops the moment it does. A client sending `repo` + `aud=serviceDid` is fully
+migrated.
 
 ### Lexicons — add `repo` to query methods
 
-Add the `repo` (`at-identifier`) parameter to the lexicons for the
-**group-scoped** query methods that lack it: `member.list`, `audit.query`, and
-any other authed method whose group currently comes only from `aud`. The
-`repo.*` procedures already declare `repo`, so no change there. The field is
-**optional in the lexicon during the deprecation window** (legacy callers omit
+Add the `repo` (`at-identifier`) **querystring** parameter to the lexicons for
+the **group-scoped query** methods that lack it: `member.list`, `audit.query`.
+The `repo.*` procedures already declare `repo` (in the body) — no change there.
+The field is **optional during the deprecation window** (legacy callers omit
 it); it becomes required only at the eventual hard cutover.
 
 **Explicitly out of scope — these get _no_ `repo` field:**
@@ -294,18 +396,20 @@ At that point set `Sunset` ahead of the removal release, then remove.
 - **Header/log assertion:** a legacy request sets `Deprecation: true` and emits
   one warn; a fully-migrated request sets neither.
 
+## Resolved during design
+
+- **Header injection mechanism** — settled. The verifier receives `{ req, res,
+  params }` and the handler context carries `res` (verified in
+  `@atproto/xrpc-server` `server.js`); a wrapper in `registerAuthedMethod` reads
+  `credentials.legacyAud` and sets the headers. See _Header injection mechanism_
+  above.
+- **Where `repo` is read (procedures vs queries)** — settled by the DX
+  constraint, not server convenience. Queries: querystring `params.repo` (read
+  by the verifier). Procedures: request **body** `input.body.repo` (read by the
+  handler, since the verifier runs before body parse). `uploadBlob`: querystring
+  (raw body). See _Where `repo` lives: follow the stock SDK_.
+
 ## Open questions
 
-- **Header injection mechanism.** The `MethodAuthVerifier` cannot set response
-  headers (it returns credentials, not the response). Confirm the cleanest hook
-  in `@atproto/xrpc-server`: a handler wrapper in `registerAuthedMethod`, a
-  `RouteOptions` field, or post-handler middleware. Leaning: wrapper in
-  `registerAuthedMethod` reading `credentials.legacyAud`.
-- **Where the verifier reads `repo` for procedures vs queries.** Body for
-  procedures, query params for queries — confirm both are available to the
-  verifier at auth time given the `registerRawRoutes` / `express.json()`
-  ordering (`CLAUDE.md` Architecture gotchas: uploadBlob is mounted before
-  `express.json()`). `uploadBlob` is a `repo.*` procedure that already carries
-  `repo`, but verify the raw-route path can read it pre-JSON-parse.
 - **Rate-limit window for the warn log.** Per caller-DID, per N minutes — pick N
   (5? 15?) at implementation; not load-bearing for the design.
