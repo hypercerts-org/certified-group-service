@@ -2,9 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import express from 'express'
 import request from 'supertest'
 import { AuthRequiredError } from '@atproto/xrpc-server'
-import { createTestContext, silentLogger } from './helpers/mock-server.js'
+import { createTestContext, createTestApp, mockAuth } from './helpers/mock-server.js'
 import groupRegisterHandler from '../src/api/group/register.js'
-import { createFallbackErrorHandler } from '../src/api/error-handler.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase, GroupDatabase } from '../src/db/schema.js'
@@ -77,11 +76,7 @@ import {
 } from '../src/pds/plc.js'
 
 function createApp(ctx: AppContext) {
-  const app = express()
-  app.use(express.json())
-  groupRegisterHandler(app, ctx)
-  app.use(createFallbackErrorHandler(silentLogger as any))
-  return app
+  return createTestApp(ctx, groupRegisterHandler)
 }
 
 const validBody = {
@@ -98,21 +93,7 @@ describe('group.register', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     const test = await createTestContext({
-      authVerifier: {
-        verify: async () => ({
-          iss: 'did:plc:owner',
-          aud: 'did:plc:testgroup',
-        }),
-        verifyRegistration: async () => ({ iss: 'did:plc:owner' }),
-        xrpcAuth() {
-          return async () => ({
-            credentials: {
-              callerDid: 'did:plc:owner',
-              groupDid: 'did:plc:testgroup',
-            },
-          })
-        },
-      } as any,
+      authVerifier: mockAuth('did:plc:owner'),
     })
     ctx = test.ctx
     globalDb = test.globalDb
@@ -255,22 +236,11 @@ describe('group.register', () => {
   it('rejects unauthenticated requests', async () => {
     const test = await createTestContext({
       authVerifier: {
-        verify: async () => ({
-          iss: 'did:plc:owner',
-          aud: 'did:plc:testgroup',
-        }),
-        verifyRegistration: async () => {
+        ...mockAuth('did:plc:owner'),
+        verifyServiceAuth: async () => {
           throw new AuthRequiredError('Missing auth token')
         },
-        xrpcAuth() {
-          return async () => ({
-            credentials: {
-              callerDid: 'did:plc:owner',
-              groupDid: 'did:plc:testgroup',
-            },
-          })
-        },
-      } as any,
+      },
     })
     const unauthApp = createApp(test.ctx)
 
@@ -283,21 +253,7 @@ describe('group.register', () => {
 
   it('rejects when token issuer does not match ownerDid', async () => {
     const test = await createTestContext({
-      authVerifier: {
-        verify: async () => ({
-          iss: 'did:plc:attacker',
-          aud: 'did:plc:testgroup',
-        }),
-        verifyRegistration: async () => ({ iss: 'did:plc:attacker' }),
-        xrpcAuth() {
-          return async () => ({
-            credentials: {
-              callerDid: 'did:plc:attacker',
-              groupDid: 'did:plc:testgroup',
-            },
-          })
-        },
-      } as any,
+      authVerifier: mockAuth('did:plc:attacker'),
     })
     const mismatchApp = createApp(test.ctx)
 

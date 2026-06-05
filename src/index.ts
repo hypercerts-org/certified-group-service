@@ -11,7 +11,7 @@ import { loadConfig } from './config.js'
 import { AuthVerifier } from './auth/verifier.js'
 import { NonceCache } from './auth/nonce.js'
 import { RbacChecker } from './rbac/check.js'
-import { registerXrpcMethods, registerRawRoutes } from './api/index.js'
+import { registerXrpcMethods } from './api/index.js'
 import { createFallbackErrorHandler } from './api/error-handler.js'
 import { runGlobalMigrations } from './db/migrate.js'
 import { openSqliteDb } from './db/sqlite.js'
@@ -76,6 +76,7 @@ async function main() {
     globalDbPath,
     groupDbs,
     authVerifier,
+    idResolver,
     rbac,
     pdsAgents,
     audit,
@@ -93,17 +94,14 @@ async function main() {
     }
   })
 
-  // group.register needs JSON parsing (outside XRPC server)
-  app.use('/xrpc/app.certified.group.register', express.json({ limit: '1mb' }))
-  registerRawRoutes(app, ctx)
-
-  // XRPC server — handles all other /xrpc/* routes
+  // XRPC server — handles all /xrpc/* routes, including group.register and
+  // group.import (service-auth methods) and per-group methods
   const __dirname = dirname(fileURLToPath(import.meta.url))
   const xrpcServer = createGroupServer(join(__dirname, '..', 'lexicons'))
   registerXrpcMethods(xrpcServer, ctx)
   app.use(xrpcServer.router)
 
-  // Fallback error handler for non-XRPC routes (group.register)
+  // Fallback error handler for any non-XRPC routes (e.g. /health)
   app.use(createFallbackErrorHandler(logger))
 
   const server = app.listen(config.port, () => {

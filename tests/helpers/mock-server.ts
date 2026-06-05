@@ -45,6 +45,7 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     get: () => groupDb,
     getRaw: () => groupRaw,
     migrateGroup: async () => {},
+    destroyGroup: async () => {},
     destroyAll: async () => {},
   }
 
@@ -94,6 +95,7 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     globalDbPath: ':memory:',
     groupDbs: mockGroupDbs as any,
     authVerifier: mockAuth('did:plc:testuser'),
+    idResolver: mockIdResolver(),
     rbac: new RbacChecker(),
     pdsAgents: mockPdsAgents as any,
     audit: new AuditLogger(),
@@ -199,7 +201,6 @@ export function createTestApp(
 export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
   return {
     verify: async () => ({ iss, aud }),
-    verifyRegistration: async () => ({ iss }),
     verifyServiceAuth: async () => ({ iss }),
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
@@ -208,9 +209,29 @@ export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
       }
     },
     xrpcServiceAuth() {
-      return async () => {
+      return async ({ req }: { req: any }) => {
+        const { iss } = await this.verifyServiceAuth(req)
         return { credentials: { callerDid: iss } }
       }
+    },
+  } as any
+}
+
+/**
+ * Minimal IdResolver mock. By default resolves any DID to atproto data whose
+ * `pds` points at the test PDS, so the group.import success path works out of
+ * the box. Tests override `did.resolveAtprotoData` to exercise other cases
+ * (e.g. a different PDS, or a throw for an unresolvable DID).
+ */
+export function mockIdResolver(pdsUrl = 'https://pds.example.com') {
+  return {
+    did: {
+      resolveAtprotoData: async (did: string) => ({
+        did,
+        signingKey: 'did:key:zQ3shmockSigningKey',
+        handle: 'imported.pds.example.com',
+        pds: pdsUrl,
+      }),
     },
   } as any
 }

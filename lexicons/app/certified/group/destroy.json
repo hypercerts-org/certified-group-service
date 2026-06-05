@@ -1,0 +1,21 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.destroy",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Destroy a group: remove it from the group service (credentials, member index, and per-group database). The underlying PDS account is left untouched — only the service's record of the group is removed, so the account can be re-imported later. Requires the owner role.",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid"],
+          "properties": {
+            "groupDid": { "type": "string", "format": "did" }
+          }
+        }
+      },
+      "errors": [{ "name": "GroupNotFound" }]
+    }
+  }
+}

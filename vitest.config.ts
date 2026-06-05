@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, configDefaults } from 'vitest/config'
 export default defineConfig({
   test: {
     pool: 'forks',
@@ -7,5 +7,8 @@ export default defineConfig({
         execArgv: ['--import', 'tsx/esm'],
       },
     },
+    // tests/smoke/ holds manual smoke tests that hit a live deployment and need
+    // real credentials — never run them as part of the automated suite.
+    exclude: [...configDefaults.exclude, 'tests/smoke/**'],
   },
 })

@@ -86,7 +86,53 @@ async function registerGroup(agent: AtpAgent, handle: string, ownerDid: string, 
 - `ownerDid` — the DID of the user who will own this group. Must match the JWT's `iss` claim. They're immediately seeded as the owner.
 - `email` — optional recovery email for the group account. If omitted, a placeholder is generated. Providing a real email enables the forgot-password flow for credible exit.
 
-Registration is the **only** endpoint called directly (not via proxy). All subsequent calls go through the proxy agent.
+Registration (and import, below) are called **directly**, not via proxy. All subsequent calls go through the proxy agent.
+
+## Step 1b (alternative): Import an existing account
+
+If the account already exists — e.g. a Bluesky/atproto account you want to "promote" to a group rather than creating a fresh one — use `app.certified.group.import` instead of `register`. It reuses the existing DID, handle, and repo.
+
+The JWT must be signed by **the account being imported** (`groupDid`), not by the prospective owner: the service authenticates the account granting itself to the group (the grantor), and an app password alone cannot produce that signature. So `agent` below is an authenticated session for the `groupDid` account.
+
+```typescript
+async function importGroup(
+  agent: AtpAgent, // an authenticated session for the groupDid account
+  groupDid: string,
+  appPassword: string,
+  ownerDid: string,
+) {
+  const {
+    data: { token },
+  } = await agent.com.atproto.server.getServiceAuth({
+    aud: GROUP_SERVICE_DID,
+    lxm: 'app.certified.group.import',
+  })
+
+  const res = await fetch(`${GROUP_SERVICE}/xrpc/app.certified.group.import`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ groupDid, appPassword, ownerDid }),
+  })
+
+  if (!res.ok) throw new Error(`Import failed: ${res.status}`)
+
+  // Response: { groupDid: "did:plc:abc123", handle: "existing.pds.example.com" }
+  return res.json()
+}
+```
+
+- `groupDid` — the DID of the existing account to import. The group service resolves its PDS and handle from the DID document.
+- `appPassword` — an [app password](https://bsky.app/settings/app-passwords) for that account, so the service can act on its behalf. Stored encrypted; **the owner manages its lifecycle and can revoke it at any time** to sever the service's access.
+- `ownerDid` — the DID seeded as the group's owner. Unlike the JWT issuer (which must be `groupDid`), `ownerDid` is **not** separately authenticated and may differ from `groupDid`: the imported account can hand ownership to a different DID. The recipient is not asked to opt in, so validate it client-side before importing.
+
+**How import differs from register:**
+
+- The account is **not** created — it already exists, and its DID/handle/repo are reused.
+- The group service holds **no recovery key** for an imported account (unlike registered groups, where it generates one). The owner's own pre-existing account credentials are their credible exit; the service is not a custodian of the account's keys.
+- Import does **not** modify the account's DID document. (Service proxying is not currently relied upon; and an app password cannot perform the PLC operation required to add a service entry. See `docs/design/group-import.md`.)
 
 ## Step 2: Create a proxy agent with custom lexicons
 
@@ -143,6 +189,8 @@ const groupAgent = createGroupAgent(agent, groupDid)
 
 With a `groupAgent` configured, call group service endpoints. Use the custom `app.certified.group.repo.*` NSIDs for record operations (the PDS needs these to route correctly), and the `app.certified.group.*` NSIDs for member/role/audit operations.
 
+> **Forward-looking note (#27):** for per-group methods, the group service currently identifies the target group from the JWT `aud` claim (which the proxy agent sets to the group DID). That overload of `aud` is being deprecated — a future release will read the group from an explicit request field (the `repo` field, or a new explicit field for methods that lack one) and expect `aud` to be the group service's own DID. The contract described in this section is the current, supported one; see `docs/design/api-keys.md` for the planned change and migration window.
+
 ```typescript
 // Add a member (returns { memberDid, role, addedBy, addedAt })
 const { data: member } = await groupAgent.call(
@@ -170,7 +218,7 @@ const { data: post } = await groupAgent.call(
 // post.uri → "at://did:plc:abc123/app.bsky.feed.post/3xyz789"
 ```
 
-**Important:** The `repo` field in all record operations must match the group DID. The group service rejects requests where `repo` doesn't match the JWT's `aud` claim.
+**Important:** The `repo` field in all record operations must match the DID of the group the request is scoped to; the group service rejects a mismatch. (Today the group is named by the JWT `aud`, so in practice `repo` must equal `aud` — but see the note below: that coupling is changing under #27.)
 
 ## Putting it all together
 
@@ -419,6 +467,20 @@ Audit entries look like:
 
 For the full list of `action` values and what each `detail` object contains, see [Action values](./api-reference.md#action-values) in the API reference.
 
+## Removing a group
+
+The owner can remove a group from the service with `app.certified.group.destroy`. Like the other per-group operations it is group-scoped, so the group DID is inferred from the JWT's `aud` claim and there is **no request body**.
+
+```typescript
+// Destroy the group (requires owner)
+// Returns: { groupDid }
+await groupAgent.call('app.certified.group.destroy')
+```
+
+This is the service-level inverse of `register` / `import`: it drops the group's stored credentials, its membership, and its per-group data from the service. It deliberately does **not** touch the underlying PDS account — the DID, handle, and repo continue to exist, so the same account can be re-imported later with `app.certified.group.import`. Destroy is therefore _not_ account deletion; if you also want to tear down the account, do that separately against its PDS.
+
+Because the per-group data (including the audit log) is removed, the destroy is not recorded in the group's audit log — it is recorded only in the service's operational log.
+
 ## Error handling
 
 The group service returns standard XRPC errors:
@@ -445,6 +507,7 @@ All error responses follow this shape:
 | NSID                                    | Type      | Required role | Description                                     |
 | --------------------------------------- | --------- | ------------- | ----------------------------------------------- |
 | `app.certified.group.register`          | procedure | service auth  | Register a new group (direct call, not proxied) |
+| `app.certified.group.import`            | procedure | service auth  | Import an existing account as a group (direct)  |
 | `app.certified.group.repo.createRecord` | procedure | member        | Create a record                                 |
 | `app.certified.group.repo.putRecord`    | procedure | member/admin  | Update or create a record                       |
 | `app.certified.group.repo.deleteRecord` | procedure | member/admin  | Delete a record                                 |
@@ -453,6 +516,7 @@ All error responses follow this shape:
 | `app.certified.group.member.remove`     | procedure | admin/self    | Remove a member                                 |
 | `app.certified.group.member.list`       | query     | member        | List members with pagination                    |
 | `app.certified.group.role.set`          | procedure | owner         | Change a member's role                          |
+| `app.certified.group.destroy`           | procedure | owner         | Remove the group from the service               |
 | `app.certified.group.audit.query`       | query     | admin         | Query the audit log                             |
 
 ## Role quick reference

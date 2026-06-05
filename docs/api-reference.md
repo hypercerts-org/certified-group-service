@@ -28,6 +28,119 @@ Returns service health status. No authentication required.
 
 ---
 
+## Group lifecycle
+
+These procedures create, import, and remove groups. `register` and `import` are **service-scoped** (JWT `aud` = the service DID, since the group does not yet exist) and are called directly, not via the `atproto-proxy` path. `destroy` operates on an existing group.
+
+### `POST /xrpc/app.certified.group.register`
+
+Create a new group: provision a fresh account on the group's PDS and seed the caller-named owner.
+
+**Authentication:** service-level (JWT `aud` = service DID). The JWT `iss` must equal `ownerDid`.
+
+**Request body:**
+
+```json
+{
+  "handle": "mygroup",
+  "ownerDid": "did:plc:owner123",
+  "email": "owner@example.com"
+}
+```
+
+`handle` is the short name (combined with the PDS hostname to form the full handle); `ownerDid` is seeded as the immutable owner and must match the JWT `iss`; `email` is optional (a recovery email enabling the forgot-password flow for credible exit).
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "handle": "mygroup.pds.example.com",
+  "accountPassword": "generated-primary-password"
+}
+```
+
+The owner must save `accountPassword` — it is the group account's primary credential for credible exit.
+
+**Errors:**
+
+| Code | Name                   | Description                                   |
+| ---- | ---------------------- | --------------------------------------------- |
+| 400  | InvalidRequest         | Missing/invalid fields                        |
+| 401  | AuthenticationRequired | Missing or invalid JWT, or `iss` ≠ `ownerDid` |
+| 409  | HandleNotAvailable     | The handle is already taken                   |
+| 409  | GroupAlreadyRegistered | A group already exists for this account       |
+
+### `POST /xrpc/app.certified.group.import`
+
+Promote an **existing** PDS account into a group (the sibling of `register`, reusing an account rather than creating one).
+
+**Authentication:** service-level (JWT `aud` = service DID). The JWT `iss` must equal `groupDid` — the account being imported signs the request; the prospective owner does not. An app password cannot mint such a JWT, so this proves control of the account beyond merely holding its app password. See `docs/design/group-import.md` (the "Auth model" decision) for the rationale.
+
+**Request body:**
+
+```json
+{
+  "groupDid": "did:plc:existing123",
+  "appPassword": "abcd-efgh-ijkl-mnop",
+  "ownerDid": "did:plc:owner123"
+}
+```
+
+`groupDid` is the existing account's DID; `appPassword` is an app password for it, stored encrypted so the service can act on its behalf; `ownerDid` is seeded as owner. `ownerDid` is **not** separately authenticated and may differ from `groupDid`. The service resolves the account's PDS (which must be `https`) and handle from its DID document — there is no `handle` input.
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:existing123",
+  "handle": "existing.pds.example.com"
+}
+```
+
+**Errors:**
+
+| Code | Name                   | Description                                                              |
+| ---- | ---------------------- | ------------------------------------------------------------------------ |
+| 400  | InvalidRequest         | Missing/invalid fields, unresolvable DID, or a non-`https` PDS endpoint  |
+| 401  | AuthenticationRequired | Missing/invalid JWT, or `iss` ≠ `groupDid`                               |
+| 401  | InvalidAppPassword     | App password is wrong/revoked, or the account is not on the resolved PDS |
+| 409  | GroupAlreadyRegistered | A group already exists for this account                                  |
+
+Unlike registered groups, the service holds **no recovery key** for an imported account (the owner's own credentials are their credible exit), and `import` does not modify the account's DID document.
+
+### `POST /xrpc/app.certified.group.destroy`
+
+Remove the group from the service.
+
+**Required role:** owner
+
+The service-level inverse of `register` / `import`: it removes the group's stored credentials, membership, and per-group data. It does **not** delete the underlying PDS account — the DID, handle, and repo continue to exist, so the account can be re-imported afterwards with `app.certified.group.import`.
+
+**Request body:** none. The target group is taken from the JWT `aud` claim.
+
+> The `aud` = group DID form is being deprecated (issue #27): a future release reads the group from an explicit request field and expects `aud` = service DID. `destroy` will gain a group field at that point.
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group1"
+}
+```
+
+**Errors:**
+
+| Code | Name                   | Description                                |
+| ---- | ---------------------- | ------------------------------------------ |
+| 401  | AuthenticationRequired | Missing or invalid JWT                     |
+| 403  | Forbidden              | Caller lacks the owner role                |
+| 404  | GroupNotFound          | The group is not registered on the service |
+
+Because the per-group data (including the audit log) is deleted, the destroy is **not** written to the group's audit log — it is recorded only in the service's operational log.
+
+---
+
 ## Record operations
 
 These endpoints proxy requests to the group's backing PDS after authentication and authorization.
@@ -578,6 +691,7 @@ Every audited operation produces one of the following `action` strings. Denied o
 | Action              | Trigger                                                           | `detail` fields                        |
 | ------------------- | ----------------------------------------------------------------- | -------------------------------------- |
 | `group.register`    | Group created via `app.certified.group.register`                  | `{ handle }`                           |
+| `group.import`      | Existing account imported via `app.certified.group.import`        | `{ handle }`                           |
 | `member.add`        | Member added via `member.add`                                     | `{ memberDid, role }`                  |
 | `member.remove`     | Member removed via `member.remove`                                | `{ memberDid }`                        |
 | `role.set`          | Role changed via `role.set`                                       | `{ memberDid, previousRole, newRole }` |

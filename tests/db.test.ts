@@ -99,6 +99,40 @@ describe('GroupDbPool', () => {
     const after = pool.get('did:plc:a')
     expect(after).not.toBe(before)
   })
+
+  it('destroyGroup() deletes the per-group file and clears its cached instance', async () => {
+    await pool.migrateGroup('did:plc:doomed')
+    const hash = createHash('sha256').update('did:plc:doomed').digest('hex')
+    const file = join(tmpDir, `${hash}.sqlite`)
+    expect(existsSync(file)).toBe(true)
+
+    const before = pool.get('did:plc:doomed')
+    await pool.destroyGroup('did:plc:doomed')
+
+    // File removed; a fresh get() reopens (different instance, recreates file)
+    expect(existsSync(file)).toBe(false)
+    const after = pool.get('did:plc:doomed')
+    expect(after).not.toBe(before)
+  })
+
+  it('destroyGroup() removes only the targeted group, leaving others', async () => {
+    await pool.migrateGroup('did:plc:keep')
+    await pool.migrateGroup('did:plc:drop')
+    const keepHash = createHash('sha256').update('did:plc:keep').digest('hex')
+    const dropHash = createHash('sha256').update('did:plc:drop').digest('hex')
+
+    await pool.destroyGroup('did:plc:drop')
+
+    expect(existsSync(join(tmpDir, `${dropHash}.sqlite`))).toBe(false)
+    expect(existsSync(join(tmpDir, `${keepHash}.sqlite`))).toBe(true)
+  })
+
+  it('destroyGroup() is idempotent when no handle is open and the file is absent', async () => {
+    // Never opened, never migrated — nothing on disk. Must not throw.
+    await expect(pool.destroyGroup('did:plc:never')).resolves.toBeUndefined()
+    const hash = createHash('sha256').update('did:plc:never').digest('hex')
+    expect(existsSync(join(tmpDir, `${hash}.sqlite`))).toBe(false)
+  })
 })
 
 describe('migrations', () => {

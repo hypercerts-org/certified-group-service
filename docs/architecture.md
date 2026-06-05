@@ -44,6 +44,7 @@ Every request must include an `Authorization: Bearer <JWT>` header. The verifica
    - `app.certified.group.member.remove`
    - `app.certified.group.member.list`
    - `app.certified.group.role.set`
+   - `app.certified.group.destroy`
    - `app.certified.group.audit.query`
 4. **Verify JWT signature** against the issuer's DID document using `@atproto/xrpc-server`'s `verifyJwt()`. This checks:
    - Cryptographic signature validity (resolved via the DID doc's signing key)
@@ -119,6 +120,7 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 | `member.remove`     | admin        | Remove members (with restrictions)                           |
 | `audit.query`       | admin        | Query the audit log                                          |
 | `role.set`          | owner        | Change member roles                                          |
+| `group.destroy`     | owner        | Remove the group from the service (account left intact)      |
 
 ### Special rules
 
@@ -309,6 +311,19 @@ sequenceDiagram
 2. **Database creation**: On startup, CGS loads all groups from the registry and runs per-group migrations for each, creating the group's SQLite database if it doesn't exist.
 3. **First owner**: The first owner is automatically seeded into the group's `group_members` table during `group.register`. After that, the owner can manage the group through the API.
 4. **Ongoing management**: Owners can promote admins, admins can add/remove members, and all authorized members can interact with the group's repository.
+
+### Import
+
+`group.import` promotes an **existing** PDS account into a group instead of creating one. It shares register's tail (store encrypted credentials, run migrations, seed the owner) but differs at the front:
+
+- The JWT must be signed by the account being imported (`iss` = `groupDid`), not by the prospective owner — the account authorises its own promotion, which an app password alone cannot do (see [Authentication flow](#authentication-flow) and `docs/design/group-import.md`).
+- The caller supplies an app password rather than CGS minting one; it is stored encrypted exactly as for registered groups.
+- CGS resolves the account's PDS and handle from its DID document (the account may live on a PDS other than `GROUP_PDS_URL`), so the per-group `pds_url` is whatever the DID document advertises.
+- No recovery keypair is generated and **no DID-document change is made** — an app password cannot perform PLC operations, and CGS never had genesis control. `encrypted_recovery_key` is left `NULL`, which is how imported groups are distinguished from registered ones in the `groups` table.
+
+### Destroy
+
+`group.destroy` is the service-level inverse: an owner removes the group **from the service** while leaving the underlying PDS account intact (so it can be re-imported later — it is not account deletion). It deletes the group's `groups` row and `member_index` entries in a single global-DB transaction, then unlinks the per-group SQLite file; doing the file unlink only after the transaction commits means an interrupted destroy leaves at worst an orphaned file rather than inconsistent global state. Because the per-group audit log is deleted with it, the destroy is recorded in the service's operational log instead.
 
 ## Startup sequence
 
