@@ -96,7 +96,10 @@ re-runnable indefinitely against the same account.
 
 ## CI
 
-`.github/workflows/e2e.yml` runs the suite on manual dispatch
-(`workflow_dispatch`) against a URL you provide, reading the accounts from
-repository secrets. It is never triggered automatically on PRs (which would
-expose secrets).
+`.github/workflows/e2e.yml` runs on `pull_request` (plus a post-merge backstop
+on `push` to `main`, and manual `workflow_dispatch`). It mirrors the ePDS
+workflow: a `gate` job skips the run unless relevant paths changed; the run job
+finds the PR's Railway preview deployment, derives the CGS URL from the env name,
+health-checks `/health`, then runs the suite. The test accounts come from
+repository secrets (see `e2e/.env.example` for the names). `workflow_dispatch`
+takes an `env_name` input for re-running against a known Railway env.
