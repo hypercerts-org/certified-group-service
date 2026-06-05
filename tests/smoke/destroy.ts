@@ -32,7 +32,7 @@
  */
 import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
-import { loadSmokeEnv, reqEnv, resolveToDid } from './lib.js'
+import { loadSmokeEnv, reqEnv, resolveAccount } from './lib.js'
 
 // Load ONLY the dedicated smoke-test env file (never the repo-root .env).
 loadSmokeEnv(import.meta.url)
@@ -60,7 +60,6 @@ async function confirmByHandle(handle: string): Promise<void> {
 
 async function main() {
   const cgsUrl = reqEnv('CGS_URL').replace(/\/$/, '')
-  const groupOwnerPds = reqEnv('GROUP_OWNER_PDS')
   const groupOwnerIdentifier = reqEnv('GROUP_OWNER_IDENTIFIER')
   const groupOwnerPassword = reqEnv('GROUP_OWNER_PASSWORD')
   const groupIdentifier = reqEnv('IMPORTER_IDENTIFIER')
@@ -70,17 +69,15 @@ async function main() {
   console.log('Group:       ', groupIdentifier)
   console.log('---')
 
-  // The group is identified by the imported account. IMPORTER_IDENTIFIER may be
-  // a handle, but DID-document resolution and the JWT aud below both need a DID.
+  // Resolve the group (the imported account) — its DID is the JWT aud, and its
+  // published handle is shown in the confirmation prompt. IMPORTER_IDENTIFIER
+  // may be a handle; resolveAccount handles both.
   const idResolver = new IdResolver()
-  const groupDid = await resolveToDid(idResolver, groupIdentifier)
-
-  // Resolve the group's handle from its DID document for the confirmation
-  // prompt. We use the real identity resolver so the handle shown is the one
-  // actually published, not something the operator typed.
-  console.log('Resolving group handle from DID document...')
-  const atprotoData = await idResolver.did.resolveAtprotoData(groupDid)
-  const handle = atprotoData.handle
+  console.log('Resolving group from DID document...')
+  const group = await resolveAccount(idResolver, groupIdentifier)
+  const groupDid = group.did
+  const handle = group.handle
+  console.log('Group DID:   ', groupDid)
   console.log('Group handle:', handle)
 
   await confirmByHandle(handle)
@@ -88,8 +85,9 @@ async function main() {
   // Log into the GROUP OWNER's PDS and mint a service-auth JWT for destroy.
   // destroy is owner-gated, so the JWT issuer must be the group's RBAC owner.
   // NOTE the audience is the GROUP DID (group-scoped method), not the service DID.
+  const owner = await resolveAccount(idResolver, groupOwnerIdentifier)
   console.log('\nLogging into group owner PDS to mint service-auth JWT...')
-  const ownerAgent = new AtpAgent({ service: groupOwnerPds })
+  const ownerAgent = new AtpAgent({ service: owner.pds })
   await ownerAgent.login({ identifier: groupOwnerIdentifier, password: groupOwnerPassword })
   console.log('Group owner DID resolved:', ownerAgent.session?.did)
 

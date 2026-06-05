@@ -45,7 +45,7 @@
  * - aud MUST equal the CGS's configured serviceDid. If the preview derives it
  *   from SERVICE_URL, the default below is correct; otherwise set CGS_SERVICE_DID.
  */
-import { loadSmokeEnv, reqEnv, resolveToDid } from './lib.js'
+import { loadSmokeEnv, reqEnv, resolveToDid, resolveAccount } from './lib.js'
 
 // Load ONLY the dedicated smoke-test env file (never the repo-root .env).
 loadSmokeEnv(import.meta.url)
@@ -57,7 +57,6 @@ const IMPORT_NSID = 'app.certified.group.import'
 
 async function main() {
   const cgsUrl = reqEnv('CGS_URL').replace(/\/$/, '')
-  const importerPds = reqEnv('IMPORTER_PDS')
   const importerIdentifier = reqEnv('IMPORTER_IDENTIFIER')
   const importerPassword = reqEnv('IMPORTER_PASSWORD')
   const importerAppPassword = reqEnv('IMPORTER_APP_PASSWORD')
@@ -66,20 +65,22 @@ async function main() {
 
   console.log('CGS URL:        ', cgsUrl)
   console.log('CGS service DID:', serviceDid)
-  console.log('Importer PDS:   ', importerPds)
   console.log('Importer:       ', importerIdentifier)
   console.log('Group owner:    ', groupOwnerIdentifier)
   console.log('---')
 
+  // Resolve the importer's DID + PDS from its DID document. The importer signs
+  // the import JWT, so its DID is the groupDid (option a: iss === groupDid).
+  const idResolver = new IdResolver()
+  const importer = await resolveAccount(idResolver, importerIdentifier)
+  const groupDid = importer.did
+  console.log('Importer DID (groupDid):', groupDid)
+  console.log('Importer PDS:           ', importer.pds)
+
   // 1) Log into the IMPORTER's PDS and mint a service-auth JWT for import.
-  // Option a: the JWT must be signed by the account being imported, so iss is
-  // the importer's DID (= groupDid), not the group owner's.
   console.log('Logging into importer PDS to mint service-auth JWT...')
-  const importerAgent = new AtpAgent({ service: importerPds })
+  const importerAgent = new AtpAgent({ service: importer.pds })
   await importerAgent.login({ identifier: importerIdentifier, password: importerPassword })
-  const groupDid = importerAgent.session?.did
-  if (!groupDid) throw new Error('Importer login did not yield a DID')
-  console.log('Importer DID resolved (groupDid):', groupDid)
 
   const {
     data: { token },
@@ -90,7 +91,7 @@ async function main() {
   console.log('Minted service-auth JWT (aud =', serviceDid + ', lxm =', IMPORT_NSID + ')')
 
   // The owner identifier may be a handle; the lexicon's ownerDid needs a DID.
-  const ownerDid = await resolveToDid(new IdResolver(), groupOwnerIdentifier)
+  const ownerDid = await resolveToDid(idResolver, groupOwnerIdentifier)
 
   // 2) Call import on the CGS. ownerDid is the (separately unauthenticated)
   // grantee; groupDid is the importer that just signed the JWT.

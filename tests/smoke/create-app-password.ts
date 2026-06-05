@@ -22,12 +22,13 @@
  *
  * Override the env file path with SMOKE_ENV_FILE=/path/to/file if needed.
  */
-import { loadSmokeEnv, reqEnv } from './lib.js'
+import { loadSmokeEnv, reqEnv, resolveAccount } from './lib.js'
 
 // Load ONLY the dedicated smoke-test env file (never the repo-root .env).
 loadSmokeEnv(import.meta.url)
 
 import { AtpAgent } from '@atproto/api'
+import { IdResolver } from '@atproto/identity'
 
 // Fixed label so the password is identifiable in the account's settings. The
 // PDS rejects a duplicate name, so if you re-run after a failure either revoke
@@ -35,16 +36,19 @@ import { AtpAgent } from '@atproto/api'
 const APP_PASSWORD_NAME = process.env.APP_PASSWORD_NAME || 'cgs-import-smoke'
 
 async function main() {
-  const importerPds = reqEnv('IMPORTER_PDS')
   const importerIdentifier = reqEnv('IMPORTER_IDENTIFIER')
   const importerPassword = reqEnv('IMPORTER_PASSWORD')
 
-  console.log('Importer PDS:', importerPds)
-  console.log('Importer:    ', importerIdentifier)
+  console.log('Importer:', importerIdentifier)
   console.log('---')
 
+  // Derive the importer's PDS from its DID document (IMPORTER_IDENTIFIER may be
+  // a handle), then log in there with full credentials.
+  const importer = await resolveAccount(new IdResolver(), importerIdentifier)
+  console.log('Importer PDS:', importer.pds)
+
   console.log('Logging into importer PDS with full credentials...')
-  const agent = new AtpAgent({ service: importerPds })
+  const agent = new AtpAgent({ service: importer.pds })
   await agent.login({ identifier: importerIdentifier, password: importerPassword })
   console.log('Logged in as:', agent.session?.did)
 

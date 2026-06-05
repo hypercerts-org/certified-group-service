@@ -49,3 +49,17 @@ export async function resolveToDid(idResolver: IdResolver, identifier: string): 
   if (!did) throw new Error(`Could not resolve handle to a DID: ${identifier}`)
   return did
 }
+
+/**
+ * Resolve a handle-or-DID identifier to its DID, PDS endpoint, and handle, read
+ * from the account's DID document. The scripts log in to and address accounts by
+ * their published PDS, so it is derived here rather than configured separately.
+ */
+export async function resolveAccount(
+  idResolver: IdResolver,
+  identifier: string,
+): Promise<{ did: string; pds: string; handle: string }> {
+  const did = await resolveToDid(idResolver, identifier)
+  const data = await idResolver.did.resolveAtprotoData(did)
+  return { did, pds: data.pds, handle: data.handle }
+}

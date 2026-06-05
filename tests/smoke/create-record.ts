@@ -28,7 +28,7 @@
  *
  * Override the env file path with SMOKE_ENV_FILE=/path/to/file if needed.
  */
-import { loadSmokeEnv, reqEnv, resolveToDid } from './lib.js'
+import { loadSmokeEnv, reqEnv, resolveToDid, resolveAccount } from './lib.js'
 
 // Load ONLY the dedicated smoke-test env file (never the repo-root .env).
 loadSmokeEnv(import.meta.url)
@@ -41,7 +41,6 @@ const COLLECTION = 'app.bsky.feed.post'
 
 async function main() {
   const cgsUrl = reqEnv('CGS_URL').replace(/\/$/, '')
-  const groupOwnerPds = reqEnv('GROUP_OWNER_PDS')
   const groupOwnerIdentifier = reqEnv('GROUP_OWNER_IDENTIFIER')
   const groupOwnerPassword = reqEnv('GROUP_OWNER_PASSWORD')
   const groupIdentifier = reqEnv('IMPORTER_IDENTIFIER')
@@ -51,16 +50,17 @@ async function main() {
   console.log('Group:       ', groupIdentifier)
   console.log('---')
 
-  // The group is identified by the imported account. IMPORTER_IDENTIFIER may be
-  // a handle, but the JWT aud and the createRecord `repo` field both need a DID.
+  // The group is the imported account; its DID is the JWT aud and the
+  // createRecord `repo` field. IMPORTER_IDENTIFIER may be a handle.
   const idResolver = new IdResolver()
   const groupDid = await resolveToDid(idResolver, groupIdentifier)
   console.log('Group DID:', groupDid)
 
   // Log into the GROUP OWNER's PDS and mint a group-scoped service-auth JWT.
   // aud = the GROUP DID (not the service DID); the owner has createRecord rights.
+  const owner = await resolveAccount(idResolver, groupOwnerIdentifier)
   console.log('\nLogging into group owner PDS to mint service-auth JWT...')
-  const ownerAgent = new AtpAgent({ service: groupOwnerPds })
+  const ownerAgent = new AtpAgent({ service: owner.pds })
   await ownerAgent.login({ identifier: groupOwnerIdentifier, password: groupOwnerPassword })
   console.log('Group owner DID resolved:', ownerAgent.session?.did)
 
