@@ -6,3 +6,5 @@ pnpm-lock.yaml
 .claude/worktrees/
 data/
 demo/
+# Gherkin feature files — prettier has no .feature parser
+*.feature

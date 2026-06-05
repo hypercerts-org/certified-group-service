@@ -21,6 +21,8 @@ export default tseslint.config(
       '.claude/worktrees/',
       'vitest.config.ts',
       'eslint.config.js',
+      // Cucumber config (plain ESM, not covered by the TS project)
+      'e2e/cucumber.mjs',
       // Standalone Node scripts not covered by any tsconfig
       'scripts/**',
     ],

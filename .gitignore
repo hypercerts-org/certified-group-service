@@ -6,3 +6,6 @@ coverage/
 .env
 .env.*
 !.env.example
+# e2e (cucumber) artifacts
+reports/
+.e2e-dist/
