@@ -14,6 +14,11 @@ import { registerAuthedMethod, jsonResponse, assertCanWithAudit } from '../util.
  * Auth is group-scoped (aud = groupDid): the group still exists at call time,
  * so the normal per-group verifier applies and RBAC gates on the owner role.
  *
+ * NOTE (#27): reading the group from the JWT `aud` is the legacy overload to be
+ * deprecated. destroy has no request-level group field today, so the #27 fix
+ * must add one (e.g. a `groupDid` input) and switch `aud` back to the service
+ * DID. See docs/design/api-keys.md (the `aud` overload section).
+ *
  * Operation ordering is safety-driven. Everything in the global DB (member
  * index, groups row) is removed before the irreversible filesystem unlink, so a
  * mid-operation crash leaves at worst an orphaned per-group file (harmless,

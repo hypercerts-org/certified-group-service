@@ -85,6 +85,13 @@ async function main() {
   // Log into the GROUP OWNER's PDS and mint a service-auth JWT for destroy.
   // destroy is owner-gated, so the JWT issuer must be the group's RBAC owner.
   // NOTE the audience is the GROUP DID (group-scoped method), not the service DID.
+  //
+  // NOTE (#27): aud-as-group-selector is the legacy form and will be deprecated.
+  // Once #27 lands, aud must be the service DID and the group is read from the
+  // request — but destroy currently has NO group field in its body (the group
+  // comes purely from aud), so the #27 fix needs to add an explicit group field
+  // to the destroy lexicon, then this script sets aud = service DID and passes
+  // the group in the request. See docs/design/api-keys.md.
   const owner = await resolveAccount(idResolver, groupOwnerIdentifier)
   console.log('\nLogging into group owner PDS to mint service-auth JWT...')
   const ownerAgent = new AtpAgent({ service: owner.pds })

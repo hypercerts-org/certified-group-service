@@ -58,6 +58,11 @@ async function main() {
 
   // Log into the GROUP OWNER's PDS and mint a group-scoped service-auth JWT.
   // aud = the GROUP DID (not the service DID); the owner has createRecord rights.
+  //
+  // NOTE (#27): using aud as a group selector is the legacy form and will be
+  // deprecated. Once #27 lands, aud must be the service DID and the group is
+  // read from the request — here the `repo` field already carries groupDid, so
+  // only the aud below changes to the service DID. See docs/design/api-keys.md.
   const owner = await resolveAccount(idResolver, groupOwnerIdentifier)
   console.log('\nLogging into group owner PDS to mint service-auth JWT...')
   const ownerAgent = new AtpAgent({ service: owner.pds })
