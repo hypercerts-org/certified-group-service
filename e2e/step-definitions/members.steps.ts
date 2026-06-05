@@ -1,8 +1,12 @@
 /**
- * Steps for membership.feature (RBAC) and reporting.feature. All group-scoped
- * (aud = group DID). The caller varies by role — owner, admin, member, or
- * outsider — and each signs its own JWT, so the negative cases exercise real
- * authorization (ForbiddenError → 403), not a simulated denial.
+ * Steps for membership.feature (RBAC) and reporting.feature. Most methods here
+ * are group-scoped (aud = the group DID): member.*, role.set, audit.query,
+ * repo.createRecord. The exception is groups.membership.list, which is
+ * SERVICE-level (aud = the service DID) — it lists the caller's memberships
+ * across groups. (CGS already mixes service- and group-scoped aud today; #27
+ * tracks making that consistent.) The caller varies by role — owner, admin,
+ * member, or outsider — and each signs its own JWT, so the negative cases
+ * exercise real authorization (ForbiddenError → 403), not a simulated denial.
  */
 import { Given, When, Then } from '@cucumber/cucumber'
 import { strict as assert } from 'node:assert'
@@ -53,11 +57,20 @@ async function queryAudit(world: CgsWorld, role: Role) {
 
 // --- Seeding (owner adds admin + member) ---
 
+/** Tolerate a member already existing — the group is shared across scenarios in
+ *  a run, so the Background re-seeds; a 409 MemberAlreadyExists is fine. */
+function seedOk(world: CgsWorld, role: string): void {
+  if (world.lastHttpStatus === 200) return
+  const err = (world.lastHttpJson as { error?: string } | undefined)?.error
+  if (world.lastHttpStatus === 409 && err === 'MemberAlreadyExists') return
+  throw new Error(`seeding ${role} failed: ${world.lastHttpStatus} ${world.lastHttpBody}`)
+}
+
 Given('the owner has seeded the admin and member accounts', async function (this: CgsWorld) {
   await addMember(this, 'owner', this.adminDid!, 'admin')
-  assert.equal(this.lastHttpStatus, 200, `seeding admin failed: ${this.lastHttpBody}`)
+  seedOk(this, 'admin')
   await addMember(this, 'owner', this.memberDid!, 'member')
-  assert.equal(this.lastHttpStatus, 200, `seeding member failed: ${this.lastHttpBody}`)
+  seedOk(this, 'member')
 })
 
 // --- Owner / positive ---
@@ -125,17 +138,22 @@ When('the owner removes the admin and member accounts', async function (this: Cg
       token,
       body: { memberDid },
     })
-    assert.equal(this.lastHttpStatus, 200, `removing ${memberDid} failed: ${this.lastHttpBody}`)
+    // 200 = removed; 404 MemberNotFound = already gone (tolerated so the cleanup
+    // is idempotent across re-runs / ordering).
+    const err = (this.lastHttpJson as { error?: string } | undefined)?.error
+    const ok =
+      this.lastHttpStatus === 200 || (this.lastHttpStatus === 404 && err === 'MemberNotFound')
+    assert.ok(ok, `removing ${memberDid} failed: ${this.lastHttpStatus} ${this.lastHttpBody}`)
   }
 })
 
 // --- Assertions specific to membership / reporting ---
 
 Then('the members list includes the admin and the member', function (this: CgsWorld) {
-  const members = (this.lastHttpJson as { members?: Array<{ memberDid?: string }> } | undefined)
-    ?.members
+  // The member.list lexicon returns each member as { did, role, addedBy, addedAt }.
+  const members = (this.lastHttpJson as { members?: Array<{ did?: string }> } | undefined)?.members
   assert.ok(Array.isArray(members), `expected a members array, got ${this.lastHttpBody}`)
-  const dids = members.map((m) => m.memberDid)
+  const dids = members.map((m) => m.did)
   assert.ok(dids.includes(this.adminDid), `members list missing admin ${this.adminDid}`)
   assert.ok(dids.includes(this.memberDid), `members list missing member ${this.memberDid}`)
 })
@@ -155,7 +173,14 @@ When('the owner queries the audit log', async function (this: CgsWorld) {
 })
 
 When('the owner lists their group memberships', async function (this: CgsWorld) {
-  const token = await tokenAs(this, 'owner', MEMBERSHIP_LIST)
+  // membership.list is SERVICE-level (aud = the service DID), not group-scoped:
+  // it returns the groups the caller belongs to, across all groups.
+  const token = await mintServiceAuth({
+    identifier: this.env.ownerIdentifier,
+    password: this.env.ownerPassword,
+    aud: this.serviceDid,
+    lxm: MEMBERSHIP_LIST,
+  })
   await callXrpc(this, { cgsUrl: this.env.cgsUrl, nsid: MEMBERSHIP_LIST, token, method: 'GET' })
 })
 
