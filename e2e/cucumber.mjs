@@ -11,6 +11,14 @@
 // The importer and owner accounts are required config — a real run always has
 // them — so import/records/reporting are not tag-gated. Only the @health
 // feature works with just CGS_URL.
+import { config } from 'dotenv'
+import { resolve } from 'node:path'
+
+// Load e2e/.env here too: this config is evaluated before any step/support file
+// (and thus before env.ts runs dotenv), so without this the RBAC vars from a
+// local .env wouldn't be visible yet and @needs-rbac-accounts would be wrongly
+// excluded. CI passes the vars via the environment, where this is a no-op.
+config({ path: resolve('e2e/.env') })
 
 const rbacAccountsConfigured = Boolean(
   process.env.ADMIN_IDENTIFIER &&

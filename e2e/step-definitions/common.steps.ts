@@ -37,6 +37,20 @@ Given('the CGS environment is running', async function (this: CgsWorld) {
 
 /** Resolve the group/owner (always) and the RBAC role DIDs (when configured). */
 Given('the test accounts are resolved', async function (this: CgsWorld) {
+  // These are optional at module load so a `--tags @health` run works with only
+  // CGS_URL; every non-health feature reaches this Given, so validate here.
+  for (const [name, value] of [
+    ['IMPORTER_IDENTIFIER', this.env.importerIdentifier],
+    ['GROUP_OWNER_IDENTIFIER', this.env.ownerIdentifier],
+  ] as const) {
+    if (!value) {
+      throw new Error(
+        `E2E configuration error: ${name} is not set.\n` +
+          `Copy e2e/.env.example to e2e/.env and fill in the account credentials.`,
+      )
+    }
+  }
+
   const { groupDid, groupHandle, ownerDid } = await resolveGroupAndOwner()
   this.groupDid = groupDid
   this.groupHandle = groupHandle
@@ -58,7 +72,15 @@ Given('the test accounts are resolved', async function (this: CgsWorld) {
 When(String.raw`the CGS \/health endpoint is queried`, async function (this: CgsWorld) {
   const res = await fetch(`${this.env.cgsUrl}/health`)
   this.lastHttpStatus = res.status
-  this.lastHttpJson = (await res.json()) as Record<string, unknown>
+  // Record the raw body and parse defensively so a non-JSON error response
+  // (e.g. an HTML 502 from an edge) doesn't throw, and assertion failures can
+  // include lastHttpBody.
+  this.lastHttpBody = await res.text()
+  try {
+    this.lastHttpJson = JSON.parse(this.lastHttpBody) as Record<string, unknown>
+  } catch {
+    this.lastHttpJson = undefined
+  }
 })
 
 Then('the response status is {int}', function (this: CgsWorld, expected: number) {

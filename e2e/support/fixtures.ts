@@ -86,7 +86,15 @@ export async function ensureGroupImported(): Promise<boolean> {
   const errorName = (first.lastHttpJson as { error?: string } | undefined)?.error
   if (first.lastHttpStatus === 409 && errorName === 'GroupAlreadyRegistered') {
     // Leftover from a prior run that didn't tear down — destroy and re-import.
-    await destroyGroup(groupDid)
+    // Check the destroy succeeded first, so a failed cleanup (e.g. 403/500)
+    // surfaces its own error rather than a misleading re-import conflict.
+    const destroyed = await destroyGroup(groupDid)
+    if (destroyed.lastHttpStatus !== 200) {
+      throw new Error(
+        `ensureGroupImported: stale-data cleanup destroy failed: ` +
+          `${destroyed.lastHttpStatus} ${destroyed.lastHttpBody}`,
+      )
+    }
     const second = await importGroup(groupDid)
     if (second.lastHttpStatus === 200) return true
     throw new Error(

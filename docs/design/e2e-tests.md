@@ -97,7 +97,7 @@ e2e suite reuses this same minting approach.
 
 ### Layout (mirrors ePDS)
 
-```
+```text
 features/                      # Gherkin .feature files at repo root
   health.feature              # no auth
   import.feature              # group.import (explicit assertions + clean-slate path)
@@ -278,9 +278,11 @@ owner, and returns `{groupDid, handle, accountPassword}`. Tagged **`@manual`**
 and excluded from `default`/CI because **it cannot be cleanly torn down**:
 `group.destroy` only removes the _service's_ record of the group and explicitly
 leaves the PDS account intact, so every register run leaks a real account + DID.
-Run by hand against a disposable PDS when you want to exercise the path. Assert
-`{groupDid, handle, accountPassword}` and the `HandleNotAvailable` conflict on a
-duplicate handle. Needs a register-specific handle var (see config).
+Run by hand against a disposable PDS when you want to exercise the path. A
+**unique handle is generated per run** (the leaked account would otherwise
+collide on the next run), so the first registration always succeeds; the conflict
+scenario re-registers that same generated handle and asserts `HandleNotAvailable`.
+Asserts `{groupDid, handle, accountPassword}`. No config var needed.
 
 **`features/records.feature`** — the proxied repo surface, owner-signed
 (`aud = groupDid`):
@@ -360,23 +362,22 @@ keep safety low-ceremony per the agreed scope.
 
 Matured superset of `tests/smoke/.env.example`:
 
-| Var                      | Required | Notes                                                                   |
-| ------------------------ | -------- | ----------------------------------------------------------------------- |
-| `CGS_URL`                | yes      | CGS base URL (the only var `/health` needs)                             |
-| `CGS_SERVICE_DID`        | no       | defaults to `did:web:<CGS_URL host>`                                    |
-| `IMPORTER_IDENTIFIER`    | yes      | pre-provisioned account promoted to a group (= groupDid); handle or DID |
-| `IMPORTER_PASSWORD`      | yes¹     | the importer's account password (import fixture + app-password helper)  |
-| `IMPORTER_APP_PASSWORD`  | yes¹     | app password stored by import; mint with the app-password helper        |
-| `GROUP_OWNER_IDENTIFIER` | yes      | pre-provisioned RBAC owner; commonly == importer                        |
-| `GROUP_OWNER_PASSWORD`   | yes¹     | the owner's account password (owner-signed features)                    |
-| `ADMIN_IDENTIFIER`       | no²      | pre-provisioned account seeded as **admin** for RBAC tests              |
-| `ADMIN_PASSWORD`         | no²      | the admin's account password (so it can sign as itself)                 |
-| `MEMBER_IDENTIFIER`      | no²      | pre-provisioned account seeded as **member** for RBAC tests             |
-| `MEMBER_PASSWORD`        | no²      | the member's account password (so it can sign as itself)                |
-| `OUTSIDER_IDENTIFIER`    | no²      | pre-provisioned account that is **not** a member (negative tests)       |
-| `OUTSIDER_PASSWORD`      | no²      | the outsider's account password                                         |
-| `APP_PASSWORD_NAME`      | no       | label for the app password the helper mints                             |
-| `REGISTER_HANDLE`        | no       | short handle for the `@manual` register feature only                    |
+| Var                          | Required | Notes                                                                   |
+| ---------------------------- | -------- | ----------------------------------------------------------------------- |
+| `CGS_URL`                    | yes      | CGS base URL (the only var `/health` needs)                             |
+| `CGS_SERVICE_DID`            | no       | defaults to `did:web:<CGS_URL host>`                                    |
+| `IMPORTER_IDENTIFIER`        | yes      | pre-provisioned account promoted to a group (= groupDid); handle or DID |
+| `IMPORTER_PASSWORD`          | yes¹     | the importer's account password (import fixture + app-password helper)  |
+| `IMPORTER_APP_PASSWORD`      | yes¹     | app password stored by import; mint with the app-password helper        |
+| `IMPORTER_APP_PASSWORD_NAME` | no       | label for the app password the helper mints on the importer account     |
+| `GROUP_OWNER_IDENTIFIER`     | yes      | pre-provisioned RBAC owner; commonly == importer                        |
+| `GROUP_OWNER_PASSWORD`       | yes¹     | the owner's account password (owner-signed features)                    |
+| `ADMIN_IDENTIFIER`           | no²      | pre-provisioned account seeded as **admin** for RBAC tests              |
+| `ADMIN_PASSWORD`             | no²      | the admin's account password (so it can sign as itself)                 |
+| `MEMBER_IDENTIFIER`          | no²      | pre-provisioned account seeded as **member** for RBAC tests             |
+| `MEMBER_PASSWORD`            | no²      | the member's account password (so it can sign as itself)                |
+| `OUTSIDER_IDENTIFIER`        | no²      | pre-provisioned account that is **not** a member (negative tests)       |
+| `OUTSIDER_PASSWORD`          | no²      | the outsider's account password                                         |
 
 ¹ Required for everything except the `/health` feature. The PDS accounts are
 provisioned up front; the suite assumes they already exist (it does **not**
