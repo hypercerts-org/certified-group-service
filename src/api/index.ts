@@ -13,6 +13,7 @@ import auditQuery from './audit/query.js'
 import membershipList from './membership/list.js'
 import groupRegister from './group/register.js'
 import groupImport from './group/import.js'
+import groupDestroy from './group/destroy.js'
 
 export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   createRecord(server, ctx)
@@ -27,4 +28,5 @@ export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   membershipList(server, ctx)
   groupRegister(server, ctx)
   groupImport(server, ctx)
+  groupDestroy(server, ctx)
 }

@@ -45,6 +45,7 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     get: () => groupDb,
     getRaw: () => groupRaw,
     migrateGroup: async () => {},
+    destroyGroup: async () => {},
     destroyAll: async () => {},
   }
 
