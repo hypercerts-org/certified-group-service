@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import express from 'express'
 import request from 'supertest'
 import { buildDidDocument, GROUP_SERVICE_TYPE, SERVICE_ID_FRAGMENT } from '../src/did-document.js'
+import { serviceScopeAud } from '../src/auth/scopes.js'
 
 const SERVICE_DID = 'did:web:groups.example.com'
 const SERVICE_URL = 'https://groups.example.com'
@@ -22,10 +23,15 @@ describe('buildDidDocument', () => {
     expect(svc.serviceEndpoint).toBe(SERVICE_URL)
   })
 
-  // NOTE: the scope-aud consistency guard (that `serviceScopeAud(serviceDid)`
-  // ends with this doc's service-entry id) belongs with the API-key scope layer
-  // and returns when `src/auth/scopes.ts` lands — `scopes.ts` will import
-  // SERVICE_ID_FRAGMENT from did-document.ts, so the two cannot drift.
+  it('service id fragment matches the scope aud fragment (consistency guard)', () => {
+    const doc = buildDidDocument(SERVICE_DID, SERVICE_URL)
+    // The scope aud is `${serviceDid}#${fragment}`; the doc entry id is
+    // `#${fragment}`. They must agree or rpc: scopes reference a missing entry.
+    // scopes.ts imports SERVICE_ID_FRAGMENT from did-document.ts, so this can't
+    // drift — the guard asserts the two stay wired together.
+    const scopeAud = serviceScopeAud(SERVICE_DID)
+    expect(scopeAud.endsWith(doc.service[0].id)).toBe(true)
+  })
 
   it('strips a trailing slash from the service endpoint', () => {
     const doc = buildDidDocument(SERVICE_DID, 'https://groups.example.com/')
