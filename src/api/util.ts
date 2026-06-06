@@ -7,8 +7,20 @@ import type { AuditEventDetail } from '../audit.js'
 import type { Operation } from '../rbac/permissions.js'
 import type { GroupDatabase } from '../db/schema.js'
 import { XRPCError as ClientXRPCError } from '@atproto/xrpc'
-import { XRPCError, UpstreamFailureError } from '@atproto/xrpc-server'
+import { XRPCError, UpstreamFailureError, ForbiddenError } from '@atproto/xrpc-server'
 import type { PdsAgentPool } from '../pds/agent.js'
+import { scopesCoverOperation } from '../auth/scopes.js'
+
+/**
+ * The auth-mode-dependent slice of the credential the gate needs: for an
+ * `apiKey` principal it applies a scope check on top of the role check and
+ * attributes the audit entry to the specific key.
+ */
+export interface GatePrincipal {
+  authKind: 'jwt' | 'apiKey'
+  scopes?: string[]
+  apiKeyRef?: string
+}
 
 export interface AuthedMethodConfig {
   opts?: RouteOptions
@@ -62,18 +74,47 @@ export function decodeCursor(cursor: string): string {
   return Buffer.from(cursor, 'base64').toString('utf8')
 }
 
+/**
+ * Authorize an operation and audit a denial.
+ *
+ * For an `apiKey` principal two checks must BOTH pass (design: scopes ∩
+ * role-perms): first the scope check (does the key's granted scope set cover
+ * this operation, delegated to `@atproto/oauth-scopes`), then the existing role
+ * check (the key acts as its issuing owner, so the role check naturally caps the
+ * key at its issuer's role). A JWT principal is scope-unlimited — only the role
+ * check applies. The specific key (`apiKeyRef`) is attached to the audit detail
+ * so key-driven actions are attributable beyond the owner DID.
+ */
 export async function assertCanWithAudit(
   ctx: AppContext,
   groupDb: Kysely<GroupDatabase>,
   callerDid: string,
   operation: Operation,
   detail?: Omit<AuditEventDetail, 'reason'>,
+  principal?: GatePrincipal,
 ): Promise<void> {
+  const auditDetail: Omit<AuditEventDetail, 'reason'> | undefined =
+    principal?.authKind === 'apiKey' && principal.apiKeyRef
+      ? { ...detail, apiKeyRef: principal.apiKeyRef }
+      : detail
+
+  const denied = async (reason: string): Promise<never> => {
+    await ctx.audit.log(groupDb, callerDid, operation, 'denied', { ...auditDetail, reason })
+    throw new ForbiddenError(reason)
+  }
+
+  if (principal?.authKind === 'apiKey') {
+    const scopes = principal.scopes ?? []
+    if (!scopesCoverOperation(scopes, operation, ctx.config.serviceDid)) {
+      await denied(`API key scopes do not permit '${operation}'`)
+    }
+  }
+
   try {
     await ctx.rbac.assertCan(groupDb, callerDid, operation)
   } catch (err) {
     await ctx.audit.log(groupDb, callerDid, operation, 'denied', {
-      ...detail,
+      ...auditDetail,
       reason: (err as Error).message,
     })
     throw err
