@@ -152,4 +152,35 @@ describe('rateLimitAllow', () => {
     rateLimitAllow(map, 'new', 5000, WINDOW, 3)
     expect(map.has('old')).toBe(true)
   })
+
+  it('hard-caps by evicting the oldest when all entries are still fresh', () => {
+    // At the cap of 3, every entry within the window — nothing to sweep.
+    const map = new Map<string, number>([
+      ['a', 100],
+      ['b', 200],
+      ['c', 300],
+    ])
+    const allowed = rateLimitAllow(map, 'd', 350, WINDOW, 3)
+    expect(allowed).toBe(true)
+    // Oldest by insertion order ('a') evicted; size stays at the cap.
+    expect(map.size).toBe(3)
+    expect(map.has('a')).toBe(false)
+    expect(map.has('d')).toBe(true)
+  })
+
+  it('re-warning an existing key at the cap does not evict (no growth)', () => {
+    const map = new Map<string, number>([
+      ['a', 0],
+      ['b', 0],
+      ['c', 0],
+    ])
+    // 'a' is at the cap but already present and its window has elapsed: it
+    // refreshes in place without evicting anyone.
+    const allowed = rateLimitAllow(map, 'a', WINDOW, WINDOW, 3)
+    expect(allowed).toBe(true)
+    expect(map.size).toBe(3)
+    expect(map.has('b')).toBe(true)
+    expect(map.has('c')).toBe(true)
+    expect(map.get('a')).toBe(WINDOW)
+  })
 })

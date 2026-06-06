@@ -126,9 +126,13 @@ const lastLegacyWarn = new Map<string, number>()
 /**
  * Per-key rate limiter backed by a bounded `Map<key, lastSeenMs>`. Returns true
  * (and records `now`) when `key` has not been seen within `windowMs`; false
- * otherwise. Before growing past `maxEntries` it sweeps entries older than the
- * window — they're useless (they'd fire again anyway) — so the map stays
- * proportional to distinct keys seen within one window rather than unbounded.
+ * otherwise.
+ *
+ * Memory is hard-bounded to `maxEntries`. Before inserting a new key at the cap
+ * it first sweeps entries older than the window (cheap, and they'd fire again
+ * anyway); if every entry is still fresh (a high-cardinality burst), it evicts
+ * the oldest by insertion order (`Map` preserves it) so the cap is never
+ * exceeded. Evicting a fresh entry only costs that key one extra warn later.
  */
 export function rateLimitAllow(
   map: Map<string, number>,
@@ -139,9 +143,14 @@ export function rateLimitAllow(
 ): boolean {
   const previous = map.get(key)
   if (previous !== undefined && now - previous < windowMs) return false
-  if (map.size >= maxEntries) {
+  if (map.size >= maxEntries && !map.has(key)) {
     for (const [k, ts] of map) {
       if (now - ts >= windowMs) map.delete(k)
+    }
+    // Still full of fresh entries: evict the oldest to keep a hard cap.
+    if (map.size >= maxEntries) {
+      const oldest: string | undefined = map.keys().next().value
+      if (oldest !== undefined) map.delete(oldest)
     }
   }
   map.set(key, now)
