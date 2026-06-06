@@ -5,11 +5,18 @@ import {
   parseReqNsid as defaultParseReqNsid,
   type MethodAuthVerifier,
 } from '@atproto/xrpc-server'
+import { sql } from 'kysely'
 import type { Kysely } from 'kysely'
 import type { Request } from 'express'
 import type { GlobalDatabase } from '../db/schema.js'
+import type { GroupDbPool } from '../db/group-db-pool.js'
 import { NonceCache, NONCE_TTL_SECONDS } from './nonce.js'
 import { SERVICE_ID_FRAGMENT } from '../did-document.js'
+import { parseApiKey, verifySecret } from './api-key.js'
+
+/** Header carrying an API key, kept separate from `Authorization: Bearer` so
+ * the JWT path (and its nonce/replay logic) is never reached for key callers. */
+export const API_KEY_HEADER = 'x-api-key'
 
 export interface GroupAuthCredentials {
   callerDid: string
@@ -32,6 +39,23 @@ export interface GroupAuthCredentials {
    * time. A request only escapes the legacy flag by sending `aud=serviceDid`.
    */
   legacyAud: boolean
+  /**
+   * Which credential proved the caller. `'jwt'` is the existing service-auth
+   * path; `'apiKey'` is the X-API-Key bearer path. The authorization gate uses
+   * this to decide whether to apply the scope check (apiKey only) on top of the
+   * role check (both).
+   */
+  authKind: 'jwt' | 'apiKey'
+  /**
+   * Scope strings granted to the API key (apiKey only). Undefined for JWT
+   * callers, who are scope-unlimited and constrained solely by their role.
+   */
+  scopes?: string[]
+  /**
+   * The non-secret key id (apiKey only), for attributing audit-log entries to a
+   * specific key rather than just the issuing owner DID.
+   */
+  apiKeyRef?: string
 }
 export type GroupAuthResult = { credentials: GroupAuthCredentials }
 
@@ -49,6 +73,7 @@ export class AuthVerifier {
     private nonceCache: NonceCache,
     private globalDb: Kysely<GlobalDatabase>,
     private serviceDid: string,
+    private groupDbs: GroupDbPool,
     verifyJwtFn?: typeof defaultVerifyJwt,
     parseReqNsidFn?: typeof defaultParseReqNsid,
   ) {
@@ -204,11 +229,100 @@ export class AuthVerifier {
     return undefined
   }
 
+  /** Read the `X-API-Key` header value, or undefined if absent/empty. */
+  private readApiKeyHeader(req: Request): string | undefined {
+    const raw = req.headers[API_KEY_HEADER]
+    const value = Array.isArray(raw) ? raw[0] : raw
+    if (typeof value === 'string' && value.length > 0) return value
+    return undefined
+  }
+
+  /**
+   * Verify an `X-API-Key` credential and resolve its group + granted scopes.
+   *
+   * The key carries no group identifier, so the group is named by the request
+   * `repo` (querystring) exactly like the new JWT path — the username/password
+   * model: the group DID is the "username" (supplied, not secret), the key the
+   * "password" (verified against that group's `group_api_keys`). Forward hash
+   * only (`DID → group DB`); the per-group-hash reverse mapping is never needed.
+   *
+   * No nonce, no 2-minute lifetime: keys are long-lived bearer secrets, revoked
+   * via `revoked_at`. Scope minimality is the primary mitigation for the larger
+   * blast radius (see design doc).
+   */
+  async verifyApiKey(
+    req: Request,
+    apiKey: string,
+  ): Promise<{ callerDid: string; groupDid: string; scopes: string[]; apiKeyRef: string }> {
+    const parsed = parseApiKey(apiKey)
+    if (!parsed) {
+      throw new AuthRequiredError('Malformed API key')
+    }
+
+    // The key path needs the group BEFORE it can authenticate — read it from the
+    // request, never from the key. Only the querystring is available at auth time.
+    const repoParam = this.readRepoParam(req)
+    if (repoParam === undefined) {
+      throw new AuthRequiredError('Missing repo for API-key request')
+    }
+    const groupDid = await this.resolveRepoToGroup(repoParam)
+
+    const groupDb = this.groupDbs.get(groupDid)
+    const row = await groupDb
+      .selectFrom('group_api_keys')
+      .where('key_ref', '=', parsed.keyRef)
+      .select(['key_hash', 'scopes', 'created_by', 'revoked_at'])
+      .executeTakeFirst()
+
+    // A wrong group or wrong keyRef both land here: no row, no oracle that
+    // distinguishes "wrong group" from "wrong key".
+    if (!row || row.revoked_at !== null) {
+      throw new AuthRequiredError('Invalid API key')
+    }
+    if (!verifySecret(parsed.secret, row.key_hash)) {
+      throw new AuthRequiredError('Invalid API key')
+    }
+
+    // Best-effort last-use stamp; never block or fail the request on it.
+    void groupDb
+      .updateTable('group_api_keys')
+      .set({ last_used_at: sql<string>`datetime('now')` })
+      .where('key_ref', '=', parsed.keyRef)
+      .execute()
+      .catch(() => {})
+
+    let scopes: string[]
+    try {
+      scopes = JSON.parse(row.scopes)
+      if (!Array.isArray(scopes)) throw new Error('not an array')
+    } catch {
+      throw new AuthRequiredError('Corrupt API-key scopes')
+    }
+
+    // The key acts on behalf of its issuing owner (design Open Question lean:
+    // owner-DID + apiKeyRef for attribution). RBAC stays DID-based.
+    return { callerDid: row.created_by, groupDid, scopes, apiKeyRef: parsed.keyRef }
+  }
+
   xrpcAuth(): MethodAuthVerifier<GroupAuthResult> {
     return async ({ req }) => {
+      const apiKey = this.readApiKeyHeader(req)
+      if (apiKey !== undefined) {
+        const { callerDid, groupDid, scopes, apiKeyRef } = await this.verifyApiKey(req, apiKey)
+        return {
+          credentials: {
+            callerDid,
+            groupDid,
+            legacyAud: false,
+            authKind: 'apiKey',
+            scopes,
+            apiKeyRef,
+          },
+        }
+      }
       const { iss, groupDid, legacyAud } = await this.verify(req)
       return {
-        credentials: { callerDid: iss, groupDid, legacyAud },
+        credentials: { callerDid: iss, groupDid, legacyAud, authKind: 'jwt' },
       }
     }
   }

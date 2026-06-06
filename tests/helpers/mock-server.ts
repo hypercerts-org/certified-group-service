@@ -225,7 +225,7 @@ export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
         const { iss, groupDid, legacyAud } = await this.verify(req)
-        return { credentials: { callerDid: iss, groupDid, legacyAud } }
+        return { credentials: { callerDid: iss, groupDid, legacyAud, authKind: 'jwt' } }
       }
     },
     xrpcServiceAuth() {
@@ -261,7 +261,7 @@ export function mockAuthNewPath(iss: string, group: string = 'did:plc:testgroup'
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
         const { iss: callerDid, groupDid, legacyAud } = await this.verify(req)
-        return { credentials: { callerDid, groupDid, legacyAud } }
+        return { credentials: { callerDid, groupDid, legacyAud, authKind: 'jwt' } }
       }
     },
     xrpcServiceAuth() {

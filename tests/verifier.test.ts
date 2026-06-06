@@ -1,9 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase } from '../src/db/schema.js'
 import { createTestGlobalDb } from './helpers/test-db.js'
 import { NonceCache, NONCE_TTL_SECONDS } from '../src/auth/nonce.js'
 import { AuthVerifier } from '../src/auth/verifier.js'
+import { GroupDbPool } from '../src/db/group-db-pool.js'
+import { generateApiKey } from '../src/auth/api-key.js'
 
 function makeReq(
   headers: Record<string, string> = {},
@@ -17,6 +22,8 @@ describe('AuthVerifier', () => {
   let globalDb: Kysely<GlobalDatabase>
   let nonceCache: NonceCache
   let verifier: AuthVerifier
+  let groupDbs: GroupDbPool
+  let groupDbsDir: string
 
   const SERVICE_DID = 'did:web:test.example.com'
 
@@ -50,11 +57,14 @@ describe('AuthVerifier', () => {
       })
       .execute()
     nonceCache = new NonceCache(globalDb)
+    groupDbsDir = mkdtempSync(join(tmpdir(), 'verifier-test-'))
+    groupDbs = new GroupDbPool(groupDbsDir)
     verifier = new AuthVerifier(
       mockIdResolver as any,
       nonceCache,
       globalDb,
       SERVICE_DID,
+      groupDbs,
       fakeVerifyJwt,
       fakeParseReqNsid,
     )
@@ -69,6 +79,11 @@ describe('AuthVerifier', () => {
       iat: now,
       exp: now + 60,
     })
+  })
+
+  afterEach(async () => {
+    await groupDbs.destroyAll()
+    rmSync(groupDbsDir, { recursive: true, force: true })
   })
 
   it('rejects missing Authorization header', async () => {
@@ -379,12 +394,128 @@ describe('AuthVerifier', () => {
       'Unknown group',
     )
   })
+
+  describe('X-API-Key path (xrpcAuth)', () => {
+    const GROUP = 'did:plc:testgroup'
+    const SCOPES = ['rpc:app.certified.group.member.list']
+
+    // Seed a key into the (migrated) per-group DB and return its plaintext.
+    async function seedKey(
+      overrides: { revoked?: boolean; createdBy?: string; scopes?: string[] } = {},
+    ) {
+      await groupDbs.migrateGroup(GROUP)
+      const db = groupDbs.get(GROUP)
+      const key = generateApiKey()
+      await db
+        .insertInto('group_api_keys')
+        .values({
+          key_ref: key.keyRef,
+          key_hash: key.hash,
+          name: 'test key',
+          scopes: JSON.stringify(overrides.scopes ?? SCOPES),
+          created_by: overrides.createdBy ?? 'did:plc:owner',
+          revoked_at: overrides.revoked ? '2020-01-01 00:00:00' : null,
+        })
+        .execute()
+      return key
+    }
+
+    // `repo: null` explicitly omits the param (an explicit `undefined` would
+    // trigger the default, so null is the "no repo" sentinel here).
+    function apiKeyReq(apiKey: string, repo: string | null = GROUP) {
+      return makeReq(
+        { 'x-api-key': apiKey },
+        '/xrpc/app.certified.group.member.list',
+        repo === null ? {} : { repo },
+      )
+    }
+
+    it('authenticates a valid key and returns apiKey credentials with scopes', async () => {
+      const key = await seedKey()
+      const auth = verifier.xrpcAuth()
+      const { credentials } = await auth({ req: apiKeyReq(key.plaintext) } as any)
+      expect(credentials).toMatchObject({
+        callerDid: 'did:plc:owner', // issuing owner DID
+        groupDid: GROUP,
+        legacyAud: false,
+        authKind: 'apiKey',
+        apiKeyRef: key.keyRef,
+      })
+      expect(credentials.scopes).toEqual(SCOPES)
+      // verifyJwt must NOT be consulted on the key path.
+      expect(fakeVerifyJwt).not.toHaveBeenCalled()
+    })
+
+    it('touches last_used_at on a successful key auth', async () => {
+      const key = await seedKey()
+      const auth = verifier.xrpcAuth()
+      await auth({ req: apiKeyReq(key.plaintext) } as any)
+      const row = await groupDbs
+        .get(GROUP)
+        .selectFrom('group_api_keys')
+        .where('key_ref', '=', key.keyRef)
+        .select('last_used_at')
+        .executeTakeFirst()
+      expect(row?.last_used_at).toBeTruthy()
+    })
+
+    it('rejects a malformed key', async () => {
+      const auth = verifier.xrpcAuth()
+      await expect(auth({ req: apiKeyReq('not-a-key') } as any)).rejects.toThrow(
+        'Malformed API key',
+      )
+    })
+
+    it('rejects when repo is absent (no group to target)', async () => {
+      const key = await seedKey()
+      const auth = verifier.xrpcAuth()
+      await expect(auth({ req: apiKeyReq(key.plaintext, null) } as any)).rejects.toThrow(
+        'Missing repo for API-key request',
+      )
+    })
+
+    it('rejects a revoked key', async () => {
+      const key = await seedKey({ revoked: true })
+      const auth = verifier.xrpcAuth()
+      await expect(auth({ req: apiKeyReq(key.plaintext) } as any)).rejects.toThrow(
+        'Invalid API key',
+      )
+    })
+
+    it('rejects a wrong secret for an existing keyRef', async () => {
+      const key = await seedKey()
+      const tampered = `${key.plaintext}tamper`
+      const auth = verifier.xrpcAuth()
+      await expect(auth({ req: apiKeyReq(tampered) } as any)).rejects.toThrow('Invalid API key')
+    })
+
+    it('rejects an unknown keyRef (no oracle vs wrong group)', async () => {
+      await seedKey() // group has a key, but we present a different one
+      const other = generateApiKey()
+      const auth = verifier.xrpcAuth()
+      await expect(auth({ req: apiKeyReq(other.plaintext) } as any)).rejects.toThrow(
+        'Invalid API key',
+      )
+    })
+
+    it('falls through to the JWT path when no X-API-Key header is present', async () => {
+      // Default fakeVerifyJwt mock resolves a legacy-aud JWT for the test group.
+      const auth = verifier.xrpcAuth()
+      const { credentials } = await auth({
+        req: makeReq({ authorization: 'Bearer jwt' }),
+      } as any)
+      expect(credentials.authKind).toBe('jwt')
+      expect(fakeVerifyJwt).toHaveBeenCalled()
+    })
+  })
 })
 
 describe('verifyServiceAuth', () => {
   let globalDb: Kysely<GlobalDatabase>
   let nonceCache: NonceCache
   let verifier: AuthVerifier
+  let groupDbs: GroupDbPool
+  let groupDbsDir: string
 
   const fakeVerifyJwt = vi.fn()
   const fakeParseReqNsid = vi.fn()
@@ -401,11 +532,14 @@ describe('verifyServiceAuth', () => {
     const testGlobal = await createTestGlobalDb()
     globalDb = testGlobal.db
     nonceCache = new NonceCache(globalDb)
+    groupDbsDir = mkdtempSync(join(tmpdir(), 'verifier-svc-test-'))
+    groupDbs = new GroupDbPool(groupDbsDir)
     verifier = new AuthVerifier(
       mockIdResolver as any,
       nonceCache,
       globalDb,
       SERVICE_DID,
+      groupDbs,
       fakeVerifyJwt,
       fakeParseReqNsid,
     )
@@ -419,6 +553,11 @@ describe('verifyServiceAuth', () => {
       iat: now,
       exp: now + 60,
     })
+  })
+
+  afterEach(async () => {
+    await groupDbs.destroyAll()
+    rmSync(groupDbsDir, { recursive: true, force: true })
   })
 
   it('rejects missing Authorization header', async () => {

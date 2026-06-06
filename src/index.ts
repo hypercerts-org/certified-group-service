@@ -60,7 +60,13 @@ async function main() {
     () => nonceCache.cleanup().catch((err) => logger.error(err)),
     60_000,
   )
-  const authVerifier = new AuthVerifier(idResolver, nonceCache, globalDb, config.serviceDid)
+  const authVerifier = new AuthVerifier(
+    idResolver,
+    nonceCache,
+    globalDb,
+    config.serviceDid,
+    groupDbs,
+  )
   const rbac = new RbacChecker()
 
   // Express app
