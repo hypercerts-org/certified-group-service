@@ -286,18 +286,26 @@ do not share state.
 **The round-trip is the intended path, not an inefficiency to route around.**
 Resolving the group's DID document to discover its service (hop A) is how a client
 is _supposed_ to find which service hosts a group — that on-protocol link is the
-whole point of the chain. A client should not hardcode the service URL to skip it:
-doing so couples the client to one deployment and breaks the moment a group is
-hosted elsewhere. (Our first client app does hardcode it, but only as a workaround
-for a specific bug — the ePDS caches the group's DID document at account-creation
-time (the genesis doc), before CGS inserts the `certified_group` service record, so
-an immediate resolution can miss the entry. Tracked as `HYPER-453`; a bug to fix,
-not a pattern to follow.)
+whole point of the chain, and it is needed whether the call is proxied (the PDS
+resolves it to route) or non-proxied (the client resolves it to learn the service
+URL). A client should not hardcode the service URL to skip it: doing so couples the
+client to one deployment and breaks the moment a group is hosted elsewhere.
+
+There is a real timing hazard in that resolution, however: right after
+`group.register`, the group's DID document can still be cached as its **genesis
+doc** — `register` adds the `certified_group` service entry in a _second_ PLC op
+(`register.ts:114-132`), after `createAccount`, so a resolver that cached the doc
+at account-creation has the entry-less version until its cache refreshes. A
+resolution immediately after registration can therefore miss `certified_group` and
+fail to locate the service. This affects **both** call routes (it is about
+resolving the group doc, not about proxying per se), and it is why our first client
+app currently hardcodes the service URL as a stopgap. Tracked as `HYPER-453`; a bug
+to fix, not a pattern to bless.
 
 What legitimately shortens the chain is the **call route**, not skipping
 discovery: a non-proxied call doesn't proxy, so it skips hops B→C (it requests
-`aud` directly without the PDS resolving the service document). The full five-hop
-chain is the proxied-from-a-bare-`groupDid` case.
+`aud` directly without the PDS resolving the _service's_ document). The full
+five-hop chain is the proxied-from-a-bare-`groupDid` case.
 
 ## Security: `repo` is unsigned (a deliberate reduction to atproto parity)
 
