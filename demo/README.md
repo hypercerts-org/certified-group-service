@@ -93,11 +93,12 @@ The demo deploys as its **own** Railway service (separate from the group service
 which uses the repo-root `railway.toml`):
 
 1. Create a new Railway service in the project, pointing at this repo.
-2. Set its **Root Directory** to `demo` and its **config path** to
-   [`railway-demo.toml`](../railway-demo.toml) (at the repo root).
+2. Set its **Root Directory** to `demo`. That's the only build setting needed —
+   Railway then auto-detects [`demo/railway.toml`](./railway.toml) and builds
+   `demo/Dockerfile` (the build context is `demo/`, which is self-contained).
 3. Set the service variables listed under [Environment](#environment-env) — with
    `OAUTH_CLIENT_ID` / `OAUTH_REDIRECT_URI` pointing at the service's Railway
    domain.
 
-Railway builds the `demo/Dockerfile` and injects `PORT`; the BFF serves both the
-API and the SPA. The healthcheck path is `/api/health`.
+Railway injects `PORT`; the BFF serves both the API and the SPA. The healthcheck
+path is `/api/health`.

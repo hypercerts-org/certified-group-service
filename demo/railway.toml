@@ -1,7 +1,7 @@
-# Railway config for the DEMO app (demo/) — a separate Railway service from the
-# group service (which uses the root railway.toml). Point a Railway service at
-# this file via its config-as-code path, and set the service Root Directory to
-# `demo` so the Dockerfile build context is the demo app.
+# Railway config for the DEMO app — a separate Railway service from the group
+# service (which uses the repo-root railway.toml). Set the service's Root
+# Directory to `demo`; Railway then auto-detects this file (demo/railway.toml)
+# and builds demo/Dockerfile. No config-as-code path needs to be set.
 #
 # Required service variables (set in Railway, not committed):
 #   GROUP_SERVICE_URL   e.g. https://dev.groups.certified.app
