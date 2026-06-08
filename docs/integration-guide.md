@@ -5,8 +5,8 @@ This guide walks you through integrating the group service into your app. By the
 ## Service URLs and DID
 
 ```
-SERVICE_URL = https://atproto-group-gate-staging.up.railway.app
-SERVICE_DID  = did:web:atproto-group-gate-staging.up.railway.app
+SERVICE_URL = https://dev.groups.certified.app
+SERVICE_DID  = did:web:dev.groups.certified.app
 ```
 
 The group service DID is always `did:web:<hostname>` — derived from the service URL. For any deployment, strip the scheme and use the hostname: `https://example.com` → `did:web:example.com`.
@@ -14,8 +14,8 @@ The group service DID is always `did:web:<hostname>` — derived from the servic
 All example code below uses these constants:
 
 ```typescript
-const GROUP_SERVICE = 'https://atproto-group-gate-staging.up.railway.app'
-const GROUP_SERVICE_DID = 'did:web:atproto-group-gate-staging.up.railway.app'
+const GROUP_SERVICE = 'https://dev.groups.certified.app'
+const GROUP_SERVICE_DID = 'did:web:dev.groups.certified.app'
 ```
 
 ## Architecture: where your app fits
