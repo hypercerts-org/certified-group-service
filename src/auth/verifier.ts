@@ -15,6 +15,11 @@ import { NonceCache, NONCE_TTL_SECONDS } from './nonce.js'
 import { SERVICE_ID_FRAGMENT } from '../did-document.js'
 import { parseApiKey, verifySecret } from './api-key.js'
 
+/** Best-effort message for a thrown value, for inclusion in a log record. */
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 /**
  * Decode the header+payload of a JWT without verifying its signature, for
  * logging only. Returns null on malformed input. The signature segment is
@@ -220,7 +225,7 @@ export class AuthVerifier {
       )
     } catch (err) {
       this.logAuthFailure('verifyJwt threw', nsid, jwtStr, {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       })
       throw err
     }
@@ -229,7 +234,7 @@ export class AuthVerifier {
       this.assertTokenLifetime(payload)
     } catch (err) {
       this.logAuthFailure('Token lifetime check failed', nsid, jwtStr, {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       })
       throw err
     }
@@ -250,7 +255,7 @@ export class AuthVerifier {
       } catch (err) {
         this.logAuthFailure('repo did not resolve to a known group', nsid, jwtStr, {
           repoParam,
-          error: err instanceof Error ? err.message : String(err),
+          error: errMessage(err),
         })
         throw err
       }
@@ -356,7 +361,7 @@ export class AuthVerifier {
       this.logApiKeyFailure('repo did not resolve to a known group', {
         keyRef: parsed.keyRef,
         repoParam,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       })
       throw err
     }
@@ -457,7 +462,7 @@ export class AuthVerifier {
       )
     } catch (err) {
       this.logAuthFailure('verifyJwt threw', nsid, jwtStr, {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       })
       throw err
     }
@@ -466,7 +471,7 @@ export class AuthVerifier {
       this.assertTokenLifetime(payload)
     } catch (err) {
       this.logAuthFailure('Token lifetime check failed', nsid, jwtStr, {
-        error: err instanceof Error ? err.message : String(err),
+        error: errMessage(err),
       })
       throw err
     }

@@ -824,4 +824,120 @@ describe('AuthVerifier auth-failure logging', () => {
     await expect(noLogger.verify(req)).rejects.toThrow('Missing auth token')
     expect(warn).not.toHaveBeenCalled()
   })
+
+  it('wraps and logs a throwing verifyJwt on the service-auth path', async () => {
+    fakeVerifyJwt.mockRejectedValue(new Error('service jwt signature invalid'))
+    const req = makeReq({ authorization: `Bearer ${JWT}` })
+    await expect(verifier.verifyServiceAuth(req)).rejects.toThrow('service jwt signature invalid')
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [fields] = warn.mock.calls[0]
+    expect(fields.reason).toBe('verifyJwt threw')
+    expect(fields.error).toBe('service jwt signature invalid')
+    expect(JSON.stringify(fields)).not.toContain(SIGNATURE)
+  })
+
+  it('xrpcServiceAuth returns the caller DID on a valid service-auth token', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    fakeVerifyJwt.mockResolvedValue({
+      iss: 'did:plc:caller',
+      aud: SERVICE_DID,
+      jti: 'jti-service-ok',
+      iat: now,
+      exp: now + 60,
+    })
+    const auth = verifier.xrpcServiceAuth()
+    const result = await auth({ req: makeReq({ authorization: `Bearer ${JWT}` }) } as any)
+    expect(result).toEqual({ credentials: { callerDid: 'did:plc:caller' } })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('logs Corrupt API-key scopes when the stored scopes are not a JSON array', async () => {
+    await groupDbs.migrateGroup(GROUP)
+    const key = generateApiKey()
+    await groupDbs
+      .get(GROUP)
+      .insertInto('group_api_keys')
+      .values({
+        key_ref: key.keyRef,
+        key_hash: key.hash,
+        name: 'corrupt key',
+        scopes: '{"not":"an array"}', // valid JSON, but not an array
+        created_by: 'did:plc:owner',
+        revoked_at: null,
+      })
+      .execute()
+    const req = makeReq({ 'x-api-key': key.plaintext }, '/xrpc/app.certified.group.member.list', {
+      repo: GROUP,
+    })
+    await expect(verifier.verifyApiKey(req, key.plaintext)).rejects.toThrow(
+      'Corrupt API-key scopes',
+    )
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [fields] = warn.mock.calls[0]
+    expect(fields.reason).toBe('Corrupt API-key scopes')
+    expect(fields.keyRef).toBe(key.keyRef)
+  })
+
+  it('logs a non-Error throw from verifyJwt by stringifying it', async () => {
+    // verifyJwt rejecting with a non-Error value exercises the String(err) branch.
+    fakeVerifyJwt.mockRejectedValue('plain string failure')
+    const req = makeReq({ authorization: `Bearer ${JWT}` })
+    await expect(verifier.verify(req)).rejects.toBe('plain string failure')
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [fields] = warn.mock.calls[0]
+    expect(fields.reason).toBe('verifyJwt threw')
+    expect(fields.error).toBe('plain string failure')
+  })
+
+  it('logs when an API-key request names a repo that is not a known group', async () => {
+    const key = generateApiKey()
+    const req = makeReq({ 'x-api-key': key.plaintext }, '/xrpc/app.certified.group.member.list', {
+      repo: 'did:plc:not-a-group',
+    })
+    await expect(verifier.verifyApiKey(req, key.plaintext)).rejects.toThrow('Unknown group')
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [fields] = warn.mock.calls[0]
+    expect(fields.reason).toBe('repo did not resolve to a known group')
+    expect(fields.keyRef).toBe(key.keyRef)
+    expect(fields.repoParam).toBe('did:plc:not-a-group')
+  })
+
+  it('logs jwt: null when the token segments cannot be decoded', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    fakeVerifyJwt.mockResolvedValue({
+      iss: 'did:plc:caller',
+      aud: 'did:plc:not-a-group', // unknown group → Invalid audience
+      jti: 'jti-undecodable',
+      iat: now,
+      exp: now + 60,
+    })
+    // A header.payload.sig shape whose payload segment is not valid base64 JSON,
+    // so decodeJwtForLog returns null rather than an object.
+    const req = makeReq({ authorization: `Bearer aaa.!!!notbase64!!!.${SIGNATURE}` })
+    await expect(verifier.verify(req)).rejects.toThrow('Invalid audience')
+    expect(warn).toHaveBeenCalledTimes(1)
+    const [fields] = warn.mock.calls[0]
+    expect(fields.reason).toBe('Invalid audience')
+    expect(fields.jwt).toBeNull()
+    expect(JSON.stringify(fields)).not.toContain(SIGNATURE)
+  })
+
+  it('verifyServiceAuth resolves the signing key via the DID resolver', async () => {
+    // Drive verifyJwt's key-resolver callback so the resolver closure executes.
+    const now = Math.floor(Date.now() / 1000)
+    fakeVerifyJwt.mockImplementation(async (_jwt, _aud, _nsid, getKey) => {
+      await getKey('did:plc:caller', false)
+      return {
+        iss: 'did:plc:caller',
+        aud: SERVICE_DID,
+        jti: 'jti-resolver',
+        iat: now,
+        exp: now + 60,
+      }
+    })
+    const req = makeReq({ authorization: `Bearer ${JWT}` })
+    const result = await verifier.verifyServiceAuth(req)
+    expect(result).toEqual({ iss: 'did:plc:caller' })
+    expect(mockIdResolver.did.resolveAtprotoData).toHaveBeenCalledWith('did:plc:caller', false)
+  })
 })
