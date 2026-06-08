@@ -37,3 +37,14 @@ Feature: API keys — owner-issued, scope-limited bearer credentials (#26)
     When the owner lists the group API keys
     Then the response status is 200
     And the API key list does not contain any secret material
+
+  Scenario: A write-scoped key can create a record via X-API-Key
+    Given the owner has created an API key scoped to create feed posts
+    When a backend creates a feed post using the API key
+    Then the response status is 200
+    And the response contains a record URI
+
+  Scenario: A read-only key cannot create a record
+    Given the owner has created an API key scoped to member.list
+    When a backend creates a feed post using the API key
+    Then the response status is 403

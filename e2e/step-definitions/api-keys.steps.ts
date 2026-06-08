@@ -20,13 +20,17 @@ function ownerCreds(world: CgsWorld) {
   return { identifier: world.env.ownerIdentifier, password: world.env.ownerPassword }
 }
 
+const FEED_POST = 'app.bsky.feed.post'
+const CREATE_RECORD = 'app.certified.group.repo.createRecord'
+
 function memberListScope(world: CgsWorld): string {
   const scope = scopeNeededFor('member.list', world.serviceDid)
   assert.ok(scope, 'member.list must be a key-accessible operation')
   return scope
 }
 
-async function createKey(world: CgsWorld): Promise<void> {
+/** Mint an API key with the given scopes (owner-authed keys.create). */
+async function createKey(world: CgsWorld, scopes: string[]): Promise<void> {
   const token = await mintServiceAuth({
     ...ownerCreds(world),
     aud: world.serviceDid,
@@ -36,11 +40,7 @@ async function createKey(world: CgsWorld): Promise<void> {
     cgsUrl: world.env.cgsUrl,
     nsid: KEYS_CREATE,
     token,
-    body: {
-      repo: world.groupDid,
-      name: 'platform backend e2e sync',
-      scopes: [memberListScope(world)],
-    },
+    body: { repo: world.groupDid, name: 'platform backend e2e key', scopes },
   })
   if (world.lastHttpStatus === 200 && world.lastHttpJson) {
     world.apiKey = world.lastHttpJson.key as string
@@ -49,11 +49,11 @@ async function createKey(world: CgsWorld): Promise<void> {
 }
 
 When('the owner creates an API key scoped to member.list', async function (this: CgsWorld) {
-  await createKey(this)
+  await createKey(this, [memberListScope(this)])
 })
 
 Given('the owner has created an API key scoped to member.list', async function (this: CgsWorld) {
-  await createKey(this)
+  await createKey(this, [memberListScope(this)])
   assert.equal(this.lastHttpStatus, 200, 'key creation should succeed in setup')
   assert.ok(this.apiKey, 'an API key should have been returned')
 })
@@ -124,4 +124,33 @@ Then('the API key list does not contain any secret material', function (this: Cg
     assert.ok(!('key' in key), 'key entry must not include the plaintext')
     assert.ok(!('key_hash' in key) && !('keyHash' in key), 'key entry must not include the hash')
   }
+})
+
+Given(
+  'the owner has created an API key scoped to create feed posts',
+  async function (this: CgsWorld) {
+    // Friendly repo: scope — the service binds it (repo: scopes carry no aud).
+    await createKey(this, [`repo:${FEED_POST}?action=create`])
+    assert.equal(this.lastHttpStatus, 200, 'key creation should succeed in setup')
+    assert.ok(this.apiKey, 'an API key should have been returned')
+  },
+)
+
+When('a backend creates a feed post using the API key', async function (this: CgsWorld) {
+  assert.ok(this.apiKey, 'no API key available for the backend call')
+  await callXrpcWithApiKey(this, {
+    cgsUrl: this.env.cgsUrl,
+    nsid: CREATE_RECORD,
+    apiKey: this.apiKey,
+    repo: this.groupDid, // querystring repo — API-key procedures target via the querystring
+    body: {
+      repo: this.groupDid,
+      collection: FEED_POST,
+      record: {
+        $type: FEED_POST,
+        text: 'CGS e2e post via API key — #26 write scope.',
+        createdAt: new Date().toISOString(),
+      },
+    },
+  })
 })

@@ -1,6 +1,6 @@
 # Design: API Keys for the Group Service
 
-Status: **Implemented** (iteration 1 — read-only `member.list` scope)
+Status: **Implemented** (iteration 1 — read scopes `member.list` / `audit.query`, PDS-repo write scopes `repo:…?action=create|update|delete`, and `blob:` uploads)
 
 Tracking issues:
 
@@ -59,7 +59,6 @@ repeatedly.
 
 ## Non-goals (this iteration)
 
-- Write scopes / PDS-repo write access. Designed for, not built.
 - Returning a key from `app.certified.group.register` output (issue comment 1).
   Deprioritised by the issue author because it does not help groups that
   already exist; captured below as a future option only.
@@ -463,15 +462,23 @@ understands a key principal — for an `apiKey` credential it runs the
 `Operation` union stays as the internal RBAC vocabulary; scope strings are the
 _external_ vocabulary, mapped to operations by a small lookup table.
 
-Scope registry (initial). Strings shown abbreviated; the real `rpc:` scope
-carries the audience param (`aud=<serviceDid>`) that `scopeNeededFor` emits:
+Scope registry. The `rpc:` strings are shown abbreviated; the real `rpc:` scope
+carries the audience param (`aud=<serviceDid>`) that `scopeNeededFor` emits, and
+is bound to this service for the client (clients pass the friendly form).
+`repo:`/`blob:` scopes carry no `aud` and are stored verbatim:
 
-| scope (abbrev.)                       | covers operation | iteration |
-| ------------------------------------- | ---------------- | --------- |
-| `rpc:app.certified.group.member.list` | `member.list`    | 1 (now)   |
-| `rpc:app.certified.group.audit.query` | `audit.query`    | 1 (now)   |
-| `repo:<collection>?action=read`       | PDS repo read    | later     |
-| `repo:<collection>?action=write`      | PDS repo write   | future    |
+| scope                                 | covers operation              | iteration |
+| ------------------------------------- | ----------------------------- | --------- |
+| `rpc:app.certified.group.member.list` | `member.list` (read)          | 1 (now)   |
+| `rpc:app.certified.group.audit.query` | `audit.query` (read)          | 1 (now)   |
+| `repo:<collection>?action=create`     | `createRecord`                | 1 (now)   |
+| `repo:<collection>?action=update`     | `putRecord` (own/any/profile) | 1 (now)   |
+| `repo:<collection>?action=delete`     | `deleteRecord` (own/any)      | 1 (now)   |
+| `blob:<accept>` (e.g. `blob:image/*`) | `uploadBlob`                  | 1 (now)   |
+
+For `repo:` ops, the scope says _which collection + action_; the RBAC role check
+underneath still decides _whose_ records (own vs any) — `repo:` scopes have no
+ownership axis, so a member-issued key remains own-only. See _Authorization_.
 
 Audit logging already records `actor_did`, `action`, `result`
 (`group_audit_log`). Add a `detail.apiKeyRef` so key-driven actions are
@@ -569,9 +576,12 @@ registered via `registerAuthedMethod` in `src/api/index.ts`.
 
 ## Future extensions
 
-- Additional read scopes (PDS-repo reads via the proxy layer).
-- Write scopes to the group's PDS repo (raises the security bar on key
-  handling; would map onto AT Protocol `repo:…?action=…` scope strings).
+- PDS-repo **read** scopes (proxying record reads through the group's PDS).
+  Writes shipped in iteration 1; reads are the symmetric follow-up.
+- Finer-grained own-only write keys — see the limitation under _Authorization_:
+  today own-vs-any follows the issuing owner's role, since AT Protocol `repo:`
+  scopes have no ownership axis. A future CGS-specific scope qualifier could let
+  an admin mint a self-limited "own records only" key.
 - Permission **sets** (named scope bundles) via the `IncludeScope` primitive
   already provided by `@atproto/oauth-scopes`.
 - Returning a key in `app.certified.group.register` output (issue comment 1) —

@@ -710,7 +710,22 @@ The flow (the platform backend-sync example):
    key is rejected on its next use.
 
 A key is constrained by **both** its scopes and the role of the owner that issued it,
-and can only reach operations it is scoped for (iteration 1: `member.list`). A key
-can never manage keys. Storing a key good for one read-only operation is far less
-sensitive than holding the owner's signing key. See `docs/design/api-keys.md`.
->>>>>>> 510b336 (test(e2e): api-keys flow + changeset + docs; mark design implemented (cgs-15a))
+and can only reach operations it is scoped for. A key can never manage keys.
+
+**Writes, too.** Keys aren't read-only: scope a key with `repo:<collection>?action=create|update|delete` to create/update/delete records, or `blob:<accept>` (e.g. `blob:image/*`) to upload blobs. Write calls are procedures, so put `repo` on the **querystring** as well as in the body (API-key auth resolves the group before the body is parsed):
+
+```typescript
+await fetch(`${GROUP_SERVICE}/xrpc/app.certified.group.repo.createRecord?repo=${groupDid}`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-API-Key': process.env.CGS_API_KEY! },
+  body: JSON.stringify({
+    repo: groupDid,
+    collection: 'app.bsky.feed.post',
+    record: {
+      /* … */
+    },
+  }),
+})
+```
+
+A `repo:` scope picks the collection + action; the issuing owner's **role** still decides whose records may be touched — a member-issued key can only mutate records that member authored (`repo:` scopes have no own-vs-any axis). Storing a narrowly-scoped key is far less sensitive than holding the owner's signing key. See `docs/design/api-keys.md`.
