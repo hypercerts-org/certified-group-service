@@ -121,8 +121,18 @@ export function ApiKeys() {
 
   const copyKey = async () => {
     if (!minted) return
-    await navigator.clipboard.writeText(minted.key)
-    setCopied(true)
+    // navigator.clipboard is only available in secure contexts and can reject;
+    // fail gracefully (the key is shown in full above, so the user can select it).
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(minted.key)
+        setCopied(true)
+      } else {
+        setError('Clipboard unavailable — select the key above and copy manually.')
+      }
+    } catch {
+      setError('Could not copy to clipboard — select the key above and copy manually.')
+    }
   }
 
   // Call member.list with the key — no owner session involved, proving the key

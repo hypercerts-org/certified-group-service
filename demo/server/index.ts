@@ -75,9 +75,10 @@ if (process.env.NODE_ENV === 'production') {
   const here = fileURLToPath(new URL('.', import.meta.url))
   const clientDist = process.env.CLIENT_DIST || join(here, '..', 'dist')
   app.use(express.static(clientDist))
-  // SPA fallback: any non-/api route returns index.html so client-side routing
-  // (react-router) works on deep links / refresh.
-  app.get(/^(?!\/api\/).*/, (_req, res) => {
+  // SPA fallback: any non-API route returns index.html so client-side routing
+  // (react-router) works on deep links / refresh. Exclude both `/api` and
+  // `/api/*` so unknown API paths return a real 404 instead of the SPA shell.
+  app.get(/^(?!\/api(\/|$)).*/, (_req, res) => {
     res.sendFile(join(clientDist, 'index.html'))
   })
 }
