@@ -66,6 +66,9 @@ async function main() {
     globalDb,
     config.serviceDid,
     groupDbs,
+    undefined,
+    undefined,
+    logger,
   )
   const rbac = new RbacChecker()
 

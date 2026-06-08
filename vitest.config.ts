@@ -28,10 +28,10 @@ export default defineConfig({
       ],
       // Ratchet thresholds — only ever increase. See AGENTS.md.
       thresholds: {
-        statements: 93,
+        statements: 94,
         branches: 91,
-        functions: 90,
-        lines: 93,
+        functions: 92,
+        lines: 94,
       },
     },
   },

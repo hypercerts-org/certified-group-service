@@ -80,14 +80,14 @@ feature), add tests for other code to compensate.
 
 ## Coverage Summary
 
-Baseline as of this document (380 tests across 34 files):
+Baseline as of this document (402 tests across 35 files):
 
 | Metric     | Coverage | Threshold |
 | ---------- | -------- | --------- |
-| Statements | 93.24%   | 93        |
-| Branches   | 91.08%   | 91        |
-| Functions  | 90.84%   | 90        |
-| Lines      | 93.24%   | 93        |
+| Statements | 94.16%   | 94        |
+| Branches   | 91.5%    | 91        |
+| Functions  | 92%      | 92        |
+| Lines      | 94.16%   | 94        |
 
 ### Known gaps (highest impact first)
 
@@ -103,9 +103,6 @@ Baseline as of this document (380 tests across 34 files):
 - **`src/config.ts` — 56%** (lines 29-45). Environment-variable parsing
   branch. Unit-testable by setting `process.env` and asserting the parsed
   `Config`.
-- **`src/auth/verifier.ts` — 83%** (lines 119-144). JWT verification error
-  paths (malformed/expired/wrong-audience). Unit-testable by feeding crafted
-  tokens; complements the existing nonce tests.
 - **Migrations — 75-90%.** `down()` / index-drop paths in
   `group/002_audit_indexes.ts` and `group/001_initial.ts` are unexercised.
   Low priority unless rollback is part of the supported flow.
