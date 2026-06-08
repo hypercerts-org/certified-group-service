@@ -1,22 +1,27 @@
 import { ScopesSet, RpcPermission, RepoPermission, BlobPermission } from '@atproto/oauth-scopes'
 import type { RepoAction } from '@atproto/oauth-scopes'
 import type { Operation } from '../rbac/permissions.js'
+import { SERVICE_ID_FRAGMENT } from '../did-document.js'
 
 /**
- * Service-id fragment for CGS's own DID, used as the `aud` of `rpc:` scopes.
+ * The scope-layer `aud` for CGS's own DID, used by `rpc:` scopes.
  *
  * `@atproto/oauth-scopes` validates an `rpc:` scope's `aud` with
  * `isAtprotoDidRefAbsolute`, which **requires a `did:web:host#fragment` service
  * ref** — it rejects a bare `did:web:host` (and all `did:plc:*`). CGS's
- * `config.serviceDid` is a bare `did:web`, so we append this fragment when
- * minting and checking scopes. The same constant is used on both sides, so the
+ * `config.serviceDid` is a bare `did:web`, so we append the service-id fragment
+ * when minting and checking scopes. The same value is used on both sides, so the
  * check is internally consistent regardless of the bare-DID config value.
+ *
+ * `SERVICE_ID_FRAGMENT` is owned by the identity layer (`src/did-document.ts`)
+ * and re-exported here so scope code can use it without a second source of
+ * truth — the did:web document's service entry and the scope `aud` cannot drift.
  *
  * Independent of the JWT-auth `aud`, which stays bare-DID tolerant (the
  * reference PDS strips the service fragment from proxied JWTs until Spring
  * 2026). See docs/design/api-keys.md and issue #29 / HYPER-484.
  */
-export const SERVICE_ID_FRAGMENT = 'certified_group_service'
+export { SERVICE_ID_FRAGMENT }
 
 /** Build the scope `aud` ref for this service's (bare) DID. */
 export function serviceScopeAud(serviceDid: string): string {
