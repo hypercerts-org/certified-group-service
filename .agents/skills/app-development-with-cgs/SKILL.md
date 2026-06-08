@@ -1,6 +1,6 @@
 ---
-name: app-development-with-CGS
-description: Build AT Protocol apps that read and write group-owned records through the Certified Group Service (CGS). Use when an app needs shared, role-gated control of a single atproto account — registering or importing a group, adding/removing members, setting roles, creating/updating/deleting records in the group's repo, uploading blobs, querying the audit log, or issuing API keys for a backend daemon. Triggers: "group account", "shared atproto repo", "certified group service", "app.certified.group.*", "atproto-proxy to a group", "X-API-Key cgsk_".
+name: app-development-with-cgs
+description: "Build AT Protocol apps that read and write group-owned records through the Certified Group Service (CGS). Use when an app needs shared, role-gated control of a single atproto account — registering or importing a group, adding/removing members, setting roles, creating/updating/deleting records in the group's repo, uploading blobs, querying the audit log, or issuing API keys for a backend daemon. Triggers: \"group account\", \"shared atproto repo\", \"certified group service\", \"app.certified.group.*\", \"atproto-proxy to a group\", \"X-API-Key cgsk_\"."
 ---
 
 # Building apps on the Certified Group Service
