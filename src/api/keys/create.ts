@@ -15,10 +15,12 @@ export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.keys.create', ctx, {
     handler: async ({ auth, input }) => {
       const { callerDid, authKind, scopes: callerScopes, apiKeyRef } = auth.credentials
-      const { repo, name, scopes } = input?.body as {
+      // Default to {} so the destructure can't 500 on an absent body (the
+      // framework already rejects missing required input with a 400).
+      const { repo, name, scopes } = (input?.body ?? {}) as {
         repo?: string
-        name: string
-        scopes: string[]
+        name?: string
+        scopes?: string[]
       }
 
       if (typeof name !== 'string' || name.length === 0) {

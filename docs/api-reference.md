@@ -1,6 +1,6 @@
 # API Reference
 
-All endpoints (except `/health` and `/xrpc/_health`) require authentication via a signed JWT in the `Authorization: Bearer <token>` header. The JWT must include:
+All endpoints (except `/health` and `/xrpc/_health`) require authentication. The primary mode is a signed service-auth **JWT** in the `Authorization: Bearer <token>` header (below); group-scoped read methods additionally accept a long-lived **API key** in the `X-API-Key` header (see [Authenticating with an API key](#authenticating-with-an-api-key)). The JWT must include:
 
 - `iss` — the caller's DID
 - `aud` — the **service DID** (its standard RFC 7519 meaning: the audience is the service receiving the request)

@@ -14,7 +14,10 @@ export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.keys.delete', ctx, {
     handler: async ({ auth, input }) => {
       const { callerDid, authKind, scopes, apiKeyRef } = auth.credentials
-      const { repo, keyRef } = input?.body as { repo?: string; keyRef: string }
+      // The framework validates required lexicon input before the handler, so a
+      // missing/empty body is already a 400; default to {} as belt-and-braces so
+      // the destructure can never throw a 500 if that ever changes.
+      const { repo, keyRef } = (input?.body ?? {}) as { repo?: string; keyRef?: string }
 
       if (typeof keyRef !== 'string' || keyRef.length === 0) {
         throw new XRPCError(400, 'keyRef is required', 'InvalidRequest')
@@ -41,7 +44,9 @@ export default function (server: Server, ctx: AppContext) {
 
       // Idempotent: a revoked key keeps its original revocation time. Only set it
       // on the first revocation, then read it back (datetime('now') resolves at
-      // step time).
+      // step time). The `revoked_at is null` guard makes concurrent deletes safe:
+      // exactly one UPDATE matches; the loser matches 0 rows and re-reads the
+      // winner's timestamp rather than erroring.
       let revokedAt = existing.revoked_at
       if (revokedAt === null) {
         const updated = await groupDb
@@ -50,8 +55,25 @@ export default function (server: Server, ctx: AppContext) {
           .where('key_ref', '=', keyRef)
           .where('revoked_at', 'is', null)
           .returning('revoked_at')
-          .executeTakeFirstOrThrow()
-        revokedAt = updated.revoked_at
+          .executeTakeFirst()
+        if (updated) {
+          revokedAt = updated.revoked_at
+        } else {
+          // Lost a concurrent revoke: the key is already revoked. Read the
+          // winner's timestamp so the response is still correct (not a 500).
+          const current = await groupDb
+            .selectFrom('group_api_keys')
+            .select('revoked_at')
+            .where('key_ref', '=', keyRef)
+            .executeTakeFirst()
+          revokedAt = current?.revoked_at ?? null
+        }
+      }
+
+      if (revokedAt === null) {
+        // Only reachable if the row was deleted between our existence check and
+        // the re-read — treat as not found rather than returning a null time.
+        throw new XRPCError(404, 'API key not found', 'KeyNotFound')
       }
 
       // `revokedKeyRef` (the key this action revoked), distinct from `apiKeyRef`
@@ -60,7 +82,7 @@ export default function (server: Server, ctx: AppContext) {
         revokedKeyRef: keyRef,
       })
 
-      return jsonResponse({ keyRef, revokedAt: sqliteToIso(revokedAt!) })
+      return jsonResponse({ keyRef, revokedAt: sqliteToIso(revokedAt) })
     },
   })
 }

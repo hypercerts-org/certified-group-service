@@ -469,7 +469,7 @@ carries the audience param (`aud=<serviceDid>`) that `scopeNeededFor` emits:
 | scope (abbrev.)                       | covers operation | iteration |
 | ------------------------------------- | ---------------- | --------- |
 | `rpc:app.certified.group.member.list` | `member.list`    | 1 (now)   |
-| `rpc:app.certified.group.audit.query` | `audit.query`    | later     |
+| `rpc:app.certified.group.audit.query` | `audit.query`    | 1 (now)   |
 | `repo:<collection>?action=read`       | PDS repo read    | later     |
 | `repo:<collection>?action=write`      | PDS repo write   | future    |
 
@@ -553,24 +553,23 @@ registered via `registerAuthedMethod` in `src/api/index.ts`.
   `isAtprotoDidRefAbsolute`, which **requires a `did:web:host#fragment`
   service ref** — it rejects a bare `did:web:host` and rejects `did:plc:*`
   entirely. But CGS's `config.serviceDid` is a **bare** `did:web:${hostname}`
-  (`src/config.ts`). **Decision:** define one constant
-  `SERVICE_SCOPE_AUD = \`${config.serviceDid}#certified_group_service\`` used
-for **both** minting (`keys.create`→`RpcPermission.scopeNeededFor({ aud: SERVICE_SCOPE_AUD })`) and checking
-(`gate`→`ScopesSet.matches('rpc', { lxm, aud: SERVICE_SCOPE_AUD })`), so it
-  stays internally consistent regardless of the bare-DID config value.
+  (`src/config.ts`). **Decision:** define one constant `SERVICE_SCOPE_AUD`
+  (`${config.serviceDid}#certified_group_service`) used for **both** minting
+  (`keys.create` → `RpcPermission.scopeNeededFor`) and checking
+  (`gate` → `ScopesSet.matches('rpc', …)`), so it stays internally consistent
+  regardless of the bare-DID config value.
   - This scope-layer `aud` is **independent** of the JWT-auth `aud`. The
     JWT-auth check **must stay bare-DID-tolerant**: the reference PDS **strips
     the service fragment** from a proxied JWT's `aud` until Spring 2026
     (atproto.com/specs/xrpc#service-proxying), so requiring a fragment in the
     verifier would break proxied callers. Two `aud` concepts, two rules.
-  - The `#certified_group_service` fragment is only **externally resolvable**
-    once CGS publishes a DID document with a matching `service` entry — CGS
-    serves none today (404). Tracked separately (DID-doc bead). Until then the
-    constant is internally consistent but not third-party-verifiable.
+  - The `#certified_group_service` fragment is backed by a real `service` entry:
+    CGS now serves its `did:web` document at `/.well-known/did.json` (issue #29).
+    So the scope `aud` is both internally consistent and third-party-resolvable.
 
 ## Future extensions
 
-- Additional read scopes (`audit.query`, PDS-repo reads via the proxy layer).
+- Additional read scopes (PDS-repo reads via the proxy layer).
 - Write scopes to the group's PDS repo (raises the security bar on key
   handling; would map onto AT Protocol `repo:…?action=…` scope strings).
 - Permission **sets** (named scope bundles) via the `IncludeScope` primitive

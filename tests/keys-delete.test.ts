@@ -96,4 +96,24 @@ describe('keys.delete', () => {
     expect(res.status).toBe(403)
     await adminDb.destroy()
   })
+
+  it('an empty/missing body is a 400, not a 500', async () => {
+    const noBody = await request(app).post('/xrpc/app.certified.group.keys.delete')
+    expect(noBody.status).toBe(400)
+    const emptyObj = await request(app).post('/xrpc/app.certified.group.keys.delete').send({})
+    expect(emptyObj.status).toBe(400)
+  })
+
+  it('concurrent deletes both succeed (200), sharing one revocation time', async () => {
+    const key = await seedKey(groupDb)
+    // Fire two revokes at once: one wins the UPDATE, the other matches 0 rows and
+    // must re-read the winner's timestamp rather than 500.
+    const [a, b] = await Promise.all([
+      request(app).post('/xrpc/app.certified.group.keys.delete').send({ keyRef: key.keyRef }),
+      request(app).post('/xrpc/app.certified.group.keys.delete').send({ keyRef: key.keyRef }),
+    ])
+    expect(a.status).toBe(200)
+    expect(b.status).toBe(200)
+    expect(a.body.revokedAt).toBe(b.body.revokedAt)
+  })
 })
