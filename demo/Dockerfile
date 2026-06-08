@@ -1,18 +1,25 @@
 # Demo app (React SPA + Express BFF) — single-container image.
 # The BFF serves both /api and the built client (see server/index.ts).
+#
+# Built with the REPO ROOT as the build context (Railway service Root Directory =
+# repo root, dockerfilePath = demo/Dockerfile). The demo itself lives entirely
+# under demo/; only demo/* is copied.
 FROM node:22-slim AS builder
 WORKDIR /app
 # CI=true so pnpm runs non-interactively (e.g. `prune --prod` won't block on a
 # TTY confirmation for purging modules).
 ENV CI=true
 RUN corepack enable
-# In this build the context is demo/ (Railway Root Directory = demo), so there is
-# no parent pnpm workspace — demo/pnpm-workspace.yaml is the workspace root here.
-# Copy it so its `allowBuilds` is read, letting esbuild/core-js build their native
-# pieces without an interactive `pnpm approve-builds` (no --ignore-workspace).
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+# Install the demo's deps from demo/ as its own pnpm workspace root (demo has its
+# own pnpm-workspace.yaml carrying `allowBuilds`, so esbuild/core-js build their
+# native pieces without an interactive `pnpm approve-builds`). Paths are relative
+# to the repo root (the build context).
+COPY demo/package.json demo/pnpm-lock.yaml demo/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
-COPY . .
+
+COPY demo/ ./
+
 # vite build -> dist/ (client), tsc -p tsconfig.server.json -> dist-server/ (BFF)
 RUN pnpm build
 RUN pnpm prune --prod

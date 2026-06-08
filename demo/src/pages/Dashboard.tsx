@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useGroup } from '../App'
-import { proxyGet, proxyPost } from '../api'
+import { proxyGet, proxyPost, resolveIdentifier } from '../api'
 import { CopyDid } from '../components/CopyDid'
 
 const inputStyle: React.CSSProperties = {
@@ -68,8 +68,10 @@ export function Dashboard() {
   const addMember = async () => {
     setActionMsg('')
     try {
-      await proxyPost('app.certified.group.member.add', { groupDid, memberDid: newDid, role: newRole })
-      setActionMsg(`Added ${newDid} as ${newRole}`)
+      // Accept a DID or a handle — resolve to a DID for member.add.
+      const { did } = await resolveIdentifier(newDid)
+      await proxyPost('app.certified.group.member.add', { groupDid, memberDid: did, role: newRole })
+      setActionMsg(`Added ${did} as ${newRole}`)
       setNewDid('')
       fetchMembers()
     } catch (err: any) {
@@ -187,7 +189,7 @@ export function Dashboard() {
             style={{ ...inputStyle, flex: 1 }}
             value={newDid}
             onChange={(e) => setNewDid(e.target.value)}
-            placeholder="Member DID (did:plc:...)"
+            placeholder="Member DID or handle (did:plc:… or alice.example.com)"
           />
           <select style={inputStyle} value={newRole} onChange={(e) => setNewRole(e.target.value)}>
             <option value="member">member</option>

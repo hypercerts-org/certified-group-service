@@ -7,6 +7,7 @@ import cors from 'cors'
 import authRoutes from './routes/auth.js'
 import proxyRoutes from './routes/proxy.js'
 import uploadRoutes from './routes/upload.js'
+import resolveRoutes from './routes/resolve.js'
 import registerRoutes from './routes/register.js'
 import keysRoutes from './routes/keys.js'
 
@@ -19,11 +20,9 @@ if (!sessionSecret) throw new Error('SESSION_SECRET must be set')
 
 app.use(cors({ origin: true, credentials: true }))
 
-// Mount upload route before express.json() to preserve raw stream access
-app.use('/api/upload-blob', uploadRoutes)
-
-app.use(express.json())
-
+// Session must come before any route that reads req.session — including the
+// raw upload route below, which authenticates the caller. Session does not
+// consume the request body, so mounting it before express.json() is fine.
 app.use(
   session({
     secret: sessionSecret,
@@ -36,6 +35,11 @@ app.use(
     },
   }),
 )
+
+// Mount upload route before express.json() to preserve raw stream access
+app.use('/api/upload-blob', uploadRoutes)
+
+app.use(express.json())
 
 // Serve OAuth client metadata (ePDS fetches this to verify the client)
 app.get('/client-metadata.json', (_req, res) => {
@@ -62,6 +66,7 @@ app.use('/api', authRoutes)
 app.use('/api/proxy', proxyRoutes)
 app.use('/api/register', registerRoutes)
 app.use('/api/keys', keysRoutes)
+app.use('/api/resolve', resolveRoutes)
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }))

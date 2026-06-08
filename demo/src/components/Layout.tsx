@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuth, useGroup } from '../App'
-import { logout } from '../api'
+import { logout, resolveIdentifier } from '../api'
 import { CopyDid } from './CopyDid'
 
 const styles = {
@@ -40,6 +40,7 @@ export function Layout() {
   const navigate = useNavigate()
   const [showGroupInput, setShowGroupInput] = useState(false)
   const [didInput, setDidInput] = useState('')
+  const [didInputError, setDidInputError] = useState('')
 
   const handleLogout = async () => {
     await logout()
@@ -47,11 +48,18 @@ export function Layout() {
     navigate('/login')
   }
 
-  const handleSetGroupDid = () => {
-    if (didInput.trim()) {
-      setGroup({ did: didInput.trim(), handle: '' })
+  const handleSetGroupDid = async () => {
+    const value = didInput.trim()
+    if (!value) return
+    setDidInputError('')
+    try {
+      // Accept a DID or a handle.
+      const { did, handle } = await resolveIdentifier(value)
+      setGroup({ did, handle: handle ?? '' })
       setDidInput('')
       setShowGroupInput(false)
+    } catch (err: any) {
+      setDidInputError(err.message)
     }
   }
 
@@ -123,7 +131,7 @@ export function Layout() {
             </>
           )}
           {showGroupInput && (
-            <div style={{ display: 'flex', gap: 4, marginLeft: 8 }}>
+            <div style={{ display: 'flex', gap: 4, marginLeft: 8, alignItems: 'center' }}>
               <input
                 style={{
                   padding: '3px 8px',
@@ -134,7 +142,7 @@ export function Layout() {
                 }}
                 value={didInput}
                 onChange={(e) => setDidInput(e.target.value)}
-                placeholder="did:plc:..."
+                placeholder="Group DID or handle"
                 onKeyDown={(e) => e.key === 'Enter' && handleSetGroupDid()}
                 autoFocus
               />
@@ -144,6 +152,9 @@ export function Layout() {
               >
                 Set
               </button>
+              {didInputError && (
+                <span style={{ color: '#c0392b', fontSize: 11 }}>{didInputError}</span>
+              )}
             </div>
           )}
         </div>

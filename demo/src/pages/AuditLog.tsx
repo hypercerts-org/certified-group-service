@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useGroup } from '../App'
-import { proxyGet } from '../api'
+import { proxyGet, resolveIdentifier } from '../api'
 import { CopyDid } from '../components/CopyDid'
 
 const inputStyle: React.CSSProperties = {
@@ -48,7 +48,8 @@ export function AuditLog() {
     setLoading(true)
     try {
       const params: Record<string, string> = { groupDid }
-      if (actorDid) params.actorDid = actorDid
+      // The actor filter accepts a DID or a handle — resolve to a DID.
+      if (actorDid) params.actorDid = (await resolveIdentifier(actorDid)).did
       if (action) params.action = action
       if (collection) params.collection = collection
       if (paginationCursor) params.cursor = paginationCursor
@@ -88,7 +89,7 @@ export function AuditLog() {
             style={{ ...inputStyle, flex: 1 }}
             value={actorDid}
             onChange={(e) => setActorDid(e.target.value)}
-            placeholder="Filter: Actor DID"
+            placeholder="Filter: Actor DID or handle"
           />
           <input
             style={{ ...inputStyle, flex: 1 }}
