@@ -8,7 +8,7 @@ CGS requires:
 - **Persistent storage** for SQLite databases (the `DATA_DIR` directory)
 - **Three required environment variables**: `ENCRYPTION_KEY`, `SERVICE_URL`, and `GROUP_PDS_URL`
 
-The service exposes a health check at `GET /health` that returns `{"status":"ok"}`.
+The service exposes a health check at `GET /health` (also reachable as `GET /xrpc/_health`) that returns `{"status":"ok","service":"group-service","version":"..."}`.
 
 ## Docker
 
@@ -54,7 +54,7 @@ CGS is pre-configured for [Railway](https://railway.app/) via `railway.toml`.
 
 4. **Deploy** — Railway auto-detects the Dockerfile, builds, and deploys
 
-5. **Verify** — hit `https://your-app.up.railway.app/health` and confirm `{"status":"ok"}`
+5. **Verify** — hit `https://your-app.up.railway.app/health` and confirm `status` is `"ok"` and a `version` is reported
 
 ### Railway configuration
 

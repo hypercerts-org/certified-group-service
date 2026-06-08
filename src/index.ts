@@ -13,6 +13,7 @@ import { NonceCache } from './auth/nonce.js'
 import { RbacChecker } from './rbac/check.js'
 import { registerXrpcMethods } from './api/index.js'
 import { createFallbackErrorHandler } from './api/error-handler.js'
+import { createHealthHandler } from './health.js'
 import { runGlobalMigrations } from './db/migrate.js'
 import { openSqliteDb } from './db/sqlite.js'
 import { GroupDbPool } from './db/group-db-pool.js'
@@ -84,15 +85,14 @@ async function main() {
     logger,
   }
 
-  // Health check (unchanged)
-  app.get('/health', async (_req, res) => {
-    try {
-      await globalDb.selectFrom('groups').select('did').limit(1).execute()
-      res.json({ status: 'ok' })
-    } catch {
-      res.status(503).json({ status: 'error', message: 'database unreachable' })
-    }
-  })
+  // Health check. Reports liveness, service name and version, gated on a
+  // probe of the global DB. `/xrpc/_health` mirrors `/health` — the upstream
+  // PDS exposes _health from its own code, but the group service has no such
+  // upstream, so we serve it ourselves. It must be registered before the
+  // XRPC router so it wins over the catch-all /xrpc/* handler.
+  const healthHandler = createHealthHandler(globalDb)
+  app.get('/health', healthHandler)
+  app.get('/xrpc/_health', healthHandler)
 
   // XRPC server — handles all /xrpc/* routes, including group.register and
   // group.import (service-auth methods) and per-group methods
