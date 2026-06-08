@@ -28,9 +28,12 @@ A request must be **fully** one form or the other; a half-migrated mix is reject
 The new form sets `aud` to the **service DID**. Finding it is part of calling the
 service at all (not specific to this migration): resolve the group's DID document,
 read its `certified_group` service entry for the service URL, and derive
-`did:web:<host>` from that URL's host. See
+`did:web:<host>` from that URL's host. Note that immediately after `register` the
+group's DID document may still be cached in its initial form, before the
+`certified_group` entry was added, so the entry can be transiently missing — retry
+with a forced refresh if so. See
 [Determining the service DID](./api-reference.md#determining-the-service-did) for
-the steps.
+the steps and this caveat in full.
 
 Set the result as `aud`.
 

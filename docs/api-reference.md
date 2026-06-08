@@ -21,7 +21,7 @@ The user's PDS signs the token in **both** cases; the routes differ in who choos
 
 The service DID — the value of `aud` — is found in two steps:
 
-1. **Find the service URL.** A group's DID document carries a `certified_group` service entry whose `serviceEndpoint` is the service URL. Resolve the `groupDid` and read that entry. This is the only on-protocol link from a group to the service hosting it (`register` / `import` return the `groupDid`, not the service DID).
+1. **Find the service URL.** A group's DID document carries a `certified_group` service entry whose `serviceEndpoint` is the service URL. Resolve the `groupDid` and read that entry. This is the only on-protocol link from a group to the service hosting it (`register` / `import` return the `groupDid`, not the service DID). **Caution:** immediately after `register`, a freshly created group's DID document may still be cached (by your resolver or an intermediary PDS) in its initial form, before the `certified_group` entry was added — so the entry can be transiently absent. If it is missing right after registration, retry with a forced refresh / after a short delay rather than treating the group as having no service.
 2. **Derive the service DID** from that URL's host: a `did:web` formed by stripping the scheme — `https://group-service.example.com` → `did:web:group-service.example.com`. This is pure string manipulation, no further lookup.
 
 A **non-proxied** call sets this value as the JWT `aud` directly. On a **proxied** call the client never sets `aud` itself — the PDS does — so the value is supplied differently; see [How `aud` is set on a proxied call](#how-aud-is-set-on-a-proxied-call).
