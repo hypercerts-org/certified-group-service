@@ -19,12 +19,23 @@ The user's PDS signs the token in **both** cases; the routes differ in who choos
 
 ## Determining the service DID
 
-`aud` is the **service DID**. A client discovers it from the group, rather than assuming a service URL:
+The service DID — the value of `aud` — is found in two steps:
 
-1. **Find the group's service.** A group's DID document (resolve the `groupDid`) carries a `certified_group` service entry whose `serviceEndpoint` is the service URL. This is the only on-protocol link from a group to the service hosting it (`register` / `import` return the `groupDid`, not the service DID), and the first step of resolution. A non-proxied caller reads this entry to learn the service URL; a proxied call to the group DID has its PDS read it to route the request.
-2. **Derive the service DID** from that URL's host: a `did:web` formed by stripping the scheme — `https://group-service.example.com` → `did:web:group-service.example.com`. This transform is pure string manipulation (no further lookup); set the result as `aud`.
+1. **Find the service URL.** A group's DID document carries a `certified_group` service entry whose `serviceEndpoint` is the service URL. Resolve the `groupDid` and read that entry. This is the only on-protocol link from a group to the service hosting it (`register` / `import` return the `groupDid`, not the service DID).
+2. **Derive the service DID** from that URL's host: a `did:web` formed by stripping the scheme — `https://group-service.example.com` → `did:web:group-service.example.com`. This is pure string manipulation, no further lookup.
 
-> **`aud` on a proxied call.** The PDS sets `aud` to the **DID it proxies to** (the DID in the `atproto-proxy` header, `<did>#<service-id>`). To get `aud` = the service DID, proxy to the service DID with the service's own service id, `certified_group_service`, which the PDS resolves from the service's `did:web` document at `/.well-known/did.json`. Proxying to the **group** DID with the `certified_group` id instead yields the legacy `aud` = group DID form (see [Legacy `aud` = group DID form](#legacy-aud--group-did-form-deprecated)). Either way the PDS delivers `aud` **bare** (`did:web:<host>`); the service also accepts the fragment-qualified `did:web:<host>#certified_group_service` for forward-compatibility, and rejects a different service's fragment.
+A **non-proxied** call sets this value as the JWT `aud` directly. On a **proxied** call the client never sets `aud` itself — the PDS does — so the value is supplied differently; see [How `aud` is set on a proxied call](#how-aud-is-set-on-a-proxied-call).
+
+## How `aud` is set on a proxied call
+
+On a proxied call the PDS sets `aud` to **the DID in the `atproto-proxy` header** (`<did>#<service-id>`), then resolves that DID's document and forwards to its service endpoint. So the client controls `aud` only by choosing which DID it proxies to:
+
+- **Proxy to the service DID** (`atproto-proxy: <serviceDid>#certified_group_service`): the PDS resolves the service's own `did:web` document at `/.well-known/did.json`, forwards, and mints `aud` = the service DID. This is the supported form.
+- **Proxy to the group DID** (`atproto-proxy: <groupDid>#certified_group`): the PDS resolves the group's document and mints `aud` = the group DID — the deprecated legacy form (see [Legacy `aud` = group DID form](#legacy-aud--group-did-form-deprecated)).
+
+The two service ids differ because they live in different documents: `certified_group_service` is the entry in the **service's** `did:web` document; `certified_group` is the entry in a **group's** document.
+
+Either way the PDS delivers `aud` **bare** (`did:web:<host>`, no fragment). The service also accepts the fragment-qualified `did:web:<host>#certified_group_service` for forward-compatibility (some PDS versions will stop stripping the fragment), and rejects a fragment naming a different service.
 
 ## Targeting a group
 
@@ -79,7 +90,7 @@ database is unreachable, both endpoints return `503` with
 
 ## Group lifecycle
 
-These procedures create, import, and remove groups. `register` and `import` are **service-scoped** (JWT `aud` = the service DID, since the group does not yet exist) and are called directly, not via the `atproto-proxy` path. `destroy` operates on an existing group.
+These procedures create, import, and remove groups. `register` and `import` are **service-scoped**: they target the service itself (JWT `aud` = the service DID) and take no `repo`, because they are not acting on an existing group — `register` creates one, `import` adopts one. The examples below show them as non-proxied calls, which is the simplest way to invoke a service-scoped method; they could also be reached by proxying to the service DID (`certified_group_service`), since that does not depend on a group existing. `destroy` operates on an existing group.
 
 ### `POST /xrpc/app.certified.group.register`
 

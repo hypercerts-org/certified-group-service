@@ -23,18 +23,14 @@ and [API reference](./api-reference.md) link here; for the design rationale (why
 A request must be **fully** one form or the other; a half-migrated mix is rejected
 (see [Migrate `repo` and `aud` together](#migrate-repo-and-aud-together)).
 
-## Finding the service DID
+## The service DID
 
-`aud` must be the **service DID**. You discover which service hosts a group, and
-thus its DID, from the group itself — do not assume the service URL out of thin air:
-
-1. **Resolve the group's DID document** (you have the `groupDid`) and read its
-   `certified_group` service entry. Its `serviceEndpoint` is the service URL. This
-   entry is the sole on-protocol link from a group to its service — the first step
-   of the chain, and what a proxying PDS reads to route.
-2. **Derive the service DID** from that URL's host: a `did:web` formed by stripping
-   the scheme — `https://group-service.example.com` → `did:web:group-service.example.com`.
-   That final transform needs no further lookup; the lookup is step 1.
+The new form sets `aud` to the **service DID**. Finding it is part of calling the
+service at all (not specific to this migration): resolve the group's DID document,
+read its `certified_group` service entry for the service URL, and derive
+`did:web:<host>` from that URL's host. See
+[Determining the service DID](./api-reference.md#determining-the-service-did) for
+the steps.
 
 Set the result as `aud`.
 

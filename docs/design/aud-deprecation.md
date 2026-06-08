@@ -254,7 +254,8 @@ verifier string-compares it; no resolution, no served document needed.
 
 ### The resolution chain is a redundant round-trip — and why it must be
 
-Starting from nothing but a `groupDid`, a fully-migrated proxied call traverses:
+Starting from nothing but a `groupDid`, a proxied call on the new form (proxying to
+the service DID) traverses:
 
 ```text
 groupDid

@@ -86,7 +86,7 @@ async function registerGroup(agent: AtpAgent, handle: string, ownerDid: string, 
 - `ownerDid` — the DID of the user who will own this group. Must match the JWT's `iss` claim. They're immediately seeded as the owner.
 - `email` — optional recovery email for the group account. If omitted, a placeholder is generated. Providing a real email enables the forgot-password flow for credible exit.
 
-Registration (and import, below) are **non-proxied** calls (the client calls the group service itself), not proxied through the PDS. All subsequent calls go through the proxy agent.
+Registration (and import, below) are **service-scoped** calls — they target the service itself (`aud` = the service DID), not a group. This guide invokes them **non-proxied** (the client calls the group service directly), which is the simplest way; the per-group calls in later steps go through the proxy agent instead.
 
 ## Step 1b (alternative): Import an existing account
 
