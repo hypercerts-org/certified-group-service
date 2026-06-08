@@ -16,6 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      # The Dockerfile runs scripts/resolve-version.sh, which needs a
+      # .cgs-version in the build context (Railway injects the SHA instead,
+      # but GitHub Actions doesn't). Stamp it before building.
+      - name: Stamp version
+        run: ./scripts/stamp-version.sh
+
       - uses: docker/setup-qemu-action@v3
 
       - name: Setup Blacksmith Builder
