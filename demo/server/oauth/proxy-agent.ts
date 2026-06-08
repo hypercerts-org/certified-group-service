@@ -12,10 +12,33 @@ export function isSessionExpiredError(err: any): boolean {
 
 const GROUP_SERVICE_URL = process.env.GROUP_SERVICE_URL || 'http://localhost:3000'
 const GROUP_SERVICE_DID = process.env.GROUP_SERVICE_DID || ''
+const UPSTREAM_TIMEOUT_MS = 15_000
 
 export interface GroupServiceResult {
   status: number
   data: any
+}
+
+/**
+ * fetch() bounded by a timeout so a slow/wedged group service can't hold a
+ * request handler open indefinitely. A timeout surfaces as a 504; other
+ * transport failures as 502.
+ */
+async function fetchUpstream(url: string, init: RequestInit): Promise<GroupServiceResult> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS)
+  try {
+    const upstream = await fetch(url, { ...init, signal: controller.signal })
+    const data = await upstream.json().catch(() => ({}))
+    return { status: upstream.status, data }
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      return { status: 504, data: { error: 'group service did not respond in time' } }
+    }
+    return { status: 502, data: { error: err?.message || 'group service request failed' } }
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**
@@ -72,9 +95,7 @@ export async function callGroupService(
     requestBody = JSON.stringify({ ...(opts.body ?? {}), repo: groupDid })
   }
 
-  const upstream = await fetch(url, { method: opts.method, headers, body: requestBody })
-  const data = await upstream.json().catch(() => ({}))
-  return { status: upstream.status, data }
+  return fetchUpstream(url, { method: opts.method, headers, body: requestBody })
 }
 
 /**
@@ -94,7 +115,7 @@ export async function uploadGroupBlob(
   const nsid = 'app.certified.group.repo.uploadBlob'
   const serviceAuth = await agent.com.atproto.server.getServiceAuth({ aud, lxm: nsid })
   const url = `${GROUP_SERVICE_URL.replace(/\/$/, '')}/xrpc/${nsid}?repo=${encodeURIComponent(groupDid)}`
-  const upstream = await fetch(url, {
+  return fetchUpstream(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${serviceAuth.data.token}`,
@@ -102,6 +123,4 @@ export async function uploadGroupBlob(
     },
     body: bytes as unknown as BodyInit,
   })
-  const data = await upstream.json().catch(() => ({}))
-  return { status: upstream.status, data }
 }

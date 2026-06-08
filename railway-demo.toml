@@ -1,7 +1,6 @@
 # Railway config for the DEMO app — a separate Railway service from the group
 # service (which uses the repo-root railway.toml). The demo builds with the REPO
-# ROOT as context so it can copy the repo-root lexicons/ at build time (the
-# custom CGS lexicons are never duplicated into demo/).
+# ROOT as context; demo/Dockerfile copies only demo/*.
 #
 # On the demo Railway service, set:
 #   - Root Directory:        the repo root (default / unset)
