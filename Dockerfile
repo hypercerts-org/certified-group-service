@@ -7,6 +7,11 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
+# Stamp the group service version into .cgs-version. Railway injects
+# RAILWAY_GIT_COMMIT_SHA; for local builds, run ./scripts/stamp-version.sh
+# first so a .cgs-version is already present (resolve-version.sh validates it).
+ARG RAILWAY_GIT_COMMIT_SHA
+RUN ./scripts/resolve-version.sh
 RUN pnpm build
 RUN pnpm prune --prod
 
@@ -15,6 +20,7 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+COPY --from=builder /app/.cgs-version ./
 COPY --from=builder /app/lexicons ./lexicons
 RUN mkdir -p /app/data/groups
 EXPOSE 3000

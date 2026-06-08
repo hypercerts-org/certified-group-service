@@ -1,6 +1,6 @@
 # API Reference
 
-All endpoints (except `/health`) require authentication via a signed JWT in the `Authorization: Bearer <token>` header. The JWT must include:
+All endpoints (except `/health` and `/xrpc/_health`) require authentication via a signed JWT in the `Authorization: Bearer <token>` header. The JWT must include:
 
 - `iss` — the caller's DID
 - `aud` — the **service DID** (its standard RFC 7519 meaning: the audience is the service receiving the request)
@@ -41,9 +41,11 @@ There is no `Sunset` header yet, as the removal date is undecided.
 
 ## Health check
 
-### `GET /health`
+### `GET /health` / `GET /xrpc/_health`
 
-Returns service health status. No authentication required.
+Returns service health status. No authentication required. Both paths return
+the identical body; `/xrpc/_health` exists for parity with the upstream PDS
+convention.
 
 **Response:**
 
@@ -52,8 +54,13 @@ Returns service health status. No authentication required.
 ```
 
 ```json
-{ "status": "ok" }
+{ "status": "ok", "service": "group-service", "version": "0.1.0+90d10b96" }
 ```
+
+The `version` is resolved from the `CGS_VERSION` env var, a build-time
+`.cgs-version` file, or `package.json` (in that order). When the global
+database is unreachable, both endpoints return `503` with
+`{ "status": "error", "message": "database unreachable" }`.
 
 ---
 

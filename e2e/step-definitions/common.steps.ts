@@ -67,10 +67,11 @@ Given('the test accounts are resolved', async function (this: CgsWorld) {
   }
 })
 
-// Cucumber Expressions treat `/` as an alternation separator; String.raw with
-// `\/` passes a literal escaped slash so "/health" isn't read as an alternative.
-When(String.raw`the CGS \/health endpoint is queried`, async function (this: CgsWorld) {
-  const res = await fetch(`${this.env.cgsUrl}/health`)
+// Cucumber Expressions treat `/` as an alternation separator; the {string}
+// parameter takes the quoted path verbatim, so "/health" and "/xrpc/_health"
+// both flow through this one step.
+When('the CGS {string} endpoint is queried', async function (this: CgsWorld, path: string) {
+  const res = await fetch(`${this.env.cgsUrl}${path}`)
   this.lastHttpStatus = res.status
   // Record the raw body and parse defensively so a non-JSON error response
   // (e.g. an HTML 502 from an edge) doesn't throw, and assertion failures can
@@ -94,6 +95,31 @@ Then('the response status is {int}', function (this: CgsWorld, expected: number)
 Then('the response status field is {string}', function (this: CgsWorld, expected: string) {
   const status = (this.lastHttpJson as { status?: string } | undefined)?.status
   assert.equal(status, expected, `expected status field "${expected}", got "${status}"`)
+})
+
+Then(
+  'the response {string} field is {string}',
+  function (this: CgsWorld, field: string, expected: string) {
+    const actual = this.lastHttpJson?.[field]
+    assert.equal(
+      actual,
+      expected,
+      `expected ${field} field "${expected}", got "${String(actual)}" (${this.lastHttpBody})`,
+    )
+  },
+)
+
+Then('the response contains a version string', function (this: CgsWorld) {
+  const version = (this.lastHttpJson as { version?: unknown } | undefined)?.version
+  assert.equal(
+    typeof version,
+    'string',
+    `expected a version string, got ${String(version)} (${this.lastHttpBody})`,
+  )
+  assert.ok(
+    (version as string).length > 0,
+    `expected a non-empty version string (${this.lastHttpBody})`,
+  )
 })
 
 Then('the response error is {string}', function (this: CgsWorld, expected: string) {

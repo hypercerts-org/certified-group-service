@@ -3,6 +3,8 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+# version stamp written at build time (scripts/stamp-version.sh / Dockerfile)
+.cgs-version
 .env
 .env.*
 !.env.example
