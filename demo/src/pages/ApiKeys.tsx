@@ -4,6 +4,7 @@ import {
   createApiKey,
   listApiKeys,
   deleteApiKey,
+  callWithApiKey,
   type ApiKeySummary,
   type CreatedApiKey,
 } from '../api'
@@ -54,6 +55,12 @@ export function ApiKeys() {
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
 
+  // "Use a key" demo state
+  const [tryKey, setTryKey] = useState('')
+  const [tryResult, setTryResult] = useState<{ status: number; data: any } | null>(null)
+  const [tryError, setTryError] = useState('')
+  const [trying, setTrying] = useState(false)
+
   // Assemble the scope list from the picker selections.
   const scopes: string[] = [
     ...readScopes,
@@ -92,6 +99,7 @@ export function ApiKeys() {
     try {
       const created = await createApiKey(groupDid, name.trim(), scopes)
       setMinted(created)
+      setTryKey(created.key) // prefill the "use a key" box with the fresh key
       setName('')
       await refresh()
     } catch (err: any) {
@@ -115,6 +123,28 @@ export function ApiKeys() {
     if (!minted) return
     await navigator.clipboard.writeText(minted.key)
     setCopied(true)
+  }
+
+  // Call member.list with the key — no owner session involved, proving the key
+  // stands on its own. A key without the member.list scope gets a 403 here.
+  const useKeyForMemberList = async () => {
+    setTryError('')
+    setTryResult(null)
+    if (!tryKey.trim()) return setTryError('Paste a key (the cgsk_… value shown at creation).')
+    setTrying(true)
+    try {
+      const res = await callWithApiKey({
+        key: tryKey.trim(),
+        nsid: 'app.certified.group.member.list',
+        repo: groupDid,
+        method: 'GET',
+      })
+      setTryResult(res)
+    } catch (err: any) {
+      setTryError(err.message)
+    } finally {
+      setTrying(false)
+    }
   }
 
   if (!group) {
@@ -242,6 +272,42 @@ export function ApiKeys() {
         <button style={btnStyle} onClick={mint} disabled={loading}>
           {loading ? 'Minting…' : 'Mint key'}
         </button>
+      </div>
+
+      {/* Use a key */}
+      <div style={{ border: '1px solid #ddd', borderRadius: 6, padding: 16, margin: '12px 0' }}>
+        <h3 style={{ marginTop: 0 }}>Use a key</h3>
+        <p style={{ fontSize: 13, color: '#555', marginTop: 0 }}>
+          Calls <code>member.list</code> with the key via the <code>X-API-Key</code> header — no
+          owner session. A key without the <code>member.list</code> scope returns <code>403</code>.
+        </p>
+        <input
+          style={{ ...inputStyle, width: '100%', fontFamily: 'monospace', marginBottom: 8 }}
+          value={tryKey}
+          onChange={(e) => setTryKey(e.target.value)}
+          placeholder="cgsk_…"
+        />
+        <button style={btnStyle} onClick={useKeyForMemberList} disabled={trying}>
+          {trying ? 'Calling…' : 'Call member.list with this key'}
+        </button>
+        {tryError && <div style={{ color: '#c0392b', marginTop: 8 }}>{tryError}</div>}
+        {tryResult && (
+          <div style={{ marginTop: 8 }}>
+            <strong>HTTP {tryResult.status}</strong>
+            <pre
+              style={{
+                background: '#1a1a2e',
+                color: '#9fe',
+                padding: 10,
+                borderRadius: 4,
+                overflowX: 'auto',
+                fontSize: 12,
+              }}
+            >
+              {JSON.stringify(tryResult.data, null, 2)}
+            </pre>
+          </div>
+        )}
       </div>
 
       {/* Key list */}

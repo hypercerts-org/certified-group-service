@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.js'
 import proxyRoutes from './routes/proxy.js'
 import uploadRoutes from './routes/upload.js'
 import registerRoutes from './routes/register.js'
+import keysRoutes from './routes/keys.js'
 
 const app = express()
 const PORT = parseInt(process.env.BFF_PORT || '3001', 10)
@@ -57,6 +58,7 @@ app.get('/client-metadata.json', (_req, res) => {
 app.use('/api', authRoutes)
 app.use('/api/proxy', proxyRoutes)
 app.use('/api/register', registerRoutes)
+app.use('/api/keys', keysRoutes)
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
