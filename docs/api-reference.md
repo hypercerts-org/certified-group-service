@@ -34,21 +34,16 @@ Cross-group endpoints under `app.certified.groups.*` and the group-lifecycle met
 
 A transitional form remains accepted during the migration window: set the JWT `aud` to the **group DID** (omitting `repo`). This is **deprecated** (issue [#27](https://github.com/hypercerts-org/certified-group-service/issues/27)) and will be removed in a later release once clients migrate.
 
-The deprecation is keyed off `aud`, because the service determines it at the auth layer — which sees the querystring but **not** the request body (auth runs before body parsing). Concretely:
+|                    | Legacy (deprecated)          | New (supported)     |
+| ------------------ | ---------------------------- | ------------------- |
+| Group named by     | JWT `aud`                    | explicit `repo`     |
+| JWT `aud`          | the **group** DID            | the **service** DID |
+| `repo` field       | absent                       | present             |
+| Deprecation header | `Deprecation: true` + `Link` | none                |
 
-- **Query methods** (and `uploadBlob` / `destroy`, which carry `repo` on the querystring): `repo` and a service-DID `aud` must be sent **together**. When `repo` is present the verifier **requires** `aud` = the service DID; `repo` present with `aud` = a group DID is rejected with `jwt audience does not match service did`. There is no half-migrated query — adding `?repo=` without also fixing `aud` is a hard error, not a silenced deprecation.
-- **JSON-body procedures** (`createRecord`, `member.add`, …): a request is treated as legacy whenever `aud` is a group DID, **even if `repo` is in the body** — the body is invisible at auth time, so it cannot suppress the deprecation signal. To fully migrate such a call, set `aud` to the service DID (the body `repo` is then the group selector).
+`repo` and the service-DID `aud` change **together**: for a query, sending `repo` with `aud` = a group DID is rejected with `jwt audience does not match service did` — there is no half-migrated state. Responses on the legacy path carry RFC 8594 headers (`Deprecation: true` + a `Link`); no `Sunset` date is set yet.
 
-In all cases, the way off the deprecated path is to set `aud` to the service DID.
-
-Responses served via the legacy path carry RFC 8594 deprecation headers:
-
-```text
-Deprecation: true
-Link: <https://github.com/hypercerts-org/certified-group-service/issues/27>; rel="deprecation"
-```
-
-There is no `Sunset` header yet, as the removal date is undecided.
+For the full migration walkthrough (per-method `repo` placement, direct vs proxied, detecting un-migrated calls) see [`aud-migration.md`](./aud-migration.md); for the design rationale see [`design/aud-deprecation.md`](./design/aud-deprecation.md).
 
 ## Health check
 

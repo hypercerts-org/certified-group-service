@@ -647,67 +647,22 @@ service auth JWTs), and follows the standard atproto pattern.
 Earlier the group service read the target group from the JWT `aud` claim — a misuse
 of `aud`, whose RFC 7519 meaning is the **service** receiving the token, not the
 resource acted on. That overload is now **deprecated** ([#27](https://github.com/hypercerts-org/certified-group-service/issues/27)).
-Both forms are accepted today:
+Both forms are accepted during the migration window:
 
-- **Supported:** name the group with an explicit **`repo`** field and set the JWT
-  `aud` to the **service DID**.
-- **Legacy (deprecated):** set `aud` to the **group DID** and send no `repo`.
+|                    | Legacy (deprecated)          | New (supported)     |
+| ------------------ | ---------------------------- | ------------------- |
+| Group named by     | JWT `aud`                    | explicit `repo`     |
+| JWT `aud`          | the **group** DID            | the **service** DID |
+| `repo` field       | absent                       | present             |
+| Deprecation header | `Deprecation: true` + `Link` | none                |
 
-**How to tell you're still on the legacy path.** Every response served via the legacy
-path carries [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594) deprecation headers:
+A call must be **fully** one form or the other — `repo` and `aud` change together, and
+a half-migrated mix is rejected (`401 jwt audience does not match service did`). The
+examples in this guide already send `repo` and set `aud` to the service DID; under
+proxying, target the service DID with `withProxy('certified_group_service', cgsServiceDid)`.
 
-```text
-Deprecation: true
-Link: <https://github.com/hypercerts-org/certified-group-service/issues/27>; rel="deprecation"
-```
-
-There is no `Sunset` header yet — a removal date is undecided. Watch for `Deprecation:
-true` on your responses to find un-migrated calls.
-
-**Finding the service DID.** `aud` must be the **service DID**, which is a `did:web`
-derived from the service URL — strip the scheme, use the host:
-`https://group-service.example.com` → `did:web:group-service.example.com`. No lookup
-is needed to build it; it is the `GROUP_SERVICE_DID` constant at the top of this guide.
-The on-protocol link from a group to its service is the `certified_group` service entry
-in the **group's** DID document, whose `serviceEndpoint` is the service URL — read it if
-you only have a `groupDid` and need to discover the service, then derive the service DID
-from its host. (That entry is also what a proxying PDS reads to route the request, so it
-is needed on both the direct and proxied paths.)
-
-If all you hold is a `groupDid` and you proxy, the full path is a round-trip — resolve the
-group's DID document to reach the service URL, derive `did:web:<host>` from it, then (under
-proxying) the PDS resolves that `did:web` back to the same URL. It is redundant but
-unavoidable: standard service proxying always starts from the DID it will set as `aud` and
-re-resolves it. Most apps skip the first leg by knowing the service URL out-of-band (the
-`GROUP_SERVICE_DID` constant), and direct calls skip resolution entirely. See
-`docs/design/aud-deprecation.md` ("Service-DID resolution under proxying") for the why.
-
-**Migrating: `repo` and `aud` change together.** A request is either fully legacy
-(`aud` = group DID, no `repo`) or fully new (`aud` = service DID, with `repo`). A
-half-migrated mix is **not** a graceful in-between — it is rejected. The service decides
-this at the **auth layer**, which sees the querystring but not the request body (auth runs
-before body parsing), so the exact rule differs by method kind:
-
-- **Queries** (and `uploadBlob` / `destroy`, whose `repo` rides the querystring): the
-  verifier sees `repo`, and when it is present it **requires** `aud` = the service DID.
-  Sending `repo` while `aud` is still the group DID is rejected with
-  `401 jwt audience does not match service did`. So you cannot "add `repo` now, fix `aud`
-  later" — change both at once.
-- **JSON-body procedures** (`createRecord`, `putRecord`, `deleteRecord`, `member.add`,
-  `member.remove`, `role.set`): the body `repo` is invisible at auth time, so the verifier
-  decides purely on `aud`. Setting `aud` = the service DID takes the call off the legacy
-  path; the handler then reads the body `repo` as the group selector. (A token with
-  `aud` = group DID is treated as legacy regardless of a body `repo`.)
-
-In all cases, the way off the deprecated path is to mint `aud` = the service DID (and, for queries, send `repo` in the same call — never one without the other).
-
-**Direct vs. proxied.** Both forms can fully migrate:
-
-- **Direct calls** — you mint the JWT yourself with `aud` = the service DID and send `repo`. Fully supported and covered by the live e2e suite.
-- **Service proxying** — proxy to the **service** DID rather than the group DID: `agent.withProxy('certified_group_service', cgsServiceDid)`. The proxy id (`certified_group_service`) must match the service entry in the **service's** own DID document; the user's PDS resolves that document (published at `/.well-known/did.json` — [#29](https://github.com/hypercerts-org/certified-group-service/issues/29)), mints `aud` = the service DID, and forwards. The legacy `withProxy('certified_group', groupDid)` instead targets the **group** DID, whose document advertises the `certified_group` entry, so the PDS mints `aud` = the group DID — the deprecated form. (The two proxy ids differ by design: `certified_group` marks a group's document, `certified_group_service` the service's own — see `docs/design/aud-deprecation.md`.)
-
-One nuance for proxying. The supported `aud` is the service DID delivered **bare** (`did:web:<host>`) — which is what a PDS emits, because `getServiceAuth`'s `aud` is typed as a bare DID and the reference PDS strips the service-id fragment when proxying. The service also accepts the fragment-qualified form (`did:web:<host>#certified_group_service`) for forward-compatibility with the planned change where PDSs stop stripping it; a token carrying a _different_ service's fragment is rejected.
-
-The legacy form keeps working for now and will be removed in a later release once
-clients have migrated. See `docs/design/aud-deprecation.md` for the full design and
-rationale.
+For the complete migration reference — the service-DID derivation, per-method `repo`
+placement, the direct-vs-proxied details, and how to detect un-migrated calls — see
+**[Migrating group targeting (`aud` → `repo`)](./aud-migration.md)**. For the design
+rationale (unsigned `repo`, the resolution round-trip, security), see
+[`design/aud-deprecation.md`](./design/aud-deprecation.md).
