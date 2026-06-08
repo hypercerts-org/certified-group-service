@@ -674,6 +674,14 @@ you only have a `groupDid` and need to discover the service, then derive the ser
 from its host. (That entry is also what a proxying PDS reads to route the request, so it
 is needed on both the direct and proxied paths.)
 
+If all you hold is a `groupDid` and you proxy, the full path is a round-trip — resolve the
+group's DID document to reach the service URL, derive `did:web:<host>` from it, then (under
+proxying) the PDS resolves that `did:web` back to the same URL. It is redundant but
+unavoidable: standard service proxying always starts from the DID it will set as `aud` and
+re-resolves it. Most apps skip the first leg by knowing the service URL out-of-band (the
+`GROUP_SERVICE_DID` constant), and direct calls skip resolution entirely. See
+`docs/design/aud-deprecation.md` ("Service-DID resolution under proxying") for the why.
+
 **The two migration steps.** They are not symmetric across method kinds, because the
 service decides legacy-vs-new at the **auth layer**, which sees the querystring but not
 the request body (auth runs before body parsing):

@@ -187,6 +187,74 @@ serviceDid, lxm })` plus `repo` in the standard place for each method
 So the fix is not only correct per RFC 7519 — it is the version that an atproto
 app dev can call **without thinking about CGS at all**, which is the bar.
 
+## Service-DID resolution under proxying
+
+The corrected `aud` is the **service DID**, a `did:web` derived from the service
+URL (`config.serviceDid` = `did:web:${new URL(serviceUrl).hostname}`,
+`src/config.ts`). A client building the JWT itself just constructs that string —
+no lookup. But under **standard AT Protocol service proxying** the picture is
+subtler, and the subtlety is worth recording because it is easy to re-derive
+wrongly.
+
+### The two paths mint `aud` differently
+
+A proxying PDS sets the JWT `aud` to **the DID in the `atproto-proxy` header**
+(`<did>#<fragment>`), then resolves that DID's document and forwards to its
+service endpoint. So `aud` is decided by **which DID you proxy to**, not by any
+CGS-side choice:
+
+- **Legacy:** `withProxy('certified_group', groupDid)` → header `groupDid#certified_group`
+  → PDS resolves the **group** DID (a `did:plc:*`, via the PLC directory), reads
+  its `certified_group` entry, forwards, and mints `aud = groupDid`. This is the
+  deprecated form, and it is what stock proxying produces today.
+- **Migrated:** to get `aud = serviceDid` under proxying, the proxy target must be
+  the **service** DID → header `serviceDid#…` → PDS resolves `did:web:<host>`. A
+  `did:web` resolves by HTTP `GET https://<host>/.well-known/did.json` — so the
+  migrated proxied path requires CGS to **serve that document**. (That is separate
+  work; until it ships, full `aud = serviceDid` is reachable only on **direct**
+  calls, where the client writes `aud` and the verifier string-compares it — no
+  resolution, no served document needed.)
+
+### The resolution chain is a redundant round-trip — and why it must be
+
+Starting from nothing but a `groupDid`, a fully-migrated proxied call traverses:
+
+```
+groupDid
+  → resolve group DID doc → certified_group entry → service endpoint URL   (A: discovery)
+  → derive did:web:<host> from that URL                                    (B)
+  → resolve service DID doc (/.well-known/did.json) → service entry → URL  (C: proxying)
+  → forward
+```
+
+**Hop A's URL and hop C's URL are the same endpoint** — you resolve your way to
+the service URL, derive the service DID from it, then resolve the service DID
+straight back to the same URL. The redundancy is real, and it is **forced by a
+layer seam**, not avoidable cleverness:
+
+- **Hop A (discovery) is CGS-specific.** "Given a group, which service hosts it?"
+  has exactly one on-protocol answer: the group DID document's `certified_group`
+  entry. `register` / `import` return only `groupDid`, never the service DID, so
+  this entry is the sole on-chain link. The entry is therefore needed on **both**
+  paths — legacy uses it to route; migrated uses it to discover the service DID.
+- **Hops B→C (proxying) are generic atproto.** The PDS's proxy step takes one
+  input — the DID in the header — resolves _that_ document, forwards to _its_
+  endpoint. It cannot consume hop A's already-known URL; standard proxying
+  **always begins from the `aud` DID and re-resolves from scratch**. To obtain
+  `aud = serviceDid` you must hand the PDS the service DID, which forces it to
+  re-resolve the service document even though discovery already produced the URL.
+
+The endpoint URL appears in two DID documents precisely because these two layers
+do not share state.
+
+**The round-trip is worst-case, not per-call.** Hop A only exists when the client
+starts from a bare `groupDid` with no other knowledge. In practice an app is
+configured with the service URL out-of-band (the integration guide's
+`GROUP_SERVICE_DID` constant), so it derives the service DID directly and skips
+hop A entirely. And direct calls skip hops B→C as well — they neither discover
+nor resolve, they just assert `aud`. The full five-hop chain is the maximal case
+(on-protocol discovery from nothing, under proxying), not the common one.
+
 ## Security: `repo` is unsigned (a deliberate reduction to atproto parity)
 
 Moving the group selector from the signed `aud` claim to an **unsigned `repo`
