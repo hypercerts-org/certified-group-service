@@ -303,6 +303,51 @@ This mirrors — at lower severity — the blast-radius tradeoff
 [`api-keys.md`](./api-keys.md) already accepts for long-lived keys. Scope
 minimality (RBAC + short JWT life) is the mitigation in both.
 
+### Tampering / MitM: can an attacker swap `repo` and replay?
+
+Because `repo` is unsigned, an on-path attacker who can modify the request _can_
+change `?repo=groupA` to `?repo=groupB` without invalidating the signature. The
+swap is contained by three independent gates, none of which the attacker can
+forge:
+
+- **RBAC re-check on the signed `iss`.** Authorization keys off `payload.iss`
+  (signed) against the _swapped_ group's DB (`assertCanWithAudit(…, callerDid,
+…)`). A swap therefore only reaches a group the **original caller already has a
+  role in** — it cannot read a group the caller is not a member of, and cannot
+  impersonate a different caller. The result the attacker obtains is one the
+  caller was already entitled to fetch.
+- **`lxm` binds the method.** The token is valid only for the method it was
+  minted for (`member.list`), so a swap cannot repurpose it for another endpoint.
+- **Single-use `jti` + short `exp`.** The token is consumed on first use
+  (`nonceCache.checkAndStore` → "Replayed token"), so this is not a _passive
+  replay_ attack: the attacker must actively intercept and **suppress** the
+  genuine request to spend the token themselves, within `exp − iat ≤ 120s`.
+
+Above all, modifying the querystring in flight means the attacker has already
+broken TLS — at which point they can alter the request arbitrarily. The unsigned
+`repo` adds blast radius **given a compromised transport**; it opens nothing
+under normal HTTPS. Net: a `repo` swap can redirect a caller's own legitimate
+query from one of their groups to another of their groups — no cross-caller,
+cross-method, or cross-privilege escalation.
+
+### Querystring visibility: `repo` is metadata in URLs and logs
+
+For query methods (`member.list`, `audit.query`) and the raw/body-less methods,
+`repo` rides the **querystring** — the atproto convention for queries, and what a
+stock SDK emits. Unlike the auth token (always an `Authorization` header) and the
+response (always the body), a querystring value commonly appears in server access
+logs, reverse-proxy/CDN logs, and browser history. So an observer with log access
+learns _which group's endpoint was queried_ — public metadata (a group DID is a
+resolvable, public identity), **not** the caller (header) and **not** the members
+(body).
+
+Severity is low: the leaked value is a public identifier, and this is plain
+atproto parity (`com.atproto.repo.*` queries already carry `repo` in the
+querystring). It is nonetheless a real metadata exposure — for a group whose mere
+existence is sensitive, its DID showing up in shared logs is a small disclosure.
+Whether queries could accept `repo` via a header or POST body without breaking
+stock-SDK DX is tracked as a follow-up ([#39](https://github.com/hypercerts-org/certified-group-service/issues/39)).
+
 ---
 
 ## What changes
