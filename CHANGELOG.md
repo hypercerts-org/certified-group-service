@@ -2,9 +2,7 @@
 
 ## 0.2.1
 
-### Patch Changes
-
-- Republish the container image. The v0.2.0 image build failed (its version-stamping step had no `.cgs-version` to read), so no `ghcr.io/hypercerts-org/group-service` tags were published for v0.2.0. The publish workflow now stamps the version before building; v0.2.1 is the first release to produce a working image. No functional change to the service versus what v0.2.0 would have shipped.
+Republish the container image. The v0.2.0 image build failed (its version-stamping step had no `.cgs-version` to read), so no `ghcr.io/hypercerts-org/group-service` tags were published for v0.2.0. The publish workflow now stamps the version before building; v0.2.1 is the first release to produce a working image. No functional change to the service versus what v0.2.0 would have shipped.
 
 ## 0.2.0
 
