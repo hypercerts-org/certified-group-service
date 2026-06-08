@@ -91,12 +91,24 @@ describe('uploadBlob', () => {
       ...ctx.pdsAgents,
       withAgent: async (_did: string, fn: (agent: any) => Promise<any>) => {
         const agent = {
-          com: { atproto: { repo: {
-            uploadBlob: async (_data: any, opts: any) => {
-              capturedEncoding = opts.encoding
-              return { data: { blob: { ref: { $link: 'bafyblob' }, mimeType: 'video/mp4', size: 10 } } }
+          com: {
+            atproto: {
+              repo: {
+                uploadBlob: async (_data: any, opts: any) => {
+                  capturedEncoding = opts.encoding
+                  return {
+                    data: {
+                      blob: {
+                        ref: { $link: 'bafyblob' },
+                        mimeType: 'video/mp4',
+                        size: 10,
+                      },
+                    },
+                  }
+                },
+              },
             },
-          } } },
+          },
         }
         return fn(agent)
       },

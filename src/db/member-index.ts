@@ -4,38 +4,77 @@ import type { GlobalDatabase } from './schema.js'
 import type { GroupDbPool } from './group-db-pool.js'
 
 export interface MemberIndexWriter {
-  add(groupRaw: Database.Database, groupDid: string, memberDid: string, role: string, addedBy: string): void
+  add(
+    groupRaw: Database.Database,
+    groupDid: string,
+    memberDid: string,
+    role: string,
+    addedBy: string,
+  ): void
   remove(groupRaw: Database.Database, groupDid: string, memberDid: string): void
-  updateRole(groupRaw: Database.Database, groupDid: string, memberDid: string, newRole: string): void
+  updateRole(
+    groupRaw: Database.Database,
+    groupDid: string,
+    memberDid: string,
+    newRole: string,
+  ): void
 }
 
 /** Production: uses ATTACH DATABASE for atomic cross-DB writes. */
 export class MemberIndex implements MemberIndexWriter {
   constructor(private globalDbPath: string) {}
 
-  add(groupRaw: Database.Database, groupDid: string, memberDid: string, role: string, addedBy: string): void {
+  add(
+    groupRaw: Database.Database,
+    groupDid: string,
+    memberDid: string,
+    role: string,
+    addedBy: string,
+  ): void {
     this.withGlobalAttached(groupRaw, (raw) => {
-      raw.prepare(`INSERT INTO group_members (member_did, role, added_by) VALUES (?, ?, ?)`).run(memberDid, role, addedBy)
-      const row = raw.prepare(`SELECT added_at FROM group_members WHERE member_did = ?`).get(memberDid) as { added_at: string }
-      raw.prepare(`INSERT INTO global_db.member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, ?)`).run(memberDid, groupDid, role, addedBy, row.added_at)
+      raw
+        .prepare(`INSERT INTO group_members (member_did, role, added_by) VALUES (?, ?, ?)`)
+        .run(memberDid, role, addedBy)
+      const row = raw
+        .prepare(`SELECT added_at FROM group_members WHERE member_did = ?`)
+        .get(memberDid) as { added_at: string }
+      raw
+        .prepare(
+          `INSERT INTO global_db.member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(memberDid, groupDid, role, addedBy, row.added_at)
     })
   }
 
   remove(groupRaw: Database.Database, groupDid: string, memberDid: string): void {
     this.withGlobalAttached(groupRaw, (raw) => {
       raw.prepare(`DELETE FROM group_members WHERE member_did = ?`).run(memberDid)
-      raw.prepare(`DELETE FROM global_db.member_index WHERE member_did = ? AND group_did = ?`).run(memberDid, groupDid)
+      raw
+        .prepare(`DELETE FROM global_db.member_index WHERE member_did = ? AND group_did = ?`)
+        .run(memberDid, groupDid)
     })
   }
 
-  updateRole(groupRaw: Database.Database, groupDid: string, memberDid: string, newRole: string): void {
+  updateRole(
+    groupRaw: Database.Database,
+    groupDid: string,
+    memberDid: string,
+    newRole: string,
+  ): void {
     this.withGlobalAttached(groupRaw, (raw) => {
       raw.prepare(`UPDATE group_members SET role = ? WHERE member_did = ?`).run(newRole, memberDid)
-      raw.prepare(`UPDATE global_db.member_index SET role = ? WHERE member_did = ? AND group_did = ?`).run(newRole, memberDid, groupDid)
+      raw
+        .prepare(
+          `UPDATE global_db.member_index SET role = ? WHERE member_did = ? AND group_did = ?`,
+        )
+        .run(newRole, memberDid, groupDid)
     })
   }
 
-  private withGlobalAttached(groupRaw: Database.Database, fn: (raw: Database.Database) => void): void {
+  private withGlobalAttached(
+    groupRaw: Database.Database,
+    fn: (raw: Database.Database) => void,
+  ): void {
     groupRaw.prepare('ATTACH DATABASE ? AS global_db').run(this.globalDbPath)
     try {
       groupRaw.transaction(() => fn(groupRaw))()
@@ -49,20 +88,45 @@ export class MemberIndex implements MemberIndexWriter {
 export class TestMemberIndex implements MemberIndexWriter {
   constructor(private globalRaw: Database.Database) {}
 
-  add(groupRaw: Database.Database, groupDid: string, memberDid: string, role: string, addedBy: string): void {
-    groupRaw.prepare(`INSERT INTO group_members (member_did, role, added_by) VALUES (?, ?, ?)`).run(memberDid, role, addedBy)
-    const row = groupRaw.prepare(`SELECT added_at FROM group_members WHERE member_did = ?`).get(memberDid) as { added_at: string }
-    this.globalRaw.prepare(`INSERT INTO member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, ?)`).run(memberDid, groupDid, role, addedBy, row.added_at)
+  add(
+    groupRaw: Database.Database,
+    groupDid: string,
+    memberDid: string,
+    role: string,
+    addedBy: string,
+  ): void {
+    groupRaw
+      .prepare(`INSERT INTO group_members (member_did, role, added_by) VALUES (?, ?, ?)`)
+      .run(memberDid, role, addedBy)
+    const row = groupRaw
+      .prepare(`SELECT added_at FROM group_members WHERE member_did = ?`)
+      .get(memberDid) as { added_at: string }
+    this.globalRaw
+      .prepare(
+        `INSERT INTO member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(memberDid, groupDid, role, addedBy, row.added_at)
   }
 
   remove(groupRaw: Database.Database, groupDid: string, memberDid: string): void {
     groupRaw.prepare(`DELETE FROM group_members WHERE member_did = ?`).run(memberDid)
-    this.globalRaw.prepare(`DELETE FROM member_index WHERE member_did = ? AND group_did = ?`).run(memberDid, groupDid)
+    this.globalRaw
+      .prepare(`DELETE FROM member_index WHERE member_did = ? AND group_did = ?`)
+      .run(memberDid, groupDid)
   }
 
-  updateRole(groupRaw: Database.Database, groupDid: string, memberDid: string, newRole: string): void {
-    groupRaw.prepare(`UPDATE group_members SET role = ? WHERE member_did = ?`).run(newRole, memberDid)
-    this.globalRaw.prepare(`UPDATE member_index SET role = ? WHERE member_did = ? AND group_did = ?`).run(newRole, memberDid, groupDid)
+  updateRole(
+    groupRaw: Database.Database,
+    groupDid: string,
+    memberDid: string,
+    newRole: string,
+  ): void {
+    groupRaw
+      .prepare(`UPDATE group_members SET role = ? WHERE member_did = ?`)
+      .run(newRole, memberDid)
+    this.globalRaw
+      .prepare(`UPDATE member_index SET role = ? WHERE member_did = ? AND group_did = ?`)
+      .run(newRole, memberDid, groupDid)
   }
 }
 

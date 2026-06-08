@@ -44,6 +44,7 @@ Every request must include an `Authorization: Bearer <JWT>` header. The verifica
    - `app.certified.group.member.remove`
    - `app.certified.group.member.list`
    - `app.certified.group.role.set`
+   - `app.certified.group.destroy`
    - `app.certified.group.audit.query`
 4. **Verify JWT signature** against the issuer's DID document using `@atproto/xrpc-server`'s `verifyJwt()`. This checks:
    - Cryptographic signature validity (resolved via the DID doc's signing key)
@@ -105,27 +106,28 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 
 ### Permission matrix
 
-| Operation | Minimum role | Description |
-|-----------|-------------|-------------|
-| `createRecord` | member | Create new records in the group repo |
-| `uploadBlob` | member | Upload media/blobs |
-| `deleteOwnRecord` | member | Delete records you authored |
-| `putOwnRecord` | member | Edit records you authored |
-| `member.list` | member | List group members |
-| `putAnyRecord` | admin | Edit any member's records |
-| `deleteAnyRecord` | admin | Delete any member's records |
-| `putRecord:profile` | admin | Edit the group's profile (`app.bsky.actor.profile` / `self`) |
-| `member.add` | admin | Add new members |
-| `member.remove` | admin | Remove members (with restrictions) |
-| `audit.query` | admin | Query the audit log |
-| `role.set` | owner | Change member roles |
+| Operation           | Minimum role | Description                                                  |
+| ------------------- | ------------ | ------------------------------------------------------------ |
+| `createRecord`      | member       | Create new records in the group repo                         |
+| `uploadBlob`        | member       | Upload media/blobs                                           |
+| `deleteOwnRecord`   | member       | Delete records you authored                                  |
+| `putOwnRecord`      | member       | Edit records you authored                                    |
+| `member.list`       | member       | List group members                                           |
+| `putAnyRecord`      | admin        | Edit any member's records                                    |
+| `deleteAnyRecord`   | admin        | Delete any member's records                                  |
+| `putRecord:profile` | admin        | Edit the group's profile (`app.bsky.actor.profile` / `self`) |
+| `member.add`        | admin        | Add new members                                              |
+| `member.remove`     | admin        | Remove members (with restrictions)                           |
+| `audit.query`       | admin        | Query the audit log                                          |
+| `role.set`          | owner        | Change member roles                                          |
+| `group.destroy`     | owner        | Remove the group from the service (account left intact)      |
 
 ### Special rules
 
 - **Cannot modify equal or higher roles**: An admin cannot remove another admin; only owners can
 - **Cannot assign roles above assignable set**: `member.add` only allows assigning `member` or `admin` — not `owner`
 - **Self-removal always succeeds**: Any member can remove themselves regardless of role
-- **Last-owner protection**: The system prevents demoting or removing the last owner via an atomic transaction check
+- **Owner role is immutable**: `role.set` rejects both promoting a member to owner (`CannotPromoteToOwner`) and changing an existing owner's role (`CannotModifyOwner`); `member.remove` rejects removing an owner (`CannotRemoveOwner`). Each group has exactly one owner (the registrant). Ownership transfer is a separate operation that is not yet implemented.
 - **Author-based record ownership**: `putRecord` and `deleteRecord` check the `group_record_authors` table to determine if the caller authored the record, then select the appropriate operation (`putOwnRecord` / `putAnyRecord` vs `putRecord:profile`, `deleteOwnRecord` vs `deleteAnyRecord`). Members can only edit or delete their own records; editing or deleting another member's record requires admin.
 
 ### RBAC enforcement
@@ -141,22 +143,36 @@ The `RbacChecker` class provides two key methods:
 
 #### `groups`
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `did` | TEXT (PK) | The group's DID |
-| `pds_url` | TEXT | URL of the group's backing PDS |
-| `encrypted_app_password` | TEXT | AES-256-GCM encrypted app password for PDS login |
+| Column                   | Type            | Description                                                       |
+| ------------------------ | --------------- | ----------------------------------------------------------------- |
+| `did`                    | TEXT (PK)       | The group's DID                                                   |
+| `pds_url`                | TEXT            | URL of the group's backing PDS                                    |
+| `encrypted_app_password` | TEXT            | AES-256-GCM encrypted app password for PDS login                  |
 | `encrypted_recovery_key` | TEXT (nullable) | AES-256-GCM encrypted recovery keypair for signing PLC operations |
-| `created_at` | TEXT | ISO timestamp, defaults to current time |
+| `created_at`             | TEXT            | ISO timestamp, defaults to current time                           |
 
 #### `nonce_cache`
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `jti` | TEXT (PK) | JWT ID (nonce) |
-| `expires_at` | TEXT | Expiration timestamp |
+| Column       | Type      | Description          |
+| ------------ | --------- | -------------------- |
+| `jti`        | TEXT (PK) | JWT ID (nonce)       |
+| `expires_at` | TEXT      | Expiration timestamp |
 
 Indexed on `expires_at` for efficient cleanup.
+
+#### `member_index`
+
+A reverse index of group membership, populated whenever a member is added, removed, or has their role changed. It backs the cross-group `app.certified.groups.membership.list` endpoint (find every group a DID belongs to), which the per-group databases cannot answer since there is no reverse mapping from member to group.
+
+| Column       | Type      | Description                                  |
+| ------------ | --------- | -------------------------------------------- |
+| `member_did` | TEXT (PK) | Member's DID (composite PK with `group_did`) |
+| `group_did`  | TEXT (PK) | Group's DID (composite PK with `member_did`) |
+| `role`       | TEXT      | The member's role in that group              |
+| `added_by`   | TEXT      | DID of the member who added this person      |
+| `added_at`   | TEXT      | ISO timestamp                                |
+
+Indexed on `group_did`.
 
 ### Per-group databases (`data/groups/{hash}.sqlite`)
 
@@ -164,39 +180,39 @@ Each group gets its own SQLite database, named by the SHA-256 hash of the group 
 
 #### `group_members`
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `member_did` | TEXT (PK) | Member's DID |
-| `role` | TEXT | `member`, `admin`, or `owner` |
-| `added_by` | TEXT | DID of the member who added this person |
-| `added_at` | TEXT | ISO timestamp |
+| Column       | Type      | Description                             |
+| ------------ | --------- | --------------------------------------- |
+| `member_did` | TEXT (PK) | Member's DID                            |
+| `role`       | TEXT      | `member`, `admin`, or `owner`           |
+| `added_by`   | TEXT      | DID of the member who added this person |
+| `added_at`   | TEXT      | ISO timestamp                           |
 
 Composite index on `(added_at, member_did)` for efficient paginated listing.
 
 #### `group_record_authors`
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `record_uri` | TEXT (PK) | AT URI of the record |
-| `author_did` | TEXT | DID of the member who created it |
-| `collection` | TEXT | Collection NSID |
-| `created_at` | TEXT | ISO timestamp |
+| Column       | Type      | Description                      |
+| ------------ | --------- | -------------------------------- |
+| `record_uri` | TEXT (PK) | AT URI of the record             |
+| `author_did` | TEXT      | DID of the member who created it |
+| `collection` | TEXT      | Collection NSID                  |
+| `created_at` | TEXT      | ISO timestamp                    |
 
 Indexed on `author_did` for authorship lookups.
 
 #### `group_audit_log`
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | INTEGER (PK, auto) | Sequential entry ID |
-| `actor_did` | TEXT | DID of the person who performed the action |
-| `action` | TEXT | Operation name (e.g. `createRecord`, `member.add`) |
-| `collection` | TEXT | Collection NSID (for record operations) |
-| `rkey` | TEXT | Record key (for record operations) |
-| `result` | TEXT | `permitted` or `denied` |
-| `detail` | TEXT | JSON-encoded additional context |
-| `jti` | TEXT | JWT ID for request tracing |
-| `created_at` | TEXT | ISO timestamp |
+| Column       | Type               | Description                                        |
+| ------------ | ------------------ | -------------------------------------------------- |
+| `id`         | INTEGER (PK, auto) | Sequential entry ID                                |
+| `actor_did`  | TEXT               | DID of the person who performed the action         |
+| `action`     | TEXT               | Operation name (e.g. `createRecord`, `member.add`) |
+| `collection` | TEXT               | Collection NSID (for record operations)            |
+| `rkey`       | TEXT               | Record key (for record operations)                 |
+| `result`     | TEXT               | `permitted` or `denied`                            |
+| `detail`     | TEXT               | JSON-encoded additional context                    |
+| `jti`        | TEXT               | JWT ID for request tracing                         |
+| `created_at` | TEXT               | ISO timestamp                                      |
 
 Indexed on `created_at`, `actor_did`, `action`, and `collection` for efficient querying.
 
@@ -295,6 +311,19 @@ sequenceDiagram
 2. **Database creation**: On startup, CGS loads all groups from the registry and runs per-group migrations for each, creating the group's SQLite database if it doesn't exist.
 3. **First owner**: The first owner is automatically seeded into the group's `group_members` table during `group.register`. After that, the owner can manage the group through the API.
 4. **Ongoing management**: Owners can promote admins, admins can add/remove members, and all authorized members can interact with the group's repository.
+
+### Import
+
+`group.import` promotes an **existing** PDS account into a group instead of creating one. It shares register's tail (store encrypted credentials, run migrations, seed the owner) but differs at the front:
+
+- The JWT must be signed by the account being imported (`iss` = `groupDid`), not by the prospective owner — the account authorises its own promotion, which an app password alone cannot do (see [Authentication flow](#authentication-flow) and `docs/design/group-import.md`).
+- The caller supplies an app password rather than CGS minting one; it is stored encrypted exactly as for registered groups.
+- CGS resolves the account's PDS and handle from its DID document (the account may live on a PDS other than `GROUP_PDS_URL`), so the per-group `pds_url` is whatever the DID document advertises.
+- No recovery keypair is generated and **no DID-document change is made** — an app password cannot perform PLC operations, and CGS never had genesis control. `encrypted_recovery_key` is left `NULL`, which is how imported groups are distinguished from registered ones in the `groups` table.
+
+### Destroy
+
+`group.destroy` is the service-level inverse: an owner removes the group **from the service** while leaving the underlying PDS account intact (so it can be re-imported later — it is not account deletion). It deletes the group's `groups` row and `member_index` entries in a single global-DB transaction, then unlinks the per-group SQLite file; doing the file unlink only after the transaction commits means an interrupted destroy leaves at worst an orphaned file rather than inconsistent global state. Because the per-group audit log is deleted with it, the destroy is recorded in the service's operational log instead.
 
 ## Startup sequence
 

@@ -14,24 +14,24 @@ No PDS modifications. App passwords for group PDS credentials. Credible exit for
 
 ### Language & Runtime
 
-| Component | Choice | Version | Why |
-|-----------|--------|---------|-----|
-| Language | **TypeScript** | 5.5+ | The atproto ecosystem is TypeScript-native. Ozone, the PDS, and all `@atproto/*` packages are TS. Fighting this would be masochistic. |
-| Runtime | **Node.js** | 22 LTS | Required by `@atproto/xrpc-server` (Express-based). Bun/Deno not tested against the atproto packages. |
-| Package Manager | **pnpm** | 9.x | Used by the atproto monorepo itself. Workspace support if you split into packages later. |
+| Component       | Choice         | Version | Why                                                                                                                                   |
+| --------------- | -------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Language        | **TypeScript** | 5.5+    | The atproto ecosystem is TypeScript-native. Ozone, the PDS, and all `@atproto/*` packages are TS. Fighting this would be masochistic. |
+| Runtime         | **Node.js**    | 22 LTS  | Required by `@atproto/xrpc-server` (Express-based). Bun/Deno not tested against the atproto packages.                                 |
+| Package Manager | **pnpm**       | 9.x     | Used by the atproto monorepo itself. Workspace support if you split into packages later.                                              |
 
 ### Core atproto Packages
 
 ```jsonc
 // package.json dependencies
 {
-  "@atproto/xrpc-server": "^0.10.15",   // Express-based XRPC server framework, JWT verification
-  "@atproto/api": "^0.19.3",            // Agent for talking to the group's PDS (app password auth)
-  "@atproto/identity": "^0.4.12",       // DID resolution (did:plc, did:web), handle resolution
-  "@atproto/crypto": "^0.4.5",          // P-256 / secp256k1 key ops, signature verification
-  "@atproto/lexicon": "^0.6.2",         // Lexicon schema definition & validation
-  "@atproto/syntax": "^0.5.0",          // AT URI, NSID, handle, DID syntax parsing
-  "@atproto/common-web": "^0.4.18",     // DID document helpers (getServiceEndpoint, getSigningKey)
+  "@atproto/xrpc-server": "^0.10.15", // Express-based XRPC server framework, JWT verification
+  "@atproto/api": "^0.19.3", // Agent for talking to the group's PDS (app password auth)
+  "@atproto/identity": "^0.4.12", // DID resolution (did:plc, did:web), handle resolution
+  "@atproto/crypto": "^0.4.5", // P-256 / secp256k1 key ops, signature verification
+  "@atproto/lexicon": "^0.6.2", // Lexicon schema definition & validation
+  "@atproto/syntax": "^0.5.0", // AT URI, NSID, handle, DID syntax parsing
+  "@atproto/common-web": "^0.4.18", // DID document helpers (getServiceEndpoint, getSigningKey)
 }
 ```
 
@@ -40,19 +40,19 @@ No PDS modifications. App passwords for group PDS credentials. Credible exit for
 ```jsonc
 {
   // Database
-  "kysely": "^0.27.0",                  // Type-safe SQL query builder (same as PDS uses)
-  "better-sqlite3": "^11.0.0",          // SQLite driver (global + per-group tables)
+  "kysely": "^0.27.0", // Type-safe SQL query builder (same as PDS uses)
+  "better-sqlite3": "^11.0.0", // SQLite driver (global + per-group tables)
 
   // HTTP / Server
-  "express": "^4.21.0",                 // Required by @atproto/xrpc-server (it wraps Express)
+  "express": "^4.21.0", // Required by @atproto/xrpc-server (it wraps Express)
 
   // Configuration
-  "dotenv": "^16.4.0",                  // Environment variable loading
-  "zod": "^3.23.0",                     // Config validation (same as atproto monorepo uses)
+  "dotenv": "^16.4.0", // Environment variable loading
+  "zod": "^3.23.0", // Config validation (same as atproto monorepo uses)
 
   // Logging
-  "pino": "^9.0.0",                     // Structured JSON logging (same as PDS/Ozone use)
-  "pino-http": "^10.0.0",              // HTTP request logging middleware
+  "pino": "^9.0.0", // Structured JSON logging (same as PDS/Ozone use)
+  "pino-http": "^10.0.0", // HTTP request logging middleware
 }
 ```
 
@@ -61,8 +61,8 @@ No PDS modifications. App passwords for group PDS credentials. Credible exit for
 ```jsonc
 {
   "typescript": "^5.5.0",
-  "tsx": "^4.19.0",                     // TypeScript execution (dev + scripts)
-  "vitest": "^2.1.0",                   // Test runner
+  "tsx": "^4.19.0", // TypeScript execution (dev + scripts)
+  "vitest": "^2.1.0", // Test runner
   "@types/express": "^4.17.21",
   "@types/better-sqlite3": "^7.6.0",
   "eslint": "^9.0.0",
@@ -80,8 +80,8 @@ No PDS modifications. App passwords for group PDS credentials. Credible exit for
     "start": "node dist/index.js",
     "test": "vitest",
     "migrate": "tsx src/db/migrate.ts",
-    "migrate:create": "tsx src/db/create-migration.ts"
-  }
+    "migrate:create": "tsx src/db/create-migration.ts",
+  },
 }
 ```
 
@@ -272,6 +272,7 @@ This is a one-time setup step. You need:
 1. **The rotation key** — the secp256k1 private key that controls the DID. The group's PDS holds one (from `PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX`), and the owner should hold another (higher priority).
 
 2. **Fetch current state**:
+
    ```bash
    curl https://plc.directory/did:plc:XXXXX/data
    # Returns current rotationKeys, verificationMethods, alsoKnownAs, services
@@ -299,10 +300,11 @@ This is a one-time setup step. You need:
 We should build a CLI script (`scripts/plc-add-service.ts`) that automates this.
 
 **Extra packages for PLC ops:**
+
 ```jsonc
 {
-  "@ipld/dag-cbor": "^9.2.0",    // DAG-CBOR encoding for PLC operations
-  "multiformats": "^13.0.0",     // CID computation
+  "@ipld/dag-cbor": "^9.2.0", // DAG-CBOR encoding for PLC operations
+  "multiformats": "^13.0.0", // CID computation
 }
 ```
 
@@ -396,7 +398,12 @@ app.certified.group.audit.query         — Query audit log (admin+)
       "parameters": {
         "type": "params",
         "properties": {
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
           "cursor": { "type": "string" }
         }
       },
@@ -414,9 +421,7 @@ app.certified.group.audit.query         — Query audit log (admin+)
           }
         }
       },
-      "errors": [
-        { "name": "Unauthorized" }
-      ]
+      "errors": [{ "name": "Unauthorized" }]
     },
     "member": {
       "type": "object",
@@ -509,7 +514,10 @@ app.certified.group.audit.query         — Query audit log (admin+)
         { "name": "Unauthorized" },
         { "name": "Forbidden" },
         { "name": "MemberNotFound" },
-        { "name": "LastOwnerDemotion", "description": "Cannot demote the last owner — promote a replacement first" }
+        {
+          "name": "LastOwnerDemotion",
+          "description": "Cannot demote the last owner — promote a replacement first"
+        }
       ]
     }
   }
@@ -532,7 +540,12 @@ app.certified.group.audit.query         — Query audit log (admin+)
           "actorDid": { "type": "string", "format": "did" },
           "action": { "type": "string" },
           "collection": { "type": "string" },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
           "cursor": { "type": "string" }
         }
       },
@@ -550,10 +563,7 @@ app.certified.group.audit.query         — Query audit log (admin+)
           }
         }
       },
-      "errors": [
-        { "name": "Unauthorized" },
-        { "name": "Forbidden" }
-      ]
+      "errors": [{ "name": "Unauthorized" }, { "name": "Forbidden" }]
     },
     "auditEntry": {
       "type": "object",
@@ -640,11 +650,11 @@ export default function (server: Server, ctx: AppContext) {
 
 ### Size Limits
 
-| Layer | Limit | Source |
-|-------|-------|--------|
-| User's PDS | Configured per-PDS (default ~100MB) | `PDS_BLOB_UPLOAD_LIMIT` |
-| Group Service | **10MB default** (configurable per-group) | Our config |
-| Group's PDS | Configured on the group's PDS (default ~100MB) | `PDS_BLOB_UPLOAD_LIMIT` |
+| Layer         | Limit                                          | Source                  |
+| ------------- | ---------------------------------------------- | ----------------------- |
+| User's PDS    | Configured per-PDS (default ~100MB)            | `PDS_BLOB_UPLOAD_LIMIT` |
+| Group Service | **10MB default** (configurable per-group)      | Our config              |
+| Group's PDS   | Configured on the group's PDS (default ~100MB) | `PDS_BLOB_UPLOAD_LIMIT` |
 
 The Group Service should enforce its own limit as the first line of defense. Check `Content-Length` header before streaming and abort if exceeded. Also track bytes streamed and abort mid-stream if the client lies about `Content-Length`.
 
@@ -689,10 +699,9 @@ A completely different app can do the same thing. They just need to:
 
 ```typescript
 // 1. Upload blob through the proxy chain
-const blobResponse = await groupClient.com.atproto.repo.uploadBlob(
-  imageBytes,
-  { encoding: 'image/jpeg' },
-)
+const blobResponse = await groupClient.com.atproto.repo.uploadBlob(imageBytes, {
+  encoding: 'image/jpeg',
+})
 
 // 2. Use the blob ref in a record
 await groupClient.com.atproto.repo.createRecord({
@@ -703,10 +712,12 @@ await groupClient.com.atproto.repo.createRecord({
     text: 'Photo from the group',
     embed: {
       $type: 'app.bsky.embed.images',
-      images: [{
-        alt: 'Group photo',
-        image: blobResponse.data.blob,
-      }],
+      images: [
+        {
+          alt: 'Group photo',
+          image: blobResponse.data.blob,
+        },
+      ],
     },
     createdAt: new Date().toISOString(),
   },
@@ -719,7 +730,7 @@ await groupClient.com.atproto.repo.createRecord({
 
 ### What the User's PDS Sends
 
-**Note on OAuth vs service auth:** The user authenticates to their PDS via OAuth (or app password). When the PDS proxies to another service, it signs a *new* JWT with the user's signing key — that's the service auth JWT. The OAuth token never leaves the PDS<->client relationship. The downstream service only ever sees the service auth JWT. This is specified in the atproto service auth spec and is how Ozone works today.
+**Note on OAuth vs service auth:** The user authenticates to their PDS via OAuth (or app password). When the PDS proxies to another service, it signs a _new_ JWT with the user's signing key — that's the service auth JWT. The OAuth token never leaves the PDS<->client relationship. The downstream service only ever sees the service auth JWT. This is specified in the atproto service auth spec and is how Ozone works today.
 
 When a client sets `atproto-proxy: did:plc:GROUP_DID#group_service`, the user's PDS:
 
@@ -728,6 +739,7 @@ When a client sets `atproto-proxy: did:plc:GROUP_DID#group_service`, the user's 
 3. Forwards the request to the Group Service URL (from the group DID doc)
 
 The JWT contains:
+
 - `iss`: the user's DID
 - `aud`: the group's DID
 - `lxm`: the NSID of the endpoint (e.g., `com.atproto.repo.createRecord`)
@@ -781,13 +793,10 @@ export class AuthVerifier {
     // scoped to the group's DID — we just do the check manually below.
     const payload = await verifyJwt(
       jwtStr,
-      null,  // we check aud ourselves below
-      nsid,  // lxm must match the called endpoint
+      null, // we check aud ourselves below
+      nsid, // lxm must match the called endpoint
       async (did: string, forceRefresh: boolean): Promise<string> => {
-        const atprotoData = await this.idResolver.did.resolveAtprotoData(
-          did,
-          forceRefresh,
-        )
+        const atprotoData = await this.idResolver.did.resolveAtprotoData(did, forceRefresh)
         return atprotoData.signingKey
       },
     )
@@ -906,9 +915,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('did', 'text', (col) => col.primaryKey())
     .addColumn('pds_url', 'text', (col) => col.notNull())
     .addColumn('encrypted_app_password', 'text', (col) => col.notNull())
-    .addColumn('created_at', 'text', (col) =>
-      col.defaultTo(sql`datetime('now')`).notNull(),
-    )
+    .addColumn('created_at', 'text', (col) => col.defaultTo(sql`datetime('now')`).notNull())
     .execute()
 
   // Nonce cache (replay prevention for service auth JWTs)
@@ -944,9 +951,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('member_did', 'text', (col) => col.primaryKey())
     .addColumn('role', 'text', (col) => col.notNull()) // member, admin, owner
     .addColumn('added_by', 'text', (col) => col.notNull())
-    .addColumn('added_at', 'text', (col) =>
-      col.defaultTo(sql`datetime('now')`).notNull(),
-    )
+    .addColumn('added_at', 'text', (col) => col.defaultTo(sql`datetime('now')`).notNull())
     .execute()
 
   // Record authorship tracking
@@ -955,9 +960,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('record_uri', 'text', (col) => col.primaryKey())
     .addColumn('author_did', 'text', (col) => col.notNull())
     .addColumn('collection', 'text', (col) => col.notNull())
-    .addColumn('created_at', 'text', (col) =>
-      col.defaultTo(sql`datetime('now')`).notNull(),
-    )
+    .addColumn('created_at', 'text', (col) => col.defaultTo(sql`datetime('now')`).notNull())
     .execute()
 
   await db.schema
@@ -977,9 +980,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('result', 'text', (col) => col.notNull()) // permitted, denied
     .addColumn('detail', 'text') // JSON string
     .addColumn('jti', 'text')
-    .addColumn('created_at', 'text', (col) =>
-      col.defaultTo(sql`datetime('now')`).notNull(),
-    )
+    .addColumn('created_at', 'text', (col) => col.defaultTo(sql`datetime('now')`).notNull())
     .execute()
 
   await db.schema
@@ -1067,8 +1068,8 @@ export type Operation =
   | 'uploadBlob'
   | 'deleteOwnRecord'
   | 'deleteAnyRecord'
-  | 'putOwnRecord'        // putRecord on a record the caller authored
-  | 'putRecord:profile'   // putRecord on the group profile (singleton)
+  | 'putOwnRecord' // putRecord on a record the caller authored
+  | 'putRecord:profile' // putRecord on the group profile (singleton)
   | 'member.add'
   | 'member.remove'
   | 'member.list'
@@ -1111,11 +1112,15 @@ export function canPerform(userRole: Role, operation: Operation): boolean {
 import { XRPCError } from '@atproto/xrpc-server'
 
 export class UnauthorizedError extends XRPCError {
-  constructor(message = 'Unauthorized') { super(401, 'Unauthorized', message) }
+  constructor(message = 'Unauthorized') {
+    super(401, 'Unauthorized', message)
+  }
 }
 
 export class ForbiddenError extends XRPCError {
-  constructor(message = 'Forbidden') { super(403, 'Forbidden', message) }
+  constructor(message = 'Forbidden') {
+    super(403, 'Forbidden', message)
+  }
 }
 ```
 
@@ -1149,9 +1154,7 @@ export class RbacChecker {
       throw new Error(`Invalid role in database: ${role}`)
     }
     if (!canPerform(role, operation)) {
-      throw new ForbiddenError(
-        `Role '${role}' cannot perform '${operation}'`,
-      )
+      throw new ForbiddenError(`Role '${role}' cannot perform '${operation}'`)
     }
 
     return role
@@ -1180,11 +1183,14 @@ After a successful `createRecord` call to the group's PDS, insert into `group_re
 ```typescript
 // In createRecord handler, after group PDS write succeeds:
 const groupDb = ctx.groupDbs.get(groupDid)
-await groupDb.insertInto('group_record_authors').values({
-  record_uri: response.data.uri, // at://did:plc:XXX/collection/rkey
-  author_did: callerDid,
-  collection: input.collection,
-}).execute()
+await groupDb
+  .insertInto('group_record_authors')
+  .values({
+    record_uri: response.data.uri, // at://did:plc:XXX/collection/rkey
+    author_did: callerDid,
+    collection: input.collection,
+  })
+  .execute()
 ```
 
 For `putRecord` on a new record (no existing authorship row), also insert authorship. For `deleteRecord`, remove the authorship row after group PDS delete succeeds.
@@ -1239,11 +1245,16 @@ try {
   await ctx.rbac.assertCan(groupDb, callerDid, operation)
 } catch (err) {
   // Only log structured metadata — never log full record bodies (may contain PII or large blobs)
-  await ctx.audit.log(groupDb, callerDid, operation, 'denied', { reason: err.message })
+  await ctx.audit.log(groupDb, callerDid, operation, 'denied', {
+    reason: err.message,
+  })
   throw err
 }
 // ... execute operation ...
-await ctx.audit.log(groupDb, callerDid, operation, 'permitted', { collection, rkey })
+await ctx.audit.log(groupDb, callerDid, operation, 'permitted', {
+  collection,
+  rkey,
+})
 ```
 
 **Important**: The `AuditLogger` class (in `src/audit.ts`) should encapsulate the `group_audit_log` INSERT so the column mapping lives in one place, not scattered across handlers.
@@ -1253,14 +1264,17 @@ await ctx.audit.log(groupDb, callerDid, operation, 'permitted', { collection, rk
 ### Membership Safeguards
 
 **`member.remove`**:
+
 1. **Cannot remove owner**: Check if target's role is `owner` -> throw `CannotRemoveOwner`
 2. **Cannot remove equal/higher role**: An admin cannot remove another admin. Check `ROLE_HIERARCHY[callerRole] > ROLE_HIERARCHY[targetRole]`, unless `callerDid === targetDid` (self-removal is always allowed).
 
 **`member.add`**:
+
 1. **Cannot assign equal/higher role**: An admin can add members, but not other admins. Check `ROLE_HIERARCHY[callerRole] > ROLE_HIERARCHY[assignedRole]`. Only owners can add admins.
 2. **Validate `memberDid` format**: Reject DIDs that don't match `did:plc:*` or `did:web:*` patterns before inserting into the database. Use `@atproto/syntax` `ensureValidDid()` for parsing.
 
 **`role.set`**:
+
 1. **Last-owner protection**: Before demoting an owner, count remaining owners. If count === 1 and target is that owner, throw `LastOwnerDemotion`. This prevents irrecoverable states.
 2. **Cannot promote above own role**: Check `ROLE_HIERARCHY[callerRole] >= ROLE_HIERARCHY[newRole]`. An owner can set any role; no one else should be able to create owners.
 
@@ -1288,10 +1302,7 @@ const AUTH_TAG_LENGTH = 16
 export function encrypt(plaintext: string, masterKey: Buffer): string {
   const iv = randomBytes(IV_LENGTH)
   const cipher = createCipheriv(ALGORITHM, masterKey, iv)
-  const encrypted = Buffer.concat([
-    cipher.update(plaintext, 'utf8'),
-    cipher.final(),
-  ])
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
   const authTag = cipher.getAuthTag()
   // Format: iv (12) + authTag (16) + ciphertext (variable)
   return Buffer.concat([iv, authTag, encrypted]).toString('base64')
@@ -1389,16 +1400,17 @@ LOG_LEVEL=info
 
 Railway hosts the entire stack: Group Service and the group's PDS — all in one project. All data (global SQLite + per-group SQLite files) lives on a single persistent volume. Railway has a [community-contributed Bluesky PDS template](https://railway.com/deploy/xBNJ1u) (by mkizka) that deploys `ghcr.io/bluesky-social/pds:0.4` with a persistent volume. No separate VPS needed. Note: the PDS image does not auto-update on Railway — you must redeploy manually to pick up new patch versions.
 
-| Component | Provider | Plan | Monthly Cost |
-|-----------|----------|------|-------------|
-| **Group Service** | Railway (Pro) | ~1 vCPU, 512MB-1GB + volume | ~$7-10/mo |
-| **Group's PDS** | Railway (Pro) | `ghcr.io/bluesky-social/pds:0.4` + volume | ~$5-7/mo |
-| **Domain** | Porkbun (registrar) + Cloudflare (DNS) | .com | ~$1/mo |
-| **Total** | | | **~$13-18/mo** |
+| Component         | Provider                               | Plan                                      | Monthly Cost   |
+| ----------------- | -------------------------------------- | ----------------------------------------- | -------------- |
+| **Group Service** | Railway (Pro)                          | ~1 vCPU, 512MB-1GB + volume               | ~$7-10/mo      |
+| **Group's PDS**   | Railway (Pro)                          | `ghcr.io/bluesky-social/pds:0.4` + volume | ~$5-7/mo       |
+| **Domain**        | Porkbun (registrar) + Cloudflare (DNS) | .com                                      | ~$1/mo         |
+| **Total**         |                                        |                                           | **~$13-18/mo** |
 
 Railway Pro is $20/mo which includes $20 of usage credit. At low traffic, everything may fit within that credit. Usage rates: ~$0.000463/hr per vCPU, ~$0.000232/hr per GB RAM. Volumes: $0.25/GB/mo.
 
 **Why everything on Railway:**
+
 - One platform, one dashboard, one bill — no juggling providers
 - No external database to manage — everything is SQLite on a persistent volume
 - Private networking between services (`*.railway.internal`) — the Group Service talks to the group's PDS over the internal network, zero latency, no public internet round-trip
@@ -1438,6 +1450,7 @@ Use the community Railway PDS template:
 7. Add the CNAME in Cloudflare DNS
 
 Once deployed, create the group account:
+
 ```bash
 # Create account via the PDS admin API
 curl -X POST https://pds.example.com/xrpc/com.atproto.server.createAccount \
@@ -1540,10 +1553,10 @@ git push origin main
 
 In Railway dashboard -> each service -> **Settings** -> **Networking** -> **Custom Domain**:
 
-| Service | Custom Domain |
-|---------|--------------|
-| PDS (group's PDS) | `pds.example.com` |
-| Group Service | `group-service.example.com` |
+| Service           | Custom Domain               |
+| ----------------- | --------------------------- |
+| PDS (group's PDS) | `pds.example.com`           |
+| Group Service     | `group-service.example.com` |
 
 Railway gives you a CNAME target for each (e.g., `xxx-production-xxxx.up.railway.app`). Add these in Cloudflare DNS.
 
@@ -1553,11 +1566,11 @@ Global SQLite migrations run at server startup (in `main()` before `app.listen()
 
 ### DNS Setup (Cloudflare)
 
-| Record | Name | Value | Proxy |
-|--------|------|-------|-------|
-| CNAME | `pds` | `pds-production-xxxx.up.railway.app` | DNS only (grey cloud) |
-| CNAME | `group-service` | `group-service-production-xxxx.up.railway.app` | DNS only |
-| TXT | `_atproto.mygroup` | `did=did:plc:XXXXX` | N/A |
+| Record | Name               | Value                                          | Proxy                 |
+| ------ | ------------------ | ---------------------------------------------- | --------------------- |
+| CNAME  | `pds`              | `pds-production-xxxx.up.railway.app`           | DNS only (grey cloud) |
+| CNAME  | `group-service`    | `group-service-production-xxxx.up.railway.app` | DNS only              |
+| TXT    | `_atproto.mygroup` | `did=did:plc:XXXXX`                            | N/A                   |
 
 **Important**: Do NOT enable Cloudflare proxy (orange cloud) for the PDS or Group Service. Railway handles TLS, and Cloudflare proxy can interfere with WebSocket connections and XRPC streaming.
 
@@ -1804,7 +1817,16 @@ async function main() {
   // XRPC routes — pass a typed AppContext to all handlers
   const pdsAgents = new PdsAgentPool(globalDb, Buffer.from(config.encryptionKey, 'hex'))
   const audit = new AuditLogger()
-  const ctx: AppContext = { config, globalDb, groupDbs, authVerifier, rbac, pdsAgents, audit, logger }
+  const ctx: AppContext = {
+    config,
+    globalDb,
+    groupDbs,
+    authVerifier,
+    rbac,
+    pdsAgents,
+    audit,
+    logger,
+  }
   registerRoutes(app, ctx)
 
   // Error middleware (must be registered AFTER routes)
@@ -1820,7 +1842,7 @@ async function main() {
     clearInterval(nonceCleanupInterval)
     server.close()
     await groupDbs.destroyAll() // close all SQLite connections
-    await globalDb.destroy()    // close global SQLite
+    await globalDb.destroy() // close global SQLite
     process.exit(0)
   }
   process.on('SIGTERM', shutdown)
@@ -1838,6 +1860,7 @@ main().catch((err) => {
 ## Multi-Group Support
 
 One Group Service instance manages multiple group accounts. Each group:
+
 - Has its own `did:plc` on its own PDS (or shared PDS)
 - Has its own `#group_service` service entry pointing to this Group Service
 - Has its own row in the `groups` table (global SQLite) with encrypted app password
@@ -1970,18 +1993,23 @@ Your web app calls `app.certified.group.member.add` / `app.certified.group.membe
 ## Open Questions (With Recommendations)
 
 ### 1. Service entry type
+
 The `CertifiedGroupService` type is custom. The PDS doesn't validate service types — it just needs a resolvable URL at that fragment ID. **Ship it as `CertifiedGroupService` and propose standardization later.** This is exactly what labelers did with `AtprotoLabeler`.
 
 ### 2. Multiple Group Services per account
+
 Technically possible with different fragment IDs (`#group_service_a`, `#group_service_b`), but adds client complexity. **Start with one and revisit if needed.**
 
 ### 3. Read operations
+
 Reads go directly to the group's PDS or AppView. The Group Service is write-only. **No changes needed.**
 
 ### 4. Handle changes on exit
+
 If the handle is on the group's PDS domain (e.g., `mygroup.pds.example.com`), it works after exit. Custom domains require the owner to maintain DNS. **Document this in onboarding.**
 
 ### 5. App password deprecation
+
 When Bluesky moves to OAuth-only, the Group Service would authenticate to the group's PDS via OAuth instead of app passwords. The architecture stays the same — only the credential type changes. **Build with app passwords now, plan for OAuth migration later.**
 
 ---
@@ -1994,15 +2022,15 @@ Steps are grouped into **MVP** (required for a working system) and **Post-MVP** 
 
 1. **Scaffold** — Project setup, TypeScript config, Dockerfile, railway.toml
 2. **Database** — Kysely + SQLite setup (global.sqlite + per-group SQLite), migrations, schema types, `GroupDbPool`
-3. **Credentials** — AES-256-GCM app password encryption, PDS agent pool. *Dependency: required by all handlers that write to the group's PDS.*
+3. **Credentials** — AES-256-GCM app password encryption, PDS agent pool. _Dependency: required by all handlers that write to the group's PDS._
 4. **Auth** — Service JWT verifier (copy Ozone pattern), nonce cache. Must accept standard `com.atproto.repo.*` NSIDs and custom `app.certified.group.*` NSIDs.
 5. **RBAC** — Permission matrix, membership queries (via per-group SQLite), authorship tracking
-6. **Error middleware** — XRPC error handler, `xrpcHandler` wrapper. *Dependency: all handlers use the wrapper and error middleware.*
+6. **Error middleware** — XRPC error handler, `xrpcHandler` wrapper. _Dependency: all handlers use the wrapper and error middleware._
 7. **Core API** — `com.atproto.repo.createRecord`, `deleteRecord`, `putRecord` handlers (intercept standard NSIDs, validate `repo` matches `aud`, use agent pool from step 3)
 8. **Blob proxy** — `com.atproto.repo.uploadBlob` handler (buffered)
 9. **Membership API** — `member.add`, `member.remove`, `member.list`, `role.set`
 10. **Audit** — `AuditLogger` class + `audit.query` endpoint
-11. **PLC tooling** — Script to add `#group_service` service entry to group DID document. *Deployment prerequisite: without this, no PDS will proxy requests to the Group Service.*
+11. **PLC tooling** — Script to add `#group_service` service entry to group DID document. _Deployment prerequisite: without this, no PDS will proxy requests to the Group Service._
 12. **Deploy** — Railway (group's PDS first, then Group Service in same project, persistent volume for SQLite)
 13. **Integration test** — End-to-end: client -> PDS proxy -> Group Service -> group's PDS
 
@@ -2033,10 +2061,14 @@ await groupClient.com.atproto.repo.createRecord({
 })
 
 // Group management uses custom lexicons via .call()
-await groupClient.call('app.certified.group.member.add', {}, {
-  memberDid: 'did:plc:newmember',
-  role: 'member',
-})
+await groupClient.call(
+  'app.certified.group.member.add',
+  {},
+  {
+    memberDid: 'did:plc:newmember',
+    role: 'member',
+  },
+)
 ```
 
 `withProxy` is a standard `@atproto/api` method. It sets the `atproto-proxy` header. The user's PDS sees that header, resolves the group's DID doc, finds the `#group_service` service endpoint, signs a service auth JWT, and forwards the request. The client doesn't even know where the Group Service lives — it's resolved via the DID document.

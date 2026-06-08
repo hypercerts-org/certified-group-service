@@ -61,7 +61,10 @@ export class PdsAgentPool {
     try {
       return await fn(agent)
     } catch (err: unknown) {
-      if (err instanceof XRPCError && (err.status === ResponseType.AuthenticationRequired || err.error === EXPIRED_TOKEN_ERROR)) {
+      if (
+        err instanceof XRPCError &&
+        (err.status === ResponseType.AuthenticationRequired || err.error === EXPIRED_TOKEN_ERROR)
+      ) {
         this.invalidate(groupDid)
         const freshAgent = await this.get(groupDid)
         return await fn(freshAgent)

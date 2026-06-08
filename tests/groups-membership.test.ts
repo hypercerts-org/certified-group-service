@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import express from 'express'
 import request from 'supertest'
-import { createTestContext, seedMemberWithIndex, createTestApp, mockAuth } from './helpers/mock-server.js'
+import { createTestContext, seedMemberWithIndex, createTestApp } from './helpers/mock-server.js'
 import { createTestGroupDb } from './helpers/test-db.js'
 import membershipListHandler from '../src/api/membership/list.js'
 import type { AppContext } from '../src/context.js'
@@ -36,21 +36,30 @@ describe('groups.membership.list', () => {
     groupDbC = testC.db
 
     // Register groups in global DB
-    await globalDb.insertInto('groups').values({
-      did: 'did:plc:groupA',
-      pds_url: 'https://pds.example.com',
-      encrypted_app_password: 'enc_pass_a',
-    }).execute()
-    await globalDb.insertInto('groups').values({
-      did: 'did:plc:groupB',
-      pds_url: 'https://pds.example.com',
-      encrypted_app_password: 'enc_pass_b',
-    }).execute()
-    await globalDb.insertInto('groups').values({
-      did: 'did:plc:groupC',
-      pds_url: 'https://pds.example.com',
-      encrypted_app_password: 'enc_pass_c',
-    }).execute()
+    await globalDb
+      .insertInto('groups')
+      .values({
+        did: 'did:plc:groupA',
+        pds_url: 'https://pds.example.com',
+        encrypted_app_password: 'enc_pass_a',
+      })
+      .execute()
+    await globalDb
+      .insertInto('groups')
+      .values({
+        did: 'did:plc:groupB',
+        pds_url: 'https://pds.example.com',
+        encrypted_app_password: 'enc_pass_b',
+      })
+      .execute()
+    await globalDb
+      .insertInto('groups')
+      .values({
+        did: 'did:plc:groupC',
+        pds_url: 'https://pds.example.com',
+        encrypted_app_password: 'enc_pass_c',
+      })
+      .execute()
 
     app = buildApp(ctx)
   })
@@ -167,22 +176,28 @@ describe('groups.membership.list', () => {
 
     // Register groups in global DB
     for (const did of dids) {
-      await globalDb.insertInto('groups').values({
-        did,
-        pds_url: 'https://pds.example.com',
-        encrypted_app_password: 'enc',
-      }).execute()
+      await globalDb
+        .insertInto('groups')
+        .values({
+          did,
+          pds_url: 'https://pds.example.com',
+          encrypted_app_password: 'enc',
+        })
+        .execute()
     }
 
     // Insert directly into member_index with identical timestamps
     for (const did of dids) {
-      await globalDb.insertInto('member_index').values({
-        member_did: 'did:plc:testuser',
-        group_did: did,
-        role: 'member',
-        added_by: 'did:plc:owner',
-        added_at: timestamp,
-      }).execute()
+      await globalDb
+        .insertInto('member_index')
+        .values({
+          member_did: 'did:plc:testuser',
+          group_did: did,
+          role: 'member',
+          added_by: 'did:plc:owner',
+          added_at: timestamp,
+        })
+        .execute()
     }
 
     const res1 = await request(app).get('/xrpc/app.certified.groups.membership.list?limit=2')
@@ -210,22 +225,28 @@ describe('groups.membership.list', () => {
     // Register 7 groups
     const groupDids = Array.from({ length: 7 }, (_, i) => `did:plc:page${i}`)
     for (const did of groupDids) {
-      await globalDb.insertInto('groups').values({
-        did,
-        pds_url: 'https://pds.example.com',
-        encrypted_app_password: 'enc',
-      }).execute()
+      await globalDb
+        .insertInto('groups')
+        .values({
+          did,
+          pds_url: 'https://pds.example.com',
+          encrypted_app_password: 'enc',
+        })
+        .execute()
     }
 
     // Insert into member_index with ascending timestamps
     for (let i = 0; i < 7; i++) {
-      await globalDb.insertInto('member_index').values({
-        member_did: 'did:plc:testuser',
-        group_did: groupDids[i],
-        role: 'member',
-        added_by: 'did:plc:owner',
-        added_at: `2025-01-01 00:00:0${i + 1}`,
-      }).execute()
+      await globalDb
+        .insertInto('member_index')
+        .values({
+          member_did: 'did:plc:testuser',
+          group_did: groupDids[i],
+          role: 'member',
+          added_by: 'did:plc:owner',
+          added_at: `2025-01-01 00:00:0${i + 1}`,
+        })
+        .execute()
     }
 
     // Page 1

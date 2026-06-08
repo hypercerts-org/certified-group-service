@@ -20,7 +20,10 @@ describe('configSchema', () => {
   })
 
   it('accepts explicit serviceDid', () => {
-    const config = configSchema.parse({ ...VALID_BASE, serviceDid: 'did:web:custom.example.com' })
+    const config = configSchema.parse({
+      ...VALID_BASE,
+      serviceDid: 'did:web:custom.example.com',
+    })
     expect(config.serviceDid).toBe('did:web:custom.example.com')
   })
 

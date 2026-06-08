@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { canPerform, ASSIGNABLE_ROLES, ROLE_HIERARCHY, type Role, type Operation } from '../src/rbac/permissions.js'
+import {
+  canPerform,
+  ASSIGNABLE_ROLES,
+  ROLE_HIERARCHY,
+  type Operation,
+} from '../src/rbac/permissions.js'
 import { RbacChecker } from '../src/rbac/check.js'
 import { createTestGroupDb } from './helpers/test-db.js'
 import { seedMember, seedAuthorship } from './helpers/mock-server.js'
@@ -7,8 +12,21 @@ import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 
 describe('canPerform', () => {
-  const memberOps: Operation[] = ['createRecord', 'uploadBlob', 'deleteOwnRecord', 'putOwnRecord', 'member.list']
-  const adminOps: Operation[] = ['putAnyRecord', 'deleteAnyRecord', 'putRecord:profile', 'member.add', 'member.remove', 'audit.query']
+  const memberOps: Operation[] = [
+    'createRecord',
+    'uploadBlob',
+    'deleteOwnRecord',
+    'putOwnRecord',
+    'member.list',
+  ]
+  const adminOps: Operation[] = [
+    'putAnyRecord',
+    'deleteAnyRecord',
+    'putRecord:profile',
+    'member.add',
+    'member.remove',
+    'audit.query',
+  ]
   const ownerOps: Operation[] = ['role.set']
 
   it('member can perform member-level ops', () => {
@@ -28,7 +46,8 @@ describe('canPerform', () => {
   })
 
   it('owner can perform all ops', () => {
-    for (const op of [...memberOps, ...adminOps, ...ownerOps]) expect(canPerform('owner', op)).toBe(true)
+    for (const op of [...memberOps, ...adminOps, ...ownerOps])
+      expect(canPerform('owner', op)).toBe(true)
   })
 })
 
@@ -49,27 +68,49 @@ describe('RbacChecker', () => {
   })
 
   it('assertCan throws ForbiddenError for non-member', async () => {
-    await expect(rbac.assertCan(groupDb, 'did:plc:nobody', 'createRecord')).rejects.toThrow('Not a member')
+    await expect(rbac.assertCan(groupDb, 'did:plc:nobody', 'createRecord')).rejects.toThrow(
+      'Not a member',
+    )
   })
 
   it('assertCan throws ForbiddenError for insufficient role', async () => {
-    await expect(rbac.assertCan(groupDb, 'did:plc:member1', 'member.add')).rejects.toThrow(/cannot perform/)
+    await expect(rbac.assertCan(groupDb, 'did:plc:member1', 'member.add')).rejects.toThrow(
+      /cannot perform/,
+    )
   })
 
   it('isAuthor returns true for matching author', async () => {
-    await seedAuthorship(groupDb, 'at://did:plc:g/app.bsky.feed.post/1', 'did:plc:member1', 'app.bsky.feed.post')
-    expect(await rbac.isAuthor(groupDb, 'at://did:plc:g/app.bsky.feed.post/1', 'did:plc:member1')).toBe(true)
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:g/app.bsky.feed.post/1',
+      'did:plc:member1',
+      'app.bsky.feed.post',
+    )
+    expect(
+      await rbac.isAuthor(groupDb, 'at://did:plc:g/app.bsky.feed.post/1', 'did:plc:member1'),
+    ).toBe(true)
   })
 
   it('isAuthor returns false for non-author', async () => {
-    await seedAuthorship(groupDb, 'at://did:plc:g/app.bsky.feed.post/1', 'did:plc:other', 'app.bsky.feed.post')
-    expect(await rbac.isAuthor(groupDb, 'at://did:plc:g/app.bsky.feed.post/1', 'did:plc:member1')).toBe(false)
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:g/app.bsky.feed.post/1',
+      'did:plc:other',
+      'app.bsky.feed.post',
+    )
+    expect(
+      await rbac.isAuthor(groupDb, 'at://did:plc:g/app.bsky.feed.post/1', 'did:plc:member1'),
+    ).toBe(false)
   })
 
   it('assertCan throws Error for invalid role in database', async () => {
     await groupDb
       .insertInto('group_members')
-      .values({ member_did: 'did:plc:badrole', role: 'superadmin' as any, added_by: 'did:plc:owner' })
+      .values({
+        member_did: 'did:plc:badrole',
+        role: 'superadmin' as any,
+        added_by: 'did:plc:owner',
+      })
       .execute()
     await expect(rbac.assertCan(groupDb, 'did:plc:badrole', 'createRecord')).rejects.toThrow(
       'Invalid role in database: superadmin',
@@ -89,8 +130,17 @@ describe('RBAC constants', () => {
 
   it('canPerform covers all 12 operations', () => {
     const allOps: Operation[] = [
-      'createRecord', 'uploadBlob', 'deleteOwnRecord', 'putOwnRecord', 'member.list',
-      'putAnyRecord', 'deleteAnyRecord', 'putRecord:profile', 'member.add', 'member.remove', 'audit.query',
+      'createRecord',
+      'uploadBlob',
+      'deleteOwnRecord',
+      'putOwnRecord',
+      'member.list',
+      'putAnyRecord',
+      'deleteAnyRecord',
+      'putRecord:profile',
+      'member.add',
+      'member.remove',
+      'audit.query',
       'role.set',
     ]
     // member: 5 ops

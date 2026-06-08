@@ -3,10 +3,18 @@ import { XRPCError } from '@atproto/xrpc-server'
 import { createFallbackErrorHandler } from '../src/api/error-handler.js'
 
 function makeMocks() {
-  const logger = { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() }
+  const logger = {
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+  }
   const handler = createFallbackErrorHandler(logger as any)
   const req = {} as any
-  const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() } as any
+  const res = {
+    status: vi.fn().mockReturnThis(),
+    json: vi.fn().mockReturnThis(),
+  } as any
   const next = vi.fn()
   return { logger, handler, req, res, next }
 }
@@ -18,7 +26,10 @@ describe('createFallbackErrorHandler', () => {
     handler(err, req, res, next)
     expect(res.status).toHaveBeenCalledWith(400)
     expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ error: 'InvalidRequest', message: 'Bad input' }),
+      expect.objectContaining({
+        error: 'InvalidRequest',
+        message: 'Bad input',
+      }),
     )
   })
 
@@ -32,7 +43,10 @@ describe('createFallbackErrorHandler', () => {
     const { handler, req, res, next } = makeMocks()
     handler(new Error('something broke'), req, res, next)
     expect(res.status).toHaveBeenCalledWith(500)
-    expect(res.json).toHaveBeenCalledWith({ error: 'InternalServerError', message: 'Internal server error' })
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'InternalServerError',
+      message: 'Internal server error',
+    })
   })
 
   it('generic Error is logged', () => {
@@ -46,6 +60,9 @@ describe('createFallbackErrorHandler', () => {
     const { handler, req, res, next } = makeMocks()
     handler('string error', req, res, next)
     expect(res.status).toHaveBeenCalledWith(500)
-    expect(res.json).toHaveBeenCalledWith({ error: 'InternalServerError', message: 'Internal server error' })
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'InternalServerError',
+      message: 'Internal server error',
+    })
   })
 })

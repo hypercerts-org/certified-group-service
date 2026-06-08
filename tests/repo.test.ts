@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import type { Express } from 'express'
 import request from 'supertest'
-import { createTestContext, createTestApp, mockAuth, seedMember, seedAuthorship } from './helpers/mock-server.js'
+import {
+  createTestContext,
+  createTestApp,
+  mockAuth,
+  seedMember,
+  seedAuthorship,
+} from './helpers/mock-server.js'
 import createRecordHandler from '../src/api/repo/createRecord.js'
 import deleteRecordHandler from '../src/api/repo/deleteRecord.js'
 import putRecordHandler from '../src/api/repo/putRecord.js'
@@ -32,7 +38,11 @@ describe('createRecord', () => {
   it('creates record and tracks authorship', async () => {
     const res = await request(app)
       .post('/xrpc/com.atproto.repo.createRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: { text: 'hello' } })
+      .send({
+        repo: 'did:plc:testgroup',
+        collection: 'app.bsky.feed.post',
+        record: { text: 'hello' },
+      })
     expect(res.status).toBe(200)
     expect(res.body.uri).toBeDefined()
     const authors = await groupDb.selectFrom('group_record_authors').selectAll().execute()
@@ -40,11 +50,16 @@ describe('createRecord', () => {
     expect(authors[0].author_did).toBe('did:plc:testuser')
   })
 
-  it('rejects repo DID mismatch', async () => {
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.createRecord')
-      .send({ repo: 'did:plc:wrong', collection: 'app.bsky.feed.post', record: {} })
-    expect(res.status).toBe(403)
+  it('rejects an unregistered repo (resolves to no known group)', async () => {
+    // Post-#27: `repo` is the group selector, not a cross-check against `aud`.
+    // A repo that names no registered group is rejected at resolution, not as a
+    // 403 "mismatch".
+    const res = await request(app).post('/xrpc/com.atproto.repo.createRecord').send({
+      repo: 'did:plc:wrong',
+      collection: 'app.bsky.feed.post',
+      record: {},
+    })
+    expect(res.status).toBe(401)
   })
 
   it('rejects non-members', async () => {
@@ -53,16 +68,20 @@ describe('createRecord', () => {
       createRecordHandler(server, appCtx)
       deleteRecordHandler(server, appCtx)
     })
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.createRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: {} })
+    const res = await request(app).post('/xrpc/com.atproto.repo.createRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      record: {},
+    })
     expect(res.status).toBe(403)
   })
 
   it('audit logs permitted actions', async () => {
-    await request(app)
-      .post('/xrpc/com.atproto.repo.createRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: {} })
+    await request(app).post('/xrpc/com.atproto.repo.createRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      record: {},
+    })
     const logs = await groupDb.selectFrom('group_audit_log').selectAll().execute()
     expect(logs).toHaveLength(1)
     expect(logs[0].action).toBe('createRecord')
@@ -75,9 +94,11 @@ describe('createRecord', () => {
       createRecordHandler(server, appCtx)
       deleteRecordHandler(server, appCtx)
     })
-    await request(app)
-      .post('/xrpc/com.atproto.repo.createRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: {} })
+    await request(app).post('/xrpc/com.atproto.repo.createRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      record: {},
+    })
     const logs = await groupDb.selectFrom('group_audit_log').selectAll().execute()
     expect(logs).toHaveLength(1)
     expect(logs[0].result).toBe('denied')
@@ -86,9 +107,11 @@ describe('createRecord', () => {
   })
 
   it('response includes uri and cid', async () => {
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.createRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', record: {} })
+    const res = await request(app).post('/xrpc/com.atproto.repo.createRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      record: {},
+    })
     expect(res.status).toBe(200)
     expect(res.body.uri).toBeDefined()
     expect(res.body.cid).toBeDefined()
@@ -115,20 +138,34 @@ describe('deleteRecord', () => {
   })
 
   it('allows author to delete own record', async () => {
-    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/abc', 'did:plc:testuser', 'app.bsky.feed.post')
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.deleteRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'abc' })
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:testgroup/app.bsky.feed.post/abc',
+      'did:plc:testuser',
+      'app.bsky.feed.post',
+    )
+    const res = await request(app).post('/xrpc/com.atproto.repo.deleteRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'abc',
+    })
     expect(res.status).toBe(200)
     const authors = await groupDb.selectFrom('group_record_authors').selectAll().execute()
     expect(authors).toHaveLength(0)
   })
 
   it('rejects member deleting others records', async () => {
-    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/abc', 'did:plc:other', 'app.bsky.feed.post')
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.deleteRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'abc' })
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:testgroup/app.bsky.feed.post/abc',
+      'did:plc:other',
+      'app.bsky.feed.post',
+    )
+    const res = await request(app).post('/xrpc/com.atproto.repo.deleteRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'abc',
+    })
     expect(res.status).toBe(403)
   })
 
@@ -138,18 +175,32 @@ describe('deleteRecord', () => {
     app = createTestApp(overriddenCtx, (server, appCtx) => {
       deleteRecordHandler(server, appCtx)
     })
-    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/abc', 'did:plc:other', 'app.bsky.feed.post')
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.deleteRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'abc' })
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:testgroup/app.bsky.feed.post/abc',
+      'did:plc:other',
+      'app.bsky.feed.post',
+    )
+    const res = await request(app).post('/xrpc/com.atproto.repo.deleteRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'abc',
+    })
     expect(res.status).toBe(200)
   })
 
   it('audit logs denied delete with reason', async () => {
-    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/abc', 'did:plc:other', 'app.bsky.feed.post')
-    await request(app)
-      .post('/xrpc/com.atproto.repo.deleteRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'abc' })
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:testgroup/app.bsky.feed.post/abc',
+      'did:plc:other',
+      'app.bsky.feed.post',
+    )
+    await request(app).post('/xrpc/com.atproto.repo.deleteRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'abc',
+    })
     const logs = await groupDb.selectFrom('group_audit_log').selectAll().execute()
     expect(logs).toHaveLength(1)
     expect(logs[0].result).toBe('denied')
@@ -157,19 +208,29 @@ describe('deleteRecord', () => {
     expect(detail.reason).toBeDefined()
   })
 
-  it('repo DID mismatch returns 403', async () => {
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.deleteRecord')
-      .send({ repo: 'did:plc:wrong', collection: 'app.bsky.feed.post', rkey: 'abc' })
-    expect(res.status).toBe(403)
+  it('rejects an unregistered repo on delete (resolves to no known group)', async () => {
+    const res = await request(app).post('/xrpc/com.atproto.repo.deleteRecord').send({
+      repo: 'did:plc:wrong',
+      collection: 'app.bsky.feed.post',
+      rkey: 'abc',
+    })
+    expect(res.status).toBe(401)
   })
 
   it('authorship cleaned up after successful delete', async () => {
-    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/abc', 'did:plc:testuser', 'app.bsky.feed.post')
-    await request(app)
-      .post('/xrpc/com.atproto.repo.deleteRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'abc' })
-    const authors = await groupDb.selectFrom('group_record_authors')
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:testgroup/app.bsky.feed.post/abc',
+      'did:plc:testuser',
+      'app.bsky.feed.post',
+    )
+    await request(app).post('/xrpc/com.atproto.repo.deleteRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'abc',
+    })
+    const authors = await groupDb
+      .selectFrom('group_record_authors')
       .selectAll()
       .where('record_uri', '=', 'at://did:plc:testgroup/app.bsky.feed.post/abc')
       .execute()
@@ -197,9 +258,12 @@ describe('putRecord', () => {
   })
 
   it('profile update requires admin — member gets 403', async () => {
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.putRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.actor.profile', rkey: 'self', record: {} })
+    const res = await request(app).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.actor.profile',
+      rkey: 'self',
+      record: {},
+    })
     expect(res.status).toBe(403)
   })
 
@@ -209,30 +273,49 @@ describe('putRecord', () => {
     app = createTestApp(overriddenCtx, (server, appCtx) => {
       putRecordHandler(server, appCtx)
     })
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.putRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.actor.profile', rkey: 'self', record: {} })
+    const res = await request(app).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.actor.profile',
+      rkey: 'self',
+      record: {},
+    })
     expect(res.status).toBe(200)
   })
 
   it('member cannot update record authored by others', async () => {
-    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/xyz', 'did:plc:other', 'app.bsky.feed.post')
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.putRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'xyz', record: {} })
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:testgroup/app.bsky.feed.post/xyz',
+      'did:plc:other',
+      'app.bsky.feed.post',
+    )
+    const res = await request(app).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'xyz',
+      record: {},
+    })
     expect(res.status).toBe(403)
   })
 
   it('admin can update record authored by others', async () => {
     await seedMember(groupDb, 'did:plc:admin1', 'admin')
-    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/xyz', 'did:plc:other', 'app.bsky.feed.post')
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:testgroup/app.bsky.feed.post/xyz',
+      'did:plc:other',
+      'app.bsky.feed.post',
+    )
     const overriddenCtx = { ...ctx, authVerifier: mockAuth('did:plc:admin1') }
     app = createTestApp(overriddenCtx, (server, appCtx) => {
       putRecordHandler(server, appCtx)
     })
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.putRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'xyz', record: {} })
+    const res = await request(app).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'xyz',
+      record: {},
+    })
     expect(res.status).toBe(200)
 
     const auditRows = await groupDb
@@ -246,9 +329,12 @@ describe('putRecord', () => {
   })
 
   it('new record via putRecord treated as createRecord permission', async () => {
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.putRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'new1', record: {} })
+    const res = await request(app).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'new1',
+      record: {},
+    })
     expect(res.status).toBe(200)
     const authors = await groupDb.selectFrom('group_record_authors').selectAll().execute()
     expect(authors).toHaveLength(1)
@@ -260,19 +346,30 @@ describe('putRecord', () => {
     app = createTestApp(overriddenCtx, (server, appCtx) => {
       putRecordHandler(server, appCtx)
     })
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.putRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.actor.profile', rkey: 'self', record: {} })
+    const res = await request(app).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.actor.profile',
+      rkey: 'self',
+      record: {},
+    })
     expect(res.status).toBe(200)
     const authors = await groupDb.selectFrom('group_record_authors').selectAll().execute()
     expect(authors).toHaveLength(0)
   })
 
   it('author can update own record via putRecord', async () => {
-    await seedAuthorship(groupDb, 'at://did:plc:testgroup/app.bsky.feed.post/xyz', 'did:plc:testuser', 'app.bsky.feed.post')
-    const res = await request(app)
-      .post('/xrpc/com.atproto.repo.putRecord')
-      .send({ repo: 'did:plc:testgroup', collection: 'app.bsky.feed.post', rkey: 'xyz', record: {} })
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:testgroup/app.bsky.feed.post/xyz',
+      'did:plc:testuser',
+      'app.bsky.feed.post',
+    )
+    const res = await request(app).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'xyz',
+      record: {},
+    })
     expect(res.status).toBe(200)
   })
 })

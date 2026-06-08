@@ -11,14 +11,16 @@ import { loadConfig } from './config.js'
 import { AuthVerifier } from './auth/verifier.js'
 import { NonceCache } from './auth/nonce.js'
 import { RbacChecker } from './rbac/check.js'
-import { registerXrpcMethods, registerRawRoutes } from './api/index.js'
+import { registerXrpcMethods } from './api/index.js'
 import { createFallbackErrorHandler } from './api/error-handler.js'
+import { createHealthHandler } from './health.js'
 import { runGlobalMigrations } from './db/migrate.js'
 import { openSqliteDb } from './db/sqlite.js'
 import { GroupDbPool } from './db/group-db-pool.js'
 import { MemberIndex, backfillMemberIndex } from './db/member-index.js'
 import { PdsAgentPool } from './pds/agent.js'
 import { AuditLogger } from './audit.js'
+import { buildDidDocument } from './did-document.js'
 import type { AppContext } from './context.js'
 import type { GlobalDatabase } from './db/schema.js'
 
@@ -71,30 +73,43 @@ async function main() {
   const audit = new AuditLogger()
   const memberIndex = new MemberIndex(globalDbPath)
   const ctx: AppContext = {
-    config, globalDb, globalDbPath, groupDbs, authVerifier, rbac, pdsAgents, audit, memberIndex, logger,
+    config,
+    globalDb,
+    globalDbPath,
+    groupDbs,
+    authVerifier,
+    idResolver,
+    rbac,
+    pdsAgents,
+    audit,
+    memberIndex,
+    logger,
   }
 
-  // Health check (unchanged)
-  app.get('/health', async (_req, res) => {
-    try {
-      await globalDb.selectFrom('groups').select('did').limit(1).execute()
-      res.json({ status: 'ok' })
-    } catch {
-      res.status(503).json({ status: 'error', message: 'database unreachable' })
-    }
+  // Health check. Reports liveness, service name and version, gated on a
+  // probe of the global DB. `/xrpc/_health` mirrors `/health` — the upstream
+  // PDS exposes _health from its own code, but the group service has no such
+  // upstream, so we serve it ourselves. It must be registered before the
+  // XRPC router so it wins over the catch-all /xrpc/* handler.
+  const healthHandler = createHealthHandler(globalDb)
+  app.get('/health', healthHandler)
+  app.get('/xrpc/_health', healthHandler)
+
+  // did:web document so the service DID resolves (issue #29 / HYPER-484) and the
+  // #certified_group_service service entry is published for proxying + scope aud.
+  const didDocument = buildDidDocument(config.serviceDid, config.serviceUrl)
+  app.get('/.well-known/did.json', (_req, res) => {
+    res.json(didDocument)
   })
 
-  // group.register needs JSON parsing (outside XRPC server)
-  app.use('/xrpc/app.certified.group.register', express.json({ limit: '1mb' }))
-  registerRawRoutes(app, ctx)
-
-  // XRPC server — handles all other /xrpc/* routes
+  // XRPC server — handles all /xrpc/* routes, including group.register and
+  // group.import (service-auth methods) and per-group methods
   const __dirname = dirname(fileURLToPath(import.meta.url))
   const xrpcServer = createGroupServer(join(__dirname, '..', 'lexicons'))
   registerXrpcMethods(xrpcServer, ctx)
   app.use(xrpcServer.router)
 
-  // Fallback error handler for non-XRPC routes (group.register)
+  // Fallback error handler for any non-XRPC routes (e.g. /health)
   app.use(createFallbackErrorHandler(logger))
 
   const server = app.listen(config.port, () => {
@@ -114,7 +129,7 @@ async function main() {
     clearInterval(nonceCleanupInterval)
     // Stop accepting new connections and destroy lingering keep-alive sockets concurrently
     const closeServer = new Promise<void>((resolve, reject) =>
-      server.close((err) => (err ? reject(err) : resolve()))
+      server.close((err) => (err ? reject(err) : resolve())),
     )
     logger.info(`Destroying ${openSockets.size} open socket(s) to unblock server close`)
     openSockets.forEach((s) => s.destroy())

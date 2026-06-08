@@ -7,7 +7,13 @@ import { jsonResponse, encodeCursor, decodeCursor, sqliteToIso } from '../util.j
 export default function (server: Server, ctx: AppContext) {
   server.method('app.certified.groups.membership.list', {
     auth: ctx.authVerifier.xrpcServiceAuth(),
-    handler: async ({ auth, params }: { auth: ServiceAuthResult; params: Record<string, unknown> }) => {
+    handler: async ({
+      auth,
+      params,
+    }: {
+      auth: ServiceAuthResult
+      params: Record<string, unknown>
+    }) => {
       const callerDid = auth.credentials.callerDid
 
       const limit = (params.limit as number) ?? 50

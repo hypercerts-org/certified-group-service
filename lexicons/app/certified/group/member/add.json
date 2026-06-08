@@ -11,6 +11,11 @@
           "type": "object",
           "required": ["memberDid", "role"],
           "properties": {
+            "repo": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the target group. Optional during the #27 deprecation window: omit it and the group is taken from the (deprecated) JWT aud claim instead."
+            },
             "memberDid": { "type": "string", "format": "did" },
             "role": {
               "type": "string",

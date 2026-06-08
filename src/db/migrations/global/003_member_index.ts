@@ -7,9 +7,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('group_did', 'text', (col) => col.notNull())
     .addColumn('role', 'text', (col) => col.notNull())
     .addColumn('added_by', 'text', (col) => col.notNull())
-    .addColumn('added_at', 'text', (col) =>
-      col.defaultTo(sql`(datetime('now'))`).notNull(),
-    )
+    .addColumn('added_at', 'text', (col) => col.defaultTo(sql`(datetime('now'))`).notNull())
     .addPrimaryKeyConstraint('pk_member_index', ['member_did', 'group_did'])
     .execute()
 

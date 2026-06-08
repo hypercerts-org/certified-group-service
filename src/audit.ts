@@ -19,14 +19,17 @@ export class AuditLogger {
     detail?: AuditEventDetail,
     jti?: string,
   ): Promise<void> {
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: actorDid,
-      action,
-      collection: detail?.collection ?? null,
-      rkey: detail?.rkey ?? null,
-      result,
-      detail: detail ? JSON.stringify(detail) : null,
-      jti: jti ?? null,
-    }).execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: actorDid,
+        action,
+        collection: detail?.collection ?? null,
+        rkey: detail?.rkey ?? null,
+        result,
+        detail: detail ? JSON.stringify(detail) : null,
+        jti: jti ?? null,
+      })
+      .execute()
   }
 }

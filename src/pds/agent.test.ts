@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { XRPCError, ResponseType } from '@atproto/xrpc'
+import { XRPCError } from '@atproto/xrpc'
 import { PdsAgentPool } from './agent.js'
 import type { Agent } from '@atproto/api'
 
@@ -23,13 +23,12 @@ describe('PdsAgentPool.withAgent', () => {
     const secondAgent = makeAgent()
 
     // get() returns firstAgent first, then secondAgent after invalidation
-    vi.spyOn(pool, 'get')
-      .mockResolvedValueOnce(firstAgent)
-      .mockResolvedValueOnce(secondAgent)
+    vi.spyOn(pool, 'get').mockResolvedValueOnce(firstAgent).mockResolvedValueOnce(secondAgent)
 
-    const fn = vi.fn().mockRejectedValueOnce(
-      new XRPCError(401, 'AuthenticationRequired'),
-    ).mockResolvedValueOnce('ok')
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new XRPCError(401, 'AuthenticationRequired'))
+      .mockResolvedValueOnce('ok')
 
     const result = await pool.withAgent('did:example:1', fn)
 
@@ -43,14 +42,10 @@ describe('PdsAgentPool.withAgent', () => {
     const firstAgent = makeAgent()
     const secondAgent = makeAgent()
 
-    vi.spyOn(pool, 'get')
-      .mockResolvedValueOnce(firstAgent)
-      .mockResolvedValueOnce(secondAgent)
+    vi.spyOn(pool, 'get').mockResolvedValueOnce(firstAgent).mockResolvedValueOnce(secondAgent)
 
     const expiredError = new XRPCError(400, 'ExpiredToken')
-    const fn = vi.fn()
-      .mockRejectedValueOnce(expiredError)
-      .mockResolvedValueOnce('retried')
+    const fn = vi.fn().mockRejectedValueOnce(expiredError).mockResolvedValueOnce('retried')
 
     const result = await pool.withAgent('did:example:2', fn)
 
@@ -84,15 +79,14 @@ describe('PdsAgentPool.withAgent', () => {
     const firstAgent = makeAgent()
     const secondAgent = makeAgent()
 
-    const getSpy = vi.spyOn(pool, 'get')
+    const getSpy = vi
+      .spyOn(pool, 'get')
       .mockResolvedValueOnce(firstAgent)
       .mockResolvedValueOnce(secondAgent)
 
     const invalidateSpy = vi.spyOn(pool, 'invalidate')
 
-    const fn = vi.fn()
-      .mockRejectedValueOnce(new XRPCError(401))
-      .mockResolvedValueOnce('done')
+    const fn = vi.fn().mockRejectedValueOnce(new XRPCError(401)).mockResolvedValueOnce('done')
 
     await pool.withAgent('did:example:5', fn)
 

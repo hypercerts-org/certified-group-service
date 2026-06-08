@@ -1,7 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import express from 'express'
 import request from 'supertest'
-import { createTestContext, seedMember, seedMemberWithIndex, createTestApp, mockAuth } from './helpers/mock-server.js'
+import {
+  createTestContext,
+  seedMember,
+  seedMemberWithIndex,
+  createTestApp,
+  mockAuth,
+} from './helpers/mock-server.js'
 import memberAddHandler from '../src/api/member/add.js'
 import memberRemoveHandler from '../src/api/member/remove.js'
 import memberListHandler from '../src/api/member/list.js'
@@ -79,8 +85,12 @@ describe('member.add', () => {
 
   it('concurrent duplicate requests both return 200 or 409, never 500', async () => {
     const [res1, res2] = await Promise.all([
-      request(app).post('/xrpc/app.certified.group.member.add').send({ memberDid: 'did:plc:concurrent', role: 'member' }),
-      request(app).post('/xrpc/app.certified.group.member.add').send({ memberDid: 'did:plc:concurrent', role: 'member' }),
+      request(app)
+        .post('/xrpc/app.certified.group.member.add')
+        .send({ memberDid: 'did:plc:concurrent', role: 'member' }),
+      request(app)
+        .post('/xrpc/app.certified.group.member.add')
+        .send({ memberDid: 'did:plc:concurrent', role: 'member' }),
     ])
     expect([200, 409]).toContain(res1.status)
     expect([200, 409]).toContain(res2.status)
@@ -166,7 +176,11 @@ describe('member.remove', () => {
       .post('/xrpc/app.certified.group.member.remove')
       .send({ memberDid: 'did:plc:target' })
     expect(res.status).toBe(200)
-    const remaining = await groupDb.selectFrom('group_members').selectAll().where('member_did', '=', 'did:plc:target').execute()
+    const remaining = await groupDb
+      .selectFrom('group_members')
+      .selectAll()
+      .where('member_did', '=', 'did:plc:target')
+      .execute()
     expect(remaining).toHaveLength(0)
 
     // Verify member_index row is also removed
@@ -271,7 +285,9 @@ describe('member.list', () => {
     expect(res.status).toBe(200)
     expect(res.body.members).toHaveLength(3)
     expect(res.body.cursor).toBeDefined()
-    const res2 = await request(app).get(`/xrpc/app.certified.group.member.list?limit=3&cursor=${res.body.cursor}`)
+    const res2 = await request(app).get(
+      `/xrpc/app.certified.group.member.list?limit=3&cursor=${res.body.cursor}`,
+    )
     expect(res2.status).toBe(200)
     expect(res2.body.members.length).toBeGreaterThan(0)
   })
@@ -396,10 +412,16 @@ describe('audit.query', () => {
   })
 
   it('returns audit entries newest-first', async () => {
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:someone', action: 'createRecord', result: 'permitted',
-      collection: 'app.bsky.feed.post', rkey: 'abc',
-    }).execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:someone',
+        action: 'createRecord',
+        result: 'permitted',
+        collection: 'app.bsky.feed.post',
+        rkey: 'abc',
+      })
+      .execute()
     const res = await request(app).get('/xrpc/app.certified.group.audit.query')
     expect(res.status).toBe(200)
     expect(res.body.entries).toHaveLength(1)
@@ -407,12 +429,22 @@ describe('audit.query', () => {
   })
 
   it('filters by actorDid', async () => {
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:a', action: 'createRecord', result: 'permitted',
-    }).execute()
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:b', action: 'createRecord', result: 'permitted',
-    }).execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:a',
+        action: 'createRecord',
+        result: 'permitted',
+      })
+      .execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:b',
+        action: 'createRecord',
+        result: 'permitted',
+      })
+      .execute()
     const res = await request(app).get('/xrpc/app.certified.group.audit.query?actorDid=did:plc:a')
     expect(res.status).toBe(200)
     expect(res.body.entries).toHaveLength(1)
@@ -427,21 +459,39 @@ describe('audit.query', () => {
   })
 
   it('parses detail JSON in response', async () => {
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:x', action: 'member.add', result: 'permitted',
-      detail: JSON.stringify({ memberDid: 'did:plc:new', role: 'member' }),
-    }).execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:x',
+        action: 'member.add',
+        result: 'permitted',
+        detail: JSON.stringify({ memberDid: 'did:plc:new', role: 'member' }),
+      })
+      .execute()
     const res = await request(app).get('/xrpc/app.certified.group.audit.query')
-    expect(res.body.entries[0].detail).toEqual({ memberDid: 'did:plc:new', role: 'member' })
+    expect(res.body.entries[0].detail).toEqual({
+      memberDid: 'did:plc:new',
+      role: 'member',
+    })
   })
 
   it('filters by action', async () => {
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:a', action: 'createRecord', result: 'permitted',
-    }).execute()
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:a', action: 'deleteRecord', result: 'permitted',
-    }).execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:a',
+        action: 'createRecord',
+        result: 'permitted',
+      })
+      .execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:a',
+        action: 'deleteRecord',
+        result: 'permitted',
+      })
+      .execute()
     const res = await request(app).get('/xrpc/app.certified.group.audit.query?action=createRecord')
     expect(res.status).toBe(200)
     expect(res.body.entries).toHaveLength(1)
@@ -449,29 +499,60 @@ describe('audit.query', () => {
   })
 
   it('filters by collection', async () => {
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:a', action: 'createRecord', result: 'permitted', collection: 'app.bsky.feed.post',
-    }).execute()
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:a', action: 'createRecord', result: 'permitted', collection: 'app.bsky.feed.like',
-    }).execute()
-    const res = await request(app).get('/xrpc/app.certified.group.audit.query?collection=app.bsky.feed.post')
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:a',
+        action: 'createRecord',
+        result: 'permitted',
+        collection: 'app.bsky.feed.post',
+      })
+      .execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:a',
+        action: 'createRecord',
+        result: 'permitted',
+        collection: 'app.bsky.feed.like',
+      })
+      .execute()
+    const res = await request(app).get(
+      '/xrpc/app.certified.group.audit.query?collection=app.bsky.feed.post',
+    )
     expect(res.status).toBe(200)
     expect(res.body.entries).toHaveLength(1)
     expect(res.body.entries[0].collection).toBe('app.bsky.feed.post')
   })
 
   it('multiple filters combined (AND)', async () => {
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:a', action: 'createRecord', result: 'permitted',
-    }).execute()
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:a', action: 'deleteRecord', result: 'permitted',
-    }).execute()
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:b', action: 'createRecord', result: 'permitted',
-    }).execute()
-    const res = await request(app).get('/xrpc/app.certified.group.audit.query?actorDid=did:plc:a&action=createRecord')
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:a',
+        action: 'createRecord',
+        result: 'permitted',
+      })
+      .execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:a',
+        action: 'deleteRecord',
+        result: 'permitted',
+      })
+      .execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:b',
+        action: 'createRecord',
+        result: 'permitted',
+      })
+      .execute()
+    const res = await request(app).get(
+      '/xrpc/app.certified.group.audit.query?actorDid=did:plc:a&action=createRecord',
+    )
     expect(res.body.entries).toHaveLength(1)
     expect(res.body.entries[0].actorDid).toBe('did:plc:a')
     expect(res.body.entries[0].action).toBe('createRecord')
@@ -492,35 +573,56 @@ describe('audit.query', () => {
 
   it('pagination with cursor works', async () => {
     for (let i = 0; i < 5; i++) {
-      await groupDb.insertInto('group_audit_log').values({
-        actor_did: 'did:plc:a', action: `action${i}`, result: 'permitted',
-      }).execute()
+      await groupDb
+        .insertInto('group_audit_log')
+        .values({
+          actor_did: 'did:plc:a',
+          action: `action${i}`,
+          result: 'permitted',
+        })
+        .execute()
     }
     const page1 = await request(app).get('/xrpc/app.certified.group.audit.query?limit=2')
     expect(page1.body.entries).toHaveLength(2)
     expect(page1.body.cursor).toBeDefined()
 
-    const page2 = await request(app).get(`/xrpc/app.certified.group.audit.query?limit=2&cursor=${page1.body.cursor}`)
+    const page2 = await request(app).get(
+      `/xrpc/app.certified.group.audit.query?limit=2&cursor=${page1.body.cursor}`,
+    )
     expect(page2.body.entries).toHaveLength(2)
     expect(page2.body.cursor).toBeDefined()
 
-    const page3 = await request(app).get(`/xrpc/app.certified.group.audit.query?limit=2&cursor=${page2.body.cursor}`)
+    const page3 = await request(app).get(
+      `/xrpc/app.certified.group.audit.query?limit=2&cursor=${page2.body.cursor}`,
+    )
     expect(page3.body.entries).toHaveLength(1)
     expect(page3.body.cursor).toBeUndefined()
   })
 
   it('malformed detail JSON returns undefined', async () => {
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:a', action: 'test', result: 'permitted', detail: '{bad json',
-    }).execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:a',
+        action: 'test',
+        result: 'permitted',
+        detail: '{bad json',
+      })
+      .execute()
     const res = await request(app).get('/xrpc/app.certified.group.audit.query')
     expect(res.body.entries[0].detail).toBeUndefined()
   })
 
   it('null detail returns undefined', async () => {
-    await groupDb.insertInto('group_audit_log').values({
-      actor_did: 'did:plc:a', action: 'test', result: 'permitted', detail: null,
-    }).execute()
+    await groupDb
+      .insertInto('group_audit_log')
+      .values({
+        actor_did: 'did:plc:a',
+        action: 'test',
+        result: 'permitted',
+        detail: null,
+      })
+      .execute()
     const res = await request(app).get('/xrpc/app.certified.group.audit.query')
     expect(res.body.entries[0].detail).toBeUndefined()
   })

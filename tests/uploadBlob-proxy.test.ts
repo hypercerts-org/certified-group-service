@@ -9,25 +9,28 @@ import { encrypt } from '../src/pds/credentials.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
+import type { Express } from 'express'
 
 describe('uploadBlob proxy (real PDS agent)', () => {
   let pds: http.Server
   let pdsPort: number
   let ctx: AppContext
   let groupDb: Kysely<GroupDatabase>
-  let app: express.Express
+  let app: Express
 
   beforeAll(async () => {
     // Spin up a tiny mock PDS
     pds = http.createServer((req, res) => {
       if (req.url?.includes('createSession')) {
         res.writeHead(200, { 'content-type': 'application/json' })
-        return res.end(JSON.stringify({
-          did: 'did:plc:testgroup',
-          handle: 'test.handle',
-          accessJwt: 'fake-jwt',
-          refreshJwt: 'fake-refresh',
-        }))
+        return res.end(
+          JSON.stringify({
+            did: 'did:plc:testgroup',
+            handle: 'test.handle',
+            accessJwt: 'fake-jwt',
+            refreshJwt: 'fake-refresh',
+          }),
+        )
       }
       if (req.url?.includes('uploadBlob')) {
         const chunks: Buffer[] = []
@@ -35,14 +38,18 @@ describe('uploadBlob proxy (real PDS agent)', () => {
         req.on('end', () => {
           const size = Buffer.concat(chunks).length
           res.writeHead(200, { 'content-type': 'application/json' })
-          res.end(JSON.stringify({
-            blob: {
-              $type: 'blob',
-              ref: { $link: 'bafkreiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
-              mimeType: req.headers['content-type'] || 'application/octet-stream',
-              size,
-            },
-          }))
+          res.end(
+            JSON.stringify({
+              blob: {
+                $type: 'blob',
+                ref: {
+                  $link: 'bafkreiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                },
+                mimeType: req.headers['content-type'] || 'application/octet-stream',
+                size,
+              },
+            }),
+          )
         })
         return
       }
@@ -79,7 +86,7 @@ describe('uploadBlob proxy (real PDS agent)', () => {
     ctx = {
       ...test.ctx,
       config: { ...test.ctx.config, maxBlobSize: 10 * 1024 * 1024 },
-      pdsAgents: pdsAgents as any,
+      pdsAgents: pdsAgents,
     }
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
@@ -150,11 +157,14 @@ describe('uploadBlob proxy (PDS error scenarios)', () => {
   async function buildAppWithPds(pdsUrl: string) {
     const test = await createTestContext()
     const encKey = Buffer.from('a'.repeat(64), 'hex')
-    await test.globalDb.insertInto('groups').values({
-      did: 'did:plc:testgroup',
-      pds_url: pdsUrl,
-      encrypted_app_password: encrypt('pw', encKey),
-    }).execute()
+    await test.globalDb
+      .insertInto('groups')
+      .values({
+        did: 'did:plc:testgroup',
+        pds_url: pdsUrl,
+        encrypted_app_password: encrypt('pw', encKey),
+      })
+      .execute()
     groupDb = test.groupDb
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
 
@@ -171,15 +181,25 @@ describe('uploadBlob proxy (PDS error scenarios)', () => {
     const pds = http.createServer((req, res) => {
       if (req.url?.includes('createSession')) {
         res.writeHead(200, { 'content-type': 'application/json' })
-        return res.end(JSON.stringify({
-          did: 'did:plc:testgroup', handle: 'test', accessJwt: 'j', refreshJwt: 'r',
-        }))
+        return res.end(
+          JSON.stringify({
+            did: 'did:plc:testgroup',
+            handle: 'test',
+            accessJwt: 'j',
+            refreshJwt: 'r',
+          }),
+        )
       }
       // Consume body then return error
       req.resume()
       req.on('end', () => {
         res.writeHead(500, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ error: 'InternalServerError', message: 'PDS broke' }))
+        res.end(
+          JSON.stringify({
+            error: 'InternalServerError',
+            message: 'PDS broke',
+          }),
+        )
       })
     })
     await new Promise<void>((r) => pds.listen(0, r))
@@ -216,7 +236,12 @@ describe('uploadBlob proxy (PDS error scenarios)', () => {
         req.resume()
         req.on('end', () => {
           res.writeHead(401, { 'content-type': 'application/json' })
-          res.end(JSON.stringify({ error: 'AuthenticationRequired', message: 'Invalid identifier or password' }))
+          res.end(
+            JSON.stringify({
+              error: 'AuthenticationRequired',
+              message: 'Invalid identifier or password',
+            }),
+          )
         })
         return
       }

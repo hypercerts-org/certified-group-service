@@ -19,14 +19,12 @@ export class RbacChecker {
       throw new ForbiddenError('Not a member of this group')
     }
 
-    const role = member.role as Role
+    const role = member.role
     if (ROLE_HIERARCHY[role] === undefined) {
       throw new Error(`Invalid role in database: ${role}`)
     }
     if (!canPerform(role, operation)) {
-      throw new ForbiddenError(
-        `Role '${role}' cannot perform '${operation}'`,
-      )
+      throw new ForbiddenError(`Role '${role}' cannot perform '${operation}'`)
     }
 
     return role

@@ -1,0 +1,31 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.destroy",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Destroy a group: remove it from the group service (credentials, member index, and per-group database). The underlying PDS account is left untouched — only the service's record of the group is removed, so the account can be re-imported later. Requires the owner role.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "at-identifier",
+            "description": "The handle or DID of the target group. Passed on the querystring (destroy takes no request body). Optional during the #27 deprecation window: omit it and the group is taken from the (deprecated) JWT aud claim instead."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid"],
+          "properties": {
+            "groupDid": { "type": "string", "format": "did" }
+          }
+        }
+      },
+      "errors": [{ "name": "GroupNotFound" }]
+    }
+  }
+}

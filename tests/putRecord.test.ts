@@ -4,7 +4,12 @@ import request from 'supertest'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 import { createTestGroupDb } from './helpers/test-db.js'
-import { createTestContext, createTestApp, seedMember, seedAuthorship } from './helpers/mock-server.js'
+import {
+  createTestContext,
+  createTestApp,
+  seedMember,
+  seedAuthorship,
+} from './helpers/mock-server.js'
 import putRecordHandler from '../src/api/repo/putRecord.js'
 
 // The mock auth verifier always returns callerDid='did:plc:testuser', groupDid='did:plc:testgroup'
@@ -26,7 +31,12 @@ describe('putRecord — cross-member update', () => {
     // Seed a record authored by a different user
     await seedAuthorship(groupDb, RECORD_URI, OTHER_AUTHOR, COLLECTION)
     const { ctx } = await createTestContext({
-      groupDbs: { get: () => groupDb, getRaw: () => testGroup.raw, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
+      groupDbs: {
+        get: () => groupDb,
+        getRaw: () => testGroup.raw,
+        migrateGroup: async () => {},
+        destroyAll: async () => {},
+      } as any,
     })
     app = createTestApp(ctx, (server, appCtx) => {
       putRecordHandler(server, appCtx)
