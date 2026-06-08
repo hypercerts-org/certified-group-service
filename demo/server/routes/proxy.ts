@@ -1,20 +1,24 @@
 import type { Response } from 'express'
 import { Router } from 'express'
-import { createProxyAgent, isSessionExpiredError } from '../oauth/proxy-agent.js'
+import { callGroupService, isSessionExpiredError } from '../oauth/proxy-agent.js'
 
 const router = Router()
 
 function handleProxyError(res: Response, err: any) {
   if (isSessionExpiredError(err)) {
-    return res.status(401).json({ error: 'Session expired — please log in again', sessionExpired: true })
+    return res
+      .status(401)
+      .json({ error: 'Session expired — please log in again', sessionExpired: true })
   }
   const httpStatus = err.status >= 100 ? err.status : 502
   res.status(httpStatus).json({ error: err.message || 'Proxy request failed' })
 }
 
 /**
- * POST /api/proxy/:nsid — proxy a JSON POST to the group service via atproto-proxy
- * Body must include `groupDid` which is used to route the proxy.
+ * POST /api/proxy/:nsid — call a group-service procedure.
+ * Body must include `groupDid` (the target group); the rest is the XRPC input.
+ * Authenticated with a service-auth JWT (see callGroupService) rather than the
+ * atproto service-proxy, which depends on fresh PDS DID-document caching.
  */
 router.post('/:nsid', async (req, res) => {
   try {
@@ -29,17 +33,19 @@ router.post('/:nsid', async (req, res) => {
       return res.status(400).json({ error: 'Missing groupDid' })
     }
 
-    const agent = await createProxyAgent(req.session.user.did, groupDid)
-    const response = await agent.call(nsid, {}, body, { encoding: 'application/json' })
-    res.json(response.data)
+    const { status, data } = await callGroupService(req.session.user.did, groupDid, nsid, {
+      method: 'POST',
+      body,
+    })
+    res.status(status).json(data)
   } catch (err: any) {
     handleProxyError(res, err)
   }
 })
 
 /**
- * GET /api/proxy/:nsid — proxy a query to the group service via atproto-proxy
- * Query param `groupDid` is used to route the proxy.
+ * GET /api/proxy/:nsid — call a group-service query.
+ * Query param `groupDid` is the target group; the rest are XRPC params.
  */
 router.get('/:nsid', async (req, res) => {
   try {
@@ -54,9 +60,11 @@ router.get('/:nsid', async (req, res) => {
       return res.status(400).json({ error: 'Missing groupDid query param' })
     }
 
-    const agent = await createProxyAgent(req.session.user.did, groupDid)
-    const response = await agent.call(nsid, params)
-    res.json(response.data)
+    const { status, data } = await callGroupService(req.session.user.did, groupDid, nsid, {
+      method: 'GET',
+      params,
+    })
+    res.status(status).json(data)
   } catch (err: any) {
     handleProxyError(res, err)
   }

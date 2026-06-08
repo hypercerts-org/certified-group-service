@@ -1,45 +1,5 @@
-import { readFileSync, readdirSync } from 'node:fs'
-import { join, extname } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Agent } from '@atproto/api'
-import type { LexiconDoc } from '@atproto/lexicon'
 import { getOauthClient } from './client.js'
-
-/** Recursively load all .json lexicon files from a directory. */
-function loadLexicons(dir: string): LexiconDoc[] {
-  const docs: LexiconDoc[] = []
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const fullPath = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      docs.push(...loadLexicons(fullPath))
-    } else if (extname(entry.name) === '.json') {
-      docs.push(JSON.parse(readFileSync(fullPath, 'utf8')))
-    }
-  }
-  return docs
-}
-
-const __dirname = fileURLToPath(new URL('.', import.meta.url))
-
-// The custom CGS lexicons (app.certified.group.repo.*) registered on the proxy
-// agent so the @atproto/api client recognises them. They live in the repo-root
-// lexicons/; in the deployed image that resolves to /app/lexicons/app/certified.
-// Override with LEXICONS_DIR if your layout differs. Fail soft: a missing dir
-// logs a clear warning and leaves customLexicons empty (the server still boots
-// and /api/health responds) rather than crashing the whole BFF at module load.
-const lexiconsDir =
-  process.env.LEXICONS_DIR || join(__dirname, '..', '..', '..', 'lexicons', 'app', 'certified')
-
-let customLexicons: LexiconDoc[] = []
-try {
-  customLexicons = loadLexicons(lexiconsDir)
-} catch (err) {
-  console.error(
-    `[proxy-agent] could not load custom lexicons from ${lexiconsDir} — ` +
-      `record/proxy operations needing them will fail. Set LEXICONS_DIR to the ` +
-      `directory containing app/certified/*.json. Cause: ${(err as Error).message}`,
-  )
-}
 
 export function isSessionExpiredError(err: any): boolean {
   // Only treat OAuth-layer failures as session-expired.
@@ -50,16 +10,88 @@ export function isSessionExpiredError(err: any): boolean {
   return false
 }
 
+const GROUP_SERVICE_URL = process.env.GROUP_SERVICE_URL || 'http://localhost:3000'
+const GROUP_SERVICE_DID = process.env.GROUP_SERVICE_DID || ''
+
+export interface GroupServiceResult {
+  status: number
+  data: any
+}
+
 /**
- * Creates an AtpAgent for the user's PDS (via OAuth session),
- * proxied through the certified_group service to the given group DID.
+ * Call a group-service XRPC method directly, authenticated with a service-auth
+ * JWT minted by the user's PDS (aud = the group service DID, lxm = the method).
+ *
+ * This is preferred over the atproto service-proxy path (`createProxyAgent` +
+ * withProxy): proxying makes the user's PDS resolve the GROUP DID's
+ * `#certified_group` service, which fails ("could not resolve proxy did service
+ * url") whenever the PDS's cached DID document predates the group's
+ * service-entry PLC op. A direct call resolves the group from the `repo`
+ * param (querystring for queries, body for procedures) and never touches PDS
+ * DID-document caching.
  */
-export async function createProxyAgent(userDid: string, groupDid: string): Promise<Agent> {
+export async function callGroupService(
+  userDid: string,
+  groupDid: string,
+  nsid: string,
+  opts: { method: 'GET' | 'POST'; params?: Record<string, string>; body?: Record<string, unknown> },
+): Promise<GroupServiceResult> {
   const oauthSession = await getOauthClient().restore(userDid)
   const agent = new Agent(oauthSession)
-  const proxied = agent.withProxy('certified_group', groupDid) as Agent
-  for (const doc of customLexicons) {
-    proxied.lex.add(doc)
+
+  // Prove the caller controls userDid; aud = service DID, lxm = the method.
+  const serviceAuth = await agent.com.atproto.server.getServiceAuth({
+    aud: GROUP_SERVICE_DID,
+    lxm: nsid,
+  })
+
+  // The group is always identified by `repo`: querystring for queries, body for
+  // procedures (matches the group service's verifier, which reads repo before
+  // the body is parsed for queries).
+  const query = new URLSearchParams({ repo: groupDid, ...(opts.params ?? {}) }).toString()
+  const url = `${GROUP_SERVICE_URL.replace(/\/$/, '')}/xrpc/${nsid}?${query}`
+
+  const headers: Record<string, string> = { Authorization: `Bearer ${serviceAuth.data.token}` }
+  let requestBody: string | undefined
+  if (opts.method === 'POST') {
+    headers['Content-Type'] = 'application/json'
+    // Include repo in the body too so procedure handlers that read input.body.repo
+    // resolve the same group (the confused-deputy guard requires body == querystring).
+    requestBody = JSON.stringify({ repo: groupDid, ...(opts.body ?? {}) })
   }
-  return proxied
+
+  const upstream = await fetch(url, { method: opts.method, headers, body: requestBody })
+  const data = await upstream.json().catch(() => ({}))
+  return { status: upstream.status, data }
+}
+
+/**
+ * Upload a blob to the group service directly (service-auth JWT, raw bytes).
+ * Same rationale as callGroupService — avoids the PDS service-proxy DID
+ * resolution. uploadBlob takes the raw body with the file's content-type.
+ */
+export async function uploadGroupBlob(
+  userDid: string,
+  groupDid: string,
+  bytes: Uint8Array,
+  mimetype: string,
+): Promise<GroupServiceResult> {
+  const oauthSession = await getOauthClient().restore(userDid)
+  const agent = new Agent(oauthSession)
+  const nsid = 'app.certified.group.repo.uploadBlob'
+  const serviceAuth = await agent.com.atproto.server.getServiceAuth({
+    aud: GROUP_SERVICE_DID,
+    lxm: nsid,
+  })
+  const url = `${GROUP_SERVICE_URL.replace(/\/$/, '')}/xrpc/${nsid}?repo=${encodeURIComponent(groupDid)}`
+  const upstream = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${serviceAuth.data.token}`,
+      'Content-Type': mimetype,
+    },
+    body: bytes as unknown as BodyInit,
+  })
+  const data = await upstream.json().catch(() => ({}))
+  return { status: upstream.status, data }
 }
