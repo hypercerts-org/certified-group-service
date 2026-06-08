@@ -7,6 +7,19 @@ export function setOnUnauthorized(fn: () => void) {
   onUnauthorized = fn
 }
 
+/**
+ * Build a useful error string from an XRPC/BFF error body. Prefer the
+ * human-readable `message` (e.g. "No invite code provided"), and append the
+ * terse error name (e.g. "InvalidRequest") as context when both are present —
+ * otherwise the UI would show only the opaque name and hide the real cause.
+ */
+function formatApiError(data: any, status: number, fallback: string): string {
+  const message = typeof data?.message === 'string' ? data.message : ''
+  const error = typeof data?.error === 'string' ? data.error : ''
+  if (message && error && message !== error) return `${message} (${error})`
+  return message || error || `${fallback} (${status})`
+}
+
 async function request<T = any>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     credentials: 'include',
@@ -20,7 +33,7 @@ async function request<T = any>(path: string, opts?: RequestInit): Promise<T> {
     if (res.status === 401 && path !== '/me' && data.sessionExpired) {
       onUnauthorized?.()
     }
-    throw new Error(data.error || data.message || `Request failed (${res.status})`)
+    throw new Error(formatApiError(data, res.status, 'Request failed'))
   }
   return data as T
 }
@@ -114,7 +127,7 @@ export const uploadBlob = async (groupDid: string, file: File) => {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     if (res.status === 401 && data.sessionExpired) onUnauthorized?.()
-    throw new Error(data.error || data.message || `Upload failed (${res.status})`)
+    throw new Error(formatApiError(data, res.status, 'Upload failed'))
   }
   return data
 }
