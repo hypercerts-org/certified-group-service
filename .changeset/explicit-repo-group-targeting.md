@@ -2,16 +2,20 @@
 'group-service': minor
 ---
 
-Apps can now name the group they're acting on directly in the request, instead of hiding it inside the login token.
+Apps now name the target group with an explicit `repo` field instead of overloading the service-auth token's audience.
 
 **Affects:** Client app developers, Operators
 
-**Client app developers:** group-scoped methods now accept an explicit `repo` field naming the target group (a handle or DID), with the JWT `aud` set to the group service's own DID — its correct meaning. This replaces the previous overload where the group was smuggled through `aud`. The fix matches what a stock `@atproto/api` client already emits, so calls work without hand-crafting tokens.
+**Client app developers:** group-scoped methods take a `repo` field (a handle or DID) naming the target group, with the JWT `aud` set to the service DID — the shape a stock `@atproto/api` client already emits. The old form (group in `aud`, no `repo`) still works but is deprecated.
 
-- **Where `repo` goes:** query methods (`app.certified.group.member.list`, `app.certified.group.audit.query`) and the raw-body / body-less methods (`app.certified.group.repo.uploadBlob`, `app.certified.group.destroy`) read `repo` from the **querystring**; the JSON-body procedures (`createRecord`, `putRecord`, `deleteRecord`, `app.certified.group.member.add`, `app.certified.group.member.remove`, `app.certified.group.role.set`) read it from the **request body**. `repo` accepts a handle or a DID, resolved to the group DID server-side.
-- **Mint tokens with `aud` = the service DID:** `getServiceAuth({ aud: <serviceDid>, lxm })` instead of `aud: <groupDid>`. Setting `aud` to the service DID is what takes a call off the deprecated path. For query methods (where `repo` is on the querystring) adding `?repo=` also requires `aud` to be the service DID. For JSON-body procedures, a token with `aud=<groupDid>` is still treated as legacy even with `repo` in the body — the service decides this at the auth layer, which does not see the body — so fully migrating a procedure means setting `aud` to the service DID, not just adding body `repo`.
-- **Legacy still works, but is deprecated:** the old form (`aud` = the group DID, no `repo`) keeps working during a transition window. Such responses now carry RFC 8594 headers — `Deprecation: true` and a `Link: <…/issues/27>; rel="deprecation"` — so you can detect un-migrated calls programmatically. No `Sunset` date is set yet; the legacy path will be removed in a later release once clients have migrated.
-- **Behaviour change on the `repo` field:** procedures no longer require `repo` to equal the token's group and no longer return a `403` "repo field must match the group DID". `repo` is now the group selector itself; a `repo` that names no registered group is rejected at resolution (`401`, "Unknown group"). Membership/role checks are unchanged — a caller can only target groups they already have a role in.
-- **Security note:** the group target is no longer bound by the token signature (it never was in standard AT Protocol either); a token is now scoped to a method and the service rather than to one group. Authorization is still enforced per-group by RBAC, and tokens remain short-lived and single-use. See `docs/design/aud-deprecation.md`.
+|                    | Legacy (deprecated)          | New (supported)     |
+| ------------------ | ---------------------------- | ------------------- |
+| Group named by     | JWT `aud`                    | explicit `repo`     |
+| JWT `aud`          | the **group** DID            | the **service** DID |
+| `repo` field       | absent                       | present             |
+| Deprecation header | `Deprecation: true` + `Link` | none                |
 
-**Operators:** no new environment variables and no migration. The service DID is unchanged (`SERVICE_DID`, defaulting to `did:web:<SERVICE_URL host>`). Watch for a rate-limited `warn` log — "Deprecated auth: group taken from JWT aud …" — which flags any client still using the legacy targeting form, one line per caller per 15 minutes.
+- **Behaviour change to adapt to now:** `repo` is the group selector, not a cross-check — the old `403` "repo field must match the group DID" is gone; a `repo` naming no registered group returns `401 Unknown group`. RBAC is unchanged: you can only target groups you have a role in.
+- **How to migrate** (per-method `repo` placement, the coupled `repo`+`aud` switch, non-proxied vs proxied calls, detecting un-migrated calls): see **`docs/aud-migration.md`**. Design rationale and security analysis: `docs/design/aud-deprecation.md`.
+
+**Operators:** no new environment variables and no migration; `SERVICE_DID` is unchanged. The service now serves its `did:web` document at `GET /.well-known/did.json` (a public, unauthenticated route, sibling to `/health`); it must be publicly reachable, since that is how the service DID resolves and how service proxying targets the service. A rate-limited `warn` log flags any client still on the legacy form — one line per caller per 15 minutes.

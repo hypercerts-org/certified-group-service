@@ -9,6 +9,7 @@ import type { Kysely } from 'kysely'
 import type { Request } from 'express'
 import type { GlobalDatabase } from '../db/schema.js'
 import { NonceCache, NONCE_TTL_SECONDS } from './nonce.js'
+import { SERVICE_ID_FRAGMENT } from '../did-document.js'
 
 export interface GroupAuthCredentials {
   callerDid: string
@@ -53,6 +54,26 @@ export class AuthVerifier {
   ) {
     this.verifyJwtFn = verifyJwtFn ?? defaultVerifyJwt
     this.parseReqNsidFn = parseReqNsidFn ?? defaultParseReqNsid
+  }
+
+  /**
+   * Does the JWT `aud` name this service?
+   *
+   * Accepts the bare service DID (`did:web:<host>`) OR the service DID with
+   * exactly our own service-id fragment (`did:web:<host>#certified_group_service`).
+   * Under AT Protocol service proxying, the user's PDS sets `aud` to the DID it
+   * proxies to; the reference PDS strips the `#fragment` today but is slated to
+   * keep it (atproto.com/specs/xrpc#service-proxying), so we must accept both.
+   *
+   * A *different* fragment (`#something_else`) is deliberately rejected: it names
+   * a different service entry on the same host, and a token minted for that
+   * service is not for us. The accepted fragment is `SERVICE_ID_FRAGMENT`, the
+   * same constant published in our `did:web` document, so the two cannot drift.
+   */
+  private audMatchesService(aud: string | undefined): boolean {
+    if (!aud) return false
+    if (aud === this.serviceDid) return true
+    return aud === `${this.serviceDid}#${SERVICE_ID_FRAGMENT}`
   }
 
   private assertTokenLifetime(payload: { iat?: number; exp?: number }): void {
@@ -135,12 +156,12 @@ export class AuthVerifier {
 
     if (repoParam !== undefined) {
       // New path: explicit repo names the group; aud must be the service DID.
-      if (payload.aud !== this.serviceDid) {
+      if (!this.audMatchesService(payload.aud)) {
         throw new AuthRequiredError('jwt audience does not match service did')
       }
       groupDid = await this.resolveRepoToGroup(repoParam)
       legacyAud = false
-    } else if (payload.aud === this.serviceDid) {
+    } else if (this.audMatchesService(payload.aud)) {
       // New path for body-input procedures: aud is correct, but the group is in
       // the (not-yet-parsed) body — the handler resolves it. No group here.
       groupDid = undefined

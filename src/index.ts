@@ -20,6 +20,7 @@ import { GroupDbPool } from './db/group-db-pool.js'
 import { MemberIndex, backfillMemberIndex } from './db/member-index.js'
 import { PdsAgentPool } from './pds/agent.js'
 import { AuditLogger } from './audit.js'
+import { buildDidDocument } from './did-document.js'
 import type { AppContext } from './context.js'
 import type { GlobalDatabase } from './db/schema.js'
 
@@ -93,6 +94,13 @@ async function main() {
   const healthHandler = createHealthHandler(globalDb)
   app.get('/health', healthHandler)
   app.get('/xrpc/_health', healthHandler)
+
+  // did:web document so the service DID resolves (issue #29 / HYPER-484) and the
+  // #certified_group_service service entry is published for proxying + scope aud.
+  const didDocument = buildDidDocument(config.serviceDid, config.serviceUrl)
+  app.get('/.well-known/did.json', (_req, res) => {
+    res.json(didDocument)
+  })
 
   // XRPC server — handles all /xrpc/* routes, including group.register and
   // group.import (service-auth methods) and per-group methods

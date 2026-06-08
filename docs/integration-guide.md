@@ -5,8 +5,8 @@ This guide walks you through integrating the group service into your app. By the
 ## Service URLs and DID
 
 ```
-SERVICE_URL = https://atproto-group-gate-staging.up.railway.app
-SERVICE_DID  = did:web:atproto-group-gate-staging.up.railway.app
+SERVICE_URL = https://dev.groups.certified.app
+SERVICE_DID  = did:web:dev.groups.certified.app
 ```
 
 The group service DID is always `did:web:<hostname>` — derived from the service URL. For any deployment, strip the scheme and use the hostname: `https://example.com` → `did:web:example.com`.
@@ -14,8 +14,8 @@ The group service DID is always `did:web:<hostname>` — derived from the servic
 All example code below uses these constants:
 
 ```typescript
-const GROUP_SERVICE = 'https://atproto-group-gate-staging.up.railway.app'
-const GROUP_SERVICE_DID = 'did:web:atproto-group-gate-staging.up.railway.app'
+const GROUP_SERVICE = 'https://dev.groups.certified.app'
+const GROUP_SERVICE_DID = 'did:web:dev.groups.certified.app'
 ```
 
 ## Architecture: where your app fits
@@ -46,7 +46,7 @@ The group service uses **custom NSIDs** for record operations instead of the sta
 
 **Why not `com.atproto.repo.*`?** The recommended integration pattern uses service proxying: your app sends requests to the user's PDS with an `atproto-proxy` header, and the PDS forwards them to the group service. When the PDS sees a `com.atproto.repo.createRecord` call, it handles it itself (writing to its own repo) — it has no reason to forward it anywhere. Custom NSIDs like `app.certified.group.repo.createRecord` are unrecognized by the PDS, so it looks up the target service in the group's DID document and proxies the request there. **This is the only way record operations can reach the group service through the proxy pattern.**
 
-> **Do not use `com.atproto.repo.*` NSIDs.** They will never reach the group service when proxying through a PDS. The group service does accept them for backwards compatibility on direct calls, but direct calls are not the recommended pattern and the standard NSIDs may be removed in the future.
+> **Do not use `com.atproto.repo.*` NSIDs.** They will never reach the group service when proxying through a PDS. The group service does accept them for backwards compatibility on non-proxied calls, but non-proxied calls are not the recommended pattern and the standard NSIDs may be removed in the future.
 
 The custom lexicons are JSON files shipped with the group service under `lexicons/app/certified/`. You must load them into your proxy agent so the `@atproto/api` client recognizes them. See Step 2 below.
 
@@ -86,7 +86,7 @@ async function registerGroup(agent: AtpAgent, handle: string, ownerDid: string, 
 - `ownerDid` — the DID of the user who will own this group. Must match the JWT's `iss` claim. They're immediately seeded as the owner.
 - `email` — optional recovery email for the group account. If omitted, a placeholder is generated. Providing a real email enables the forgot-password flow for credible exit.
 
-Registration (and import, below) are called **directly**, not via proxy. All subsequent calls go through the proxy agent.
+Registration (and import, below) are **service-scoped** calls — they target the service itself (`aud` = the service DID), not an existing group. This guide invokes them **non-proxied** (the client calls the group service directly), which is the simplest way; the per-group calls in later steps go through the proxy agent instead.
 
 ## Step 1b (alternative): Import an existing account
 
@@ -186,14 +186,16 @@ const groupAgent = createGroupAgent(agent, groupDid)
 > for a complete implementation that restores an OAuth session and creates a proxied agent.
 
 > **Heads up — this proxy agent is on the legacy `aud` path (#27).** Because
-> `withProxy('certified_group', groupDid)` routes through the group's DID document,
+> `withProxy('certified_group', groupDid)` routes through the **group's** DID document,
 > the PDS mints the service-auth JWT with `aud` = the **group DID**. That is the
 > deprecated targeting form: it still works, but every response now carries an RFC
-> 8594 `Deprecation: true` header. The supported form names the group with an
-> explicit `repo` field and sets `aud` to the **service DID**. The examples in Step 3
-> below add `repo` (which alone silences the deprecation warning); see
-> [Migrating from the legacy `aud` form (#27)](#migrating-from-the-legacy-aud-form-27)
-> for the full picture.
+> 8594 `Deprecation: true` header. To use the supported form under proxying, target the
+> **service** DID instead — `withProxy('certified_group_service', cgsServiceDid)` — so
+> the PDS mints `aud` = the service DID; also send an explicit `repo` to name the group.
+> See [Migrating from the legacy `aud` form (#27)](#migrating-from-the-legacy-aud-form-27).
+> Do **not** add `repo` while staying on the legacy proxy target: for a query, `repo`
+> present with `aud` = group DID is a hard `401`, not a silenced warning. `repo` and the
+> service-DID `aud` must change together.
 
 ## Step 3: Make authenticated requests
 
@@ -205,15 +207,18 @@ field — an `at-identifier` (a handle **or** a DID). For JSON-body procedures
 `role.set`) `repo` goes in the **body**; for query methods (`member.list`,
 `audit.query`) and the raw/body-less methods (`repo.uploadBlob`, `group.destroy`)
 it goes in the **querystring** (`?repo=<handle-or-did>`). This is exactly what a
-stock `@atproto/api` typed call already emits, so passing `repo` is all the new
-path requires.
+stock `@atproto/api` typed call already emits.
 
-> **Targeting a group (#27 shipped):** the group is identified by the `repo`
-> field above, and the JWT `aud` is the **service DID**. The older form — group
-> taken from the JWT `aud` with no `repo` — is **deprecated but still accepted**;
-> the proxy agent from Step 2 lands you on it (it mints `aud` = the group DID).
-> Adding `repo` activates the supported path and silences the deprecation warning.
-> See [Migrating from the legacy `aud` form (#27)](#migrating-from-the-legacy-aud-form-27)
+> **Targeting a group (#27):** the group is identified by the `repo` field above,
+> and the supported form sets the JWT `aud` to the **service DID**. The older form —
+> group taken from the JWT `aud` with no `repo` — is **deprecated but still accepted**.
+> The proxy agent in Step 2 as written (`withProxy('certified_group', groupDid)`) lands
+> on the legacy path (it mints `aud` = the group DID), so the examples below carry a
+> `Deprecation` header; switch the proxy target to the service DID
+> (`withProxy('certified_group_service', cgsServiceDid)`) to put them on the supported
+> path. The `repo` and the service-DID `aud` go together — for a query, `repo` with a
+> group-DID `aud` is a hard `401`, not a partially-migrated call. See
+> [Migrating from the legacy `aud` form (#27)](#migrating-from-the-legacy-aud-form-27)
 > and `docs/design/aud-deprecation.md`.
 
 ```typescript
@@ -260,7 +265,7 @@ import { AtpAgent } from '@atproto/api'
 const agent = new AtpAgent({ service: userPdsUrl })
 // ... configure agent with user's OAuth session
 
-// 2. Register a group (direct call — proves DID control via service auth)
+// 2. Register a group (non-proxied call — proves DID control via service auth)
 const { groupDid } = await registerGroup(agent, 'our-team', currentUserDid)
 
 // 3. Set up the proxy agent with custom lexicons
@@ -544,20 +549,20 @@ All error responses follow this shape:
 
 ## Complete endpoint reference
 
-| NSID                                    | Type      | Required role | Description                                     |
-| --------------------------------------- | --------- | ------------- | ----------------------------------------------- |
-| `app.certified.group.register`          | procedure | service auth  | Register a new group (direct call, not proxied) |
-| `app.certified.group.import`            | procedure | service auth  | Import an existing account as a group (direct)  |
-| `app.certified.group.repo.createRecord` | procedure | member        | Create a record                                 |
-| `app.certified.group.repo.putRecord`    | procedure | member/admin  | Update or create a record                       |
-| `app.certified.group.repo.deleteRecord` | procedure | member/admin  | Delete a record                                 |
-| `app.certified.group.repo.uploadBlob`   | procedure | member        | Upload a blob (max 5 MB)                        |
-| `app.certified.group.member.add`        | procedure | admin         | Add a member                                    |
-| `app.certified.group.member.remove`     | procedure | admin/self    | Remove a member                                 |
-| `app.certified.group.member.list`       | query     | member        | List members with pagination                    |
-| `app.certified.group.role.set`          | procedure | owner         | Change a member's role                          |
-| `app.certified.group.destroy`           | procedure | owner         | Remove the group from the service               |
-| `app.certified.group.audit.query`       | query     | admin         | Query the audit log                             |
+| NSID                                    | Type      | Required role | Description                                    |
+| --------------------------------------- | --------- | ------------- | ---------------------------------------------- |
+| `app.certified.group.register`          | procedure | service auth  | Register a new group (non-proxied call)        |
+| `app.certified.group.import`            | procedure | service auth  | Import an existing account as a group (direct) |
+| `app.certified.group.repo.createRecord` | procedure | member        | Create a record                                |
+| `app.certified.group.repo.putRecord`    | procedure | member/admin  | Update or create a record                      |
+| `app.certified.group.repo.deleteRecord` | procedure | member/admin  | Delete a record                                |
+| `app.certified.group.repo.uploadBlob`   | procedure | member        | Upload a blob (max 5 MB)                       |
+| `app.certified.group.member.add`        | procedure | admin         | Add a member                                   |
+| `app.certified.group.member.remove`     | procedure | admin/self    | Remove a member                                |
+| `app.certified.group.member.list`       | query     | member        | List members with pagination                   |
+| `app.certified.group.role.set`          | procedure | owner         | Change a member's role                         |
+| `app.certified.group.destroy`           | procedure | owner         | Remove the group from the service              |
+| `app.certified.group.audit.query`       | query     | admin         | Query the audit log                            |
 
 ## Role quick reference
 
@@ -590,11 +595,11 @@ The [demo app](../demo/) is a complete working example with:
 
 For the full API specification, see the [API Reference](./api-reference.md).
 
-## Direct calls (advanced)
+## Non-proxied calls (advanced)
 
-If you can't use service proxying (e.g. your environment doesn't support it), you can
-call the group service directly by obtaining a JWT via `com.atproto.server.getServiceAuth`
-and making requests with `Authorization: Bearer <jwt>`. Use the custom
+If you can't use service proxying (e.g. your environment doesn't support it), the
+client can call the group service itself: fetch a service-auth token via
+`com.atproto.server.getServiceAuth` and make requests with `Authorization: Bearer <jwt>`. Use the custom
 `app.certified.group.repo.*` NSIDs — the `lxm` field in the JWT must match the NSID
 you're calling.
 
@@ -642,39 +647,22 @@ service auth JWTs), and follows the standard atproto pattern.
 Earlier the group service read the target group from the JWT `aud` claim — a misuse
 of `aud`, whose RFC 7519 meaning is the **service** receiving the token, not the
 resource acted on. That overload is now **deprecated** ([#27](https://github.com/hypercerts-org/certified-group-service/issues/27)).
-Both forms are accepted today:
+Both forms are accepted during the migration window:
 
-- **Supported:** name the group with an explicit **`repo`** field and set the JWT
-  `aud` to the **service DID**.
-- **Legacy (deprecated):** set `aud` to the **group DID** and send no `repo`.
+|                    | Legacy (deprecated)          | New (supported)     |
+| ------------------ | ---------------------------- | ------------------- |
+| Group named by     | JWT `aud`                    | explicit `repo`     |
+| JWT `aud`          | the **group** DID            | the **service** DID |
+| `repo` field       | absent                       | present             |
+| Deprecation header | `Deprecation: true` + `Link` | none                |
 
-**How to tell you're still on the legacy path.** Every response served via the legacy
-path carries [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594) deprecation headers:
+A call must be **fully** one form or the other — `repo` and `aud` change together, and
+a half-migrated mix is rejected (`401 jwt audience does not match service did`). The
+examples in this guide already send `repo` and set `aud` to the service DID; under
+proxying, target the service DID with `withProxy('certified_group_service', cgsServiceDid)`.
 
-```text
-Deprecation: true
-Link: <https://github.com/hypercerts-org/certified-group-service/issues/27>; rel="deprecation"
-```
-
-There is no `Sunset` header yet — a removal date is undecided. Watch for `Deprecation:
-true` on your responses to find un-migrated calls.
-
-**The two independent migration steps.** Precedence is decided by the presence of
-`repo`: send it and the supported path is used regardless of `aud`. So you can migrate
-in either order, or both at once:
-
-1. **Add `repo`** to each group-scoped call (body for procedures, querystring for
-   queries / raw-body methods, per the tables above). This alone silences the
-   deprecation signal.
-2. **Switch the minted `aud`** from the group DID to the service DID. With `repo`
-   present, `aud` **must** be the service DID or the request is rejected with
-   `jwt audience does not match service did`.
-
-Under service proxying, step 2 is governed by how the PDS mints the JWT for the
-proxy target, so the proxy agent in Step 2 is on the legacy path until that
-mechanism sets `aud` to the service DID; adding `repo` (step 1) still moves you off
-the deprecated targeting today. The direct-call form above is already fully migrated.
-
-The legacy form keeps working for now and will be removed in a later release once
-clients have migrated. See `docs/design/aud-deprecation.md` for the full design and
-rationale.
+For the complete migration reference — the service-DID derivation, per-method `repo`
+placement, the direct-vs-proxied details, and how to detect un-migrated calls — see
+**[Migrating group targeting (`aud` → `repo`)](./aud-migration.md)**. For the design
+rationale (unsigned `repo`, the resolution round-trip, security), see
+[`design/aud-deprecation.md`](./design/aud-deprecation.md).

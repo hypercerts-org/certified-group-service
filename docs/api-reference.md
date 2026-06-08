@@ -8,6 +8,35 @@ All endpoints (except `/health` and `/xrpc/_health`) require authentication via 
 - `jti` — a unique nonce (each token can only be used once)
 - `exp` — expiration timestamp
 
+## Two ways to send a request
+
+A client reaches the service by one of two routes, referred to throughout this reference:
+
+- **Non-proxied call** — the client fetches a service-auth token from the user's PDS (`com.atproto.server.getServiceAuth`), then sends the XRPC request to the group service itself with that token in the `Authorization` header. The client chooses the `aud` it requests.
+- **Proxied call** — the client sends the request to the user's PDS with an `atproto-proxy` header; the PDS forwards it to the group service. The PDS chooses `aud` (the DID being proxied to), not the client. This is the standard AT Protocol pattern.
+
+The user's PDS signs the token in **both** cases; the routes differ in who chooses `aud` and who sends the final request to the group service.
+
+## Determining the service DID
+
+The service DID — the value of `aud` — is found in two steps:
+
+1. **Find the service URL.** A group's DID document carries a `certified_group` service entry whose `serviceEndpoint` is the service URL. Resolve the `groupDid` and read that entry. This is the only on-protocol link from a group to the service hosting it (`register` / `import` return the `groupDid`, not the service DID). **Caution:** immediately after `register`, a freshly created group's DID document may still be cached (by your resolver or an intermediary PDS) in its initial form, before the `certified_group` entry was added — so the entry can be transiently absent. If it is missing right after registration, retry with a forced refresh / after a short delay rather than treating the group as having no service.
+2. **Derive the service DID** from that URL's host: a `did:web` formed by stripping the scheme — `https://group-service.example.com` → `did:web:group-service.example.com`. This is pure string manipulation, no further lookup.
+
+A **non-proxied** call sets this value as the JWT `aud` directly. On a **proxied** call the client never sets `aud` itself — the PDS does — so the value is supplied differently; see [How `aud` is set on a proxied call](#how-aud-is-set-on-a-proxied-call).
+
+## How `aud` is set on a proxied call
+
+On a proxied call the PDS sets `aud` to **the DID in the `atproto-proxy` header** (`<did>#<service-id>`), then resolves that DID's document and forwards to its service endpoint. So the client controls `aud` only by choosing which DID it proxies to:
+
+- **Proxy to the service DID** (`atproto-proxy: <serviceDid>#certified_group_service`): the PDS resolves the service's own `did:web` document at `/.well-known/did.json`, forwards, and mints `aud` = the service DID. This is the supported form.
+- **Proxy to the group DID** (`atproto-proxy: <groupDid>#certified_group`): the PDS resolves the group's document and mints `aud` = the group DID — the deprecated legacy form (see [Legacy `aud` = group DID form](#legacy-aud--group-did-form-deprecated)).
+
+The two service ids differ because they live in different documents: `certified_group_service` is the entry in the **service's** `did:web` document; `certified_group` is the entry in a **group's** document.
+
+Either way the PDS delivers `aud` **bare** (`did:web:<host>`, no fragment). The service also accepts the fragment-qualified `did:web:<host>#certified_group_service` for forward-compatibility (some PDS versions will stop stripping the fragment), and rejects a fragment naming a different service.
+
 ## Targeting a group
 
 Group-scoped methods name their target group with an explicit `repo` field — an `at-identifier` (a handle **or** a DID), resolved to the group DID server-side. The JWT `aud` is the service DID. Where `repo` goes depends on the method kind:
@@ -23,21 +52,16 @@ Cross-group endpoints under `app.certified.groups.*` and the group-lifecycle met
 
 A transitional form remains accepted during the migration window: set the JWT `aud` to the **group DID** (omitting `repo`). This is **deprecated** (issue [#27](https://github.com/hypercerts-org/certified-group-service/issues/27)) and will be removed in a later release once clients migrate.
 
-The deprecation is keyed off `aud`, because the service determines it at the auth layer — which sees the querystring but **not** the request body (auth runs before body parsing). Concretely:
+|                    | Legacy (deprecated)          | New (supported)     |
+| ------------------ | ---------------------------- | ------------------- |
+| Group named by     | JWT `aud`                    | explicit `repo`     |
+| JWT `aud`          | the **group** DID            | the **service** DID |
+| `repo` field       | absent                       | present             |
+| Deprecation header | `Deprecation: true` + `Link` | none                |
 
-- **Query methods** (and `uploadBlob` / `destroy`, which carry `repo` on the querystring): adding `?repo=` moves you onto the new path immediately. With `repo` present, `aud` **must** be the service DID, or the request is rejected with `jwt audience does not match service did`.
-- **JSON-body procedures** (`createRecord`, `member.add`, …): a request is treated as legacy whenever `aud` is a group DID, **even if `repo` is in the body** — the body is invisible at auth time, so it cannot suppress the deprecation signal. To fully migrate such a call, set `aud` to the service DID (the body `repo` is then the group selector).
+`repo` and the service-DID `aud` change **together**: for a query, sending `repo` with `aud` = a group DID is rejected with `jwt audience does not match service did` — there is no half-migrated state. Responses on the legacy path carry RFC 8594 headers (`Deprecation: true` + a `Link`); no `Sunset` date is set yet.
 
-In all cases, the way off the deprecated path is to set `aud` to the service DID.
-
-Responses served via the legacy path carry RFC 8594 deprecation headers:
-
-```text
-Deprecation: true
-Link: <https://github.com/hypercerts-org/certified-group-service/issues/27>; rel="deprecation"
-```
-
-There is no `Sunset` header yet, as the removal date is undecided.
+For the full migration walkthrough (per-method `repo` placement, direct vs proxied, detecting un-migrated calls) see [`aud-migration.md`](./aud-migration.md); for the design rationale see [`design/aud-deprecation.md`](./design/aud-deprecation.md).
 
 ## Health check
 
@@ -66,7 +90,7 @@ database is unreachable, both endpoints return `503` with
 
 ## Group lifecycle
 
-These procedures create, import, and remove groups. `register` and `import` are **service-scoped** (JWT `aud` = the service DID, since the group does not yet exist) and are called directly, not via the `atproto-proxy` path. `destroy` operates on an existing group.
+These procedures create, import, and remove groups. `register` and `import` are **service-scoped**: they target the service itself (JWT `aud` = the service DID) and take no `repo`, because they are not acting on an existing group — `register` creates one, `import` adopts one. The examples below show them as non-proxied calls, which is the simplest way to invoke a service-scoped method; they could also be reached by proxying to the service DID (`certified_group_service`), since that does not depend on a group existing. `destroy` operates on an existing group.
 
 ### `POST /xrpc/app.certified.group.register`
 

@@ -266,8 +266,10 @@ describe('AuthVerifier', () => {
     expect(mockIdResolver.handle.resolve).toHaveBeenCalledWith('group.example.com')
   })
 
-  it('new path: explicit repo wins even when aud is also the group DID (no legacy flag)', async () => {
+  it('new path: querystring repo with aud=groupDid is a hard error (no half-migrated mix)', async () => {
     // A mid-migration caller that added `repo` but still sets aud=groupDid.
+    // repo present forces the new-path aud check, which requires the service DID;
+    // a group-DID aud is rejected rather than silently downgraded to legacy.
     const now = Math.floor(Date.now() / 1000)
     fakeVerifyJwt.mockResolvedValue({
       iss: 'did:plc:caller',
@@ -309,6 +311,61 @@ describe('AuthVerifier', () => {
       groupDid: undefined,
       legacyAud: false,
     })
+  })
+
+  // --- Service-proxying: aud carries the service-id fragment ---
+  // Under AT Protocol service proxying the PDS may leave the `#fragment` on
+  // `aud` (it is slated to stop stripping it). The verifier must accept the
+  // service DID with our own fragment, but reject a different service's fragment.
+
+  /** Mint a token whose aud is the service DID plus the given fragment. */
+  function mockFragmentAudToken(fragment: string, jti = 'jti-frag') {
+    const now = Math.floor(Date.now() / 1000)
+    fakeVerifyJwt.mockResolvedValue({
+      iss: 'did:plc:caller',
+      aud: `${SERVICE_DID}#${fragment}`,
+      jti,
+      iat: now,
+      exp: now + 60,
+    })
+  }
+
+  it('new path: aud=serviceDid#certified_group_service + querystring repo is accepted', async () => {
+    mockFragmentAudToken('certified_group_service')
+    const result = await verifier.verify(
+      makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.group.member.list', {
+        repo: 'did:plc:testgroup',
+      }),
+    )
+    expect(result).toEqual({
+      iss: 'did:plc:caller',
+      groupDid: 'did:plc:testgroup',
+      legacyAud: false,
+    })
+  })
+
+  it('new path: aud=serviceDid#certified_group_service with no repo (procedure) defers to the handler', async () => {
+    mockFragmentAudToken('certified_group_service')
+    const result = await verifier.verify(
+      makeReq({ authorization: 'Bearer jwt' }, '/xrpc/com.atproto.repo.createRecord'),
+    )
+    expect(result).toEqual({
+      iss: 'did:plc:caller',
+      groupDid: undefined,
+      legacyAud: false,
+    })
+  })
+
+  it('rejects aud carrying a DIFFERENT service fragment (not this service)', async () => {
+    mockFragmentAudToken('some_other_service')
+    // repo present → new-path aud check applies; a foreign fragment is not us.
+    await expect(
+      verifier.verify(
+        makeReq({ authorization: 'Bearer jwt' }, '/xrpc/app.certified.group.member.list', {
+          repo: 'did:plc:testgroup',
+        }),
+      ),
+    ).rejects.toThrow('jwt audience does not match service did')
   })
 
   it('resolveRepoToGroup rejects an unknown handle', async () => {

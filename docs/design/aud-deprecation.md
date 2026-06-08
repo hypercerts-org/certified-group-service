@@ -11,6 +11,11 @@ Tracking issues:
 - [#12 — read-only API key for `member.list`](https://github.com/hypercerts-org/certified-group-service/issues/12)
   (the narrow request #26 generalises; blocked transitively by this).
 
+This is the **design rationale** (the _why_). For the client-facing migration
+how-to — the legacy-vs-new table, per-method `repo` placement, non-proxied vs
+proxied calls, and detecting un-migrated calls — see
+[`../aud-migration.md`](../aud-migration.md).
+
 This document designs the `aud` correctness fix that [`api-keys.md`](./api-keys.md)
 names as a prerequisite but deliberately leaves out of its own scope (see that
 doc's _Group targeting → The `aud` overload_ section and Open questions). It
@@ -187,6 +192,123 @@ serviceDid, lxm })` plus `repo` in the standard place for each method
 So the fix is not only correct per RFC 7519 — it is the version that an atproto
 app dev can call **without thinking about CGS at all**, which is the bar.
 
+## Service-DID resolution under proxying
+
+### The two ways a client calls CGS
+
+Throughout this section, a client reaches CGS by one of two routes, referred to
+below as the **direct** and **proxied** paths:
+
+- **Direct call** — the client obtains a service-auth token from the user's PDS
+  (via `com.atproto.server.getServiceAuth`) and sends the XRPC request to CGS
+  itself, with that token in the `Authorization` header.
+- **Service proxying** — the client sends the request to the user's PDS with an
+  `atproto-proxy` header; the PDS mints the token and forwards the request to CGS
+  on the client's behalf. This is the standard AT Protocol pattern.
+
+In both cases the user's PDS signs the token; what differs (next) is who chooses
+the `aud` claim.
+
+### Deriving the service DID
+
+The corrected `aud` is the **service DID**, a `did:web` whose host is the service's
+own URL (`config.serviceDid` = `did:web:${new URL(serviceUrl).hostname}`,
+`src/config.ts`). The server knows its own URL, so for it this is pure string
+construction. A _client_, by contrast, must first discover the service URL from the
+group's DID document (the `certified_group` entry) and only then derive the
+`did:web` — the derivation is string-only, but it is preceded by that lookup.
+
+### Direct and proxied calls set `aud` differently
+
+On the **direct** path the client calls `getServiceAuth({ aud, lxm })` itself and
+chooses `aud` outright (it sets the service DID). On the **proxied** path the
+client never names `aud`: a proxying PDS sets the JWT `aud` to **the DID in the
+`atproto-proxy` header**
+(`<did>#<fragment>`), then resolves that DID's document and forwards to its
+service endpoint. So `aud` is decided by **which DID you proxy to**, not by any
+CGS-side choice:
+
+- **Legacy:** `withProxy('certified_group', groupDid)` → header `groupDid#certified_group`
+  → PDS resolves the **group** DID (a `did:plc:*`, via the PLC directory), reads
+  its `certified_group` entry, forwards, and mints `aud = groupDid`. This is the
+  deprecated form, and it is what stock proxying produces by default.
+- **Migrated:** target the **service** DID →
+  `withProxy('certified_group_service', serviceDid)` → header
+  `serviceDid#certified_group_service` → PDS resolves `did:web:<host>`. A `did:web`
+  resolves by HTTP `GET https://<host>/.well-known/did.json`, which CGS now serves
+  (closing #29), so the PDS forwards and mints `aud = serviceDid`. The proxy id
+  `certified_group_service` must match the service entry in the **service's** own
+  document — distinct from the `certified_group` entry in a group's document (see
+  _Two-fragment convention_ in `src/did-document.ts`).
+
+What actually arrives in `aud`: the reference PDS **strips** the service-id
+fragment when proxying, so today CGS receives `aud = did:web:<host>` (bare) — the
+form the verifier has always accepted. The PDS is slated to stop stripping it
+([AT Protocol XRPC spec — service proxying](https://atproto.com/specs/xrpc#service-proxying)),
+after which `aud` would arrive as
+`did:web:<host>#certified_group_service`; the verifier already accepts that exact
+fragment (and rejects a foreign one) for forward-compatibility. Non-proxied calls
+are unaffected either way — the client requests the bare service DID as `aud` (a
+`getServiceAuth` `aud` is lexicon-typed `did`, which forbids a fragment) and the
+verifier string-compares it; no resolution, no served document needed.
+
+### The resolution chain is a redundant round-trip — and why it must be
+
+Starting from nothing but a `groupDid`, a proxied call on the new form (proxying to
+the service DID) traverses:
+
+```text
+groupDid
+  → resolve group DID doc → certified_group entry → service endpoint URL   (A: discovery)
+  → derive did:web:<host> from that URL                                    (B)
+  → resolve service DID doc (/.well-known/did.json) → service entry → URL  (C: proxying)
+  → forward
+```
+
+**Hop A's URL and hop C's URL are the same endpoint** — you resolve your way to
+the service URL, derive the service DID from it, then resolve the service DID
+straight back to the same URL. The redundancy is real, and it is **forced by a
+layer seam**, not avoidable cleverness:
+
+- **Hop A (discovery) is CGS-specific.** "Given a group, which service hosts it?"
+  has exactly one on-protocol answer: the group DID document's `certified_group`
+  entry. `register` / `import` return only `groupDid`, never the service DID, so
+  this entry is the sole on-chain link. The entry is therefore needed on **both**
+  paths — legacy uses it to route; migrated uses it to discover the service DID.
+- **Hops B→C (proxying) are generic atproto.** The PDS's proxy step takes one
+  input — the DID in the header — resolves _that_ document, forwards to _its_
+  endpoint. It cannot consume hop A's already-known URL; standard proxying
+  **always begins from the `aud` DID and re-resolves from scratch**. To obtain
+  `aud = serviceDid` you must hand the PDS the service DID, which forces it to
+  re-resolve the service document even though discovery already produced the URL.
+
+The endpoint URL appears in two DID documents precisely because these two layers
+do not share state.
+
+**The round-trip is the intended path, not an inefficiency to route around.**
+Resolving the group's DID document to discover its service (hop A) is how a client
+is _supposed_ to find which service hosts a group — that on-protocol link is the
+whole point of the chain, and it is needed whether the call is proxied (the PDS
+resolves it to route) or non-proxied (the client resolves it to learn the service
+URL). A client should not hardcode the service URL to skip it: doing so couples the
+client to one deployment and breaks the moment a group is hosted elsewhere.
+
+There is a real timing hazard in that resolution, however: right after
+`group.register`, the group's DID document can still be cached as its **genesis
+doc** — `register` adds the `certified_group` service entry in a _second_ PLC op
+(`register.ts:114-132`), after `createAccount`, so a resolver that cached the doc
+at account-creation has the entry-less version until its cache refreshes. A
+resolution immediately after registration can therefore miss `certified_group` and
+fail to locate the service. This affects **both** call routes (it is about
+resolving the group doc, not about proxying per se), and it is why our first client
+app currently hardcodes the service URL as a stopgap. Tracked as `HYPER-453`; a bug
+to fix, not a pattern to bless.
+
+What legitimately shortens the chain is the **call route**, not skipping
+discovery: a non-proxied call doesn't proxy, so it skips hops B→C (it requests
+`aud` directly without the PDS resolving the _service's_ document). The full
+five-hop chain is the proxied-from-a-bare-`groupDid` case.
+
 ## Security: `repo` is unsigned (a deliberate reduction to atproto parity)
 
 Moving the group selector from the signed `aud` claim to an **unsigned `repo`
@@ -224,6 +346,53 @@ This mirrors — at lower severity — the blast-radius tradeoff
 [`api-keys.md`](./api-keys.md) already accepts for long-lived keys. Scope
 minimality (RBAC + short JWT life) is the mitigation in both.
 
+### Tampering / MitM: can an attacker swap `repo` and replay?
+
+Because `repo` is unsigned, an on-path attacker who can modify the request _can_
+change `?repo=groupA` to `?repo=groupB` without invalidating the signature. The
+swap is contained by three independent gates, none of which the attacker can
+forge:
+
+- **RBAC re-check on the signed `iss`.** Authorization keys off `payload.iss`
+  (signed) against the _swapped_ group's DB (`assertCanWithAudit(…, callerDid,
+…)`). A swap therefore only reaches a group the **original caller already has a
+  role in** — it cannot read a group the caller is not a member of, and cannot
+  impersonate a different caller. The result the attacker obtains is one the
+  caller was already entitled to fetch.
+- **`lxm` binds the method.** The token is valid only for the method it was
+  minted for (`member.list`), so a swap cannot repurpose it for another endpoint.
+- **Single-use `jti` + short `exp`.** The token is consumed on first use
+  (`nonceCache.checkAndStore` → "Replayed token"), so this is not a _passive
+  replay_ attack: the attacker must actively intercept and **suppress** the
+  genuine request to spend the token themselves, within `exp − iat ≤ 120s`.
+
+Above all, modifying the querystring in flight means the attacker has already
+broken TLS — at which point they can alter the request arbitrarily. The unsigned
+`repo` adds blast radius **given a compromised transport**; it opens nothing
+under normal HTTPS. Net: a `repo` swap can redirect a caller's own legitimate
+query from one of their groups to another of their groups — no cross-caller,
+cross-method, or cross-privilege escalation.
+
+### Querystring visibility: `repo` is metadata in URLs and logs
+
+For query methods (`member.list`, `audit.query`) and the raw/body-less methods,
+`repo` rides the **querystring** — the atproto convention for queries, and what a
+stock SDK emits. Unlike the auth token (always an `Authorization` header) and the
+response (always the body), a querystring value commonly appears in server access
+logs, reverse-proxy/CDN logs, and browser history. So an observer with log access
+learns _which group's endpoint was queried_ — public metadata (a group DID is a
+resolvable, public identity), **not** the caller (header) and **not** the members
+(body).
+
+Severity is low: the leaked value is a public identifier, and this is plain
+atproto parity (`com.atproto.repo.*` queries already carry `repo` in the
+querystring). It is nonetheless a real metadata exposure — for a group whose mere
+existence is sensitive, its DID showing up in shared logs is a small disclosure.
+A request body is not an option for queries (an atproto `query` has no `input`
+schema; see _Where `repo` lives_ above), so the only avenue that keeps stock-SDK
+DX is an HTTP header — whether that is workable is tracked as a follow-up
+([#39](https://github.com/hypercerts-org/certified-group-service/issues/39)).
+
 ---
 
 ## What changes
@@ -251,6 +420,14 @@ Two facts follow, and they set the design:
   body-input procedure). The stock SDK has no way to put `repo` in the
   querystring on a typed procedure call. So CGS **must** read procedure `repo`
   from the body, or the developer is forced to bypass the SDK — a DX failure.
+- **Queries carry `repo` in the _querystring_, and have no other option.** An
+  atproto `query` lexicon declares a `parameters` block (→ querystring) and **no
+  `input` schema** — there is structurally no body slot for a query, and the
+  xrpc client/server route queries as GET with params in the querystring. (HTTP
+  GET _can_ carry a body in the abstract, but `fetch` — what `@atproto/api` uses
+  — forbids it, and RFC 9110 gives a GET body no defined semantics.) So a stock
+  SDK consumer calling `member.list` / `audit.query` can supply `repo` **only**
+  on the querystring; requiring a body would make the typed call impossible.
 - **The SDK mints `aud = serviceDid`.** It cannot place a group DID in `aud`;
   `aud` is the audience/service. So today's `aud = groupDid` overload is
   **unreachable through a stock SDK** without hand-crafting — the fix is what
@@ -308,11 +485,18 @@ export interface GroupAuthCredentials {
 `assertTokenLifetime`, nonce/replay (`jti`), and signature checks are unchanged
 for both forms — only the audience check and the group-source differ.
 
-Both forms can be sent **together** during migration (a client adds `repo` but
-still sets `aud=groupDid`). Precedence: **explicit `repo` wins** (new path, no
-warning), regardless of `aud`. A client migrates by _adding_ `repo`; the warning
-stops the moment it does. A client sending `repo` + `aud=serviceDid` is fully
-migrated.
+`repo` and `aud` are **not** independently switchable: a half-migrated mix is
+rejected, not silently downgraded. When `repo` is present (a query), the verifier
+**requires** `aud = serviceDid` — `repo` + `aud=groupDid` throws
+`jwt audience does not match service did` (a hard `401`). So a client cannot "add
+`repo` first and fix `aud` later"; it migrates a query by switching both at once.
+Only `repo` + `aud=serviceDid` is the fully-migrated, warning-free state.
+
+(An earlier draft of this design had "explicit `repo` wins regardless of `aud`,
+no warning." That was **rejected** during implementation in favour of the hard
+error above: a token whose signed `aud` still names the group is not a
+service-targeted token, and accepting it would blur the very claim this fix
+exists to correct. The verifier and its tests implement the hard error.)
 
 ### Lexicons — add `repo` to query methods
 
@@ -346,11 +530,13 @@ authed methods get it uniformly.
 
 ### Client side (out of this repo)
 
-A client migrates by **adding `repo: <groupDid>`** to each call and switching
-`getServiceAuth?aud=<groupDid>` → `aud=<cgsServiceDid>`. Until it does, it keeps
-working on the legacy path and receives the deprecation signal. The two changes
-are independent: adding `repo` silences the warning even before `aud` is
-corrected.
+A client migrates by **adding `repo: <groupDid>`** to each call **and** switching
+`getServiceAuth?aud=<groupDid>` → `aud=<cgsServiceDid>`. For queries these are a
+single coupled change: `repo` present with `aud=groupDid` is a hard `401` (see
+above), so the client must do both together. For body-input procedures the body
+`repo` is invisible at auth time, so `aud=<cgsServiceDid>` alone moves the call to
+the new path (the handler then reads the body `repo`). Until migrated, a call
+stays fully legacy (`aud=groupDid`, no `repo`) and receives the deprecation signal.
 
 ---
 
@@ -386,9 +572,11 @@ At that point set `Sunset` ahead of the removal release, then remove.
 
 ## Testing
 
-- **Verifier unit tests** (`tests/auth.test.ts` style): new `repo`-field path
+- **Verifier unit tests** (`tests/verifier.test.ts`): new `repo`-field path
   (DID and handle), `aud === serviceDid` accepted; legacy `aud`-as-group still
-  accepted and flags `legacyAud`; both-present → `repo` wins, no warning;
+  accepted and flags `legacyAud`; `repo` present with `aud=groupDid` → hard
+  `401 jwt audience does not match service did` (not a graceful downgrade);
+  service-id fragment on `aud` accepted, a foreign fragment rejected;
   neither → reject.
 - **Per-method tests** that today rely on `aud`-derived `groupDid` (e.g.
   `tests/membership.test.ts`, `member.list`) get a new case sending `repo`

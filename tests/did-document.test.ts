@@ -1,0 +1,50 @@
+import { describe, it, expect } from 'vitest'
+import express from 'express'
+import request from 'supertest'
+import { buildDidDocument, GROUP_SERVICE_TYPE, SERVICE_ID_FRAGMENT } from '../src/did-document.js'
+
+const SERVICE_DID = 'did:web:groups.example.com'
+const SERVICE_URL = 'https://groups.example.com'
+
+describe('buildDidDocument', () => {
+  it('builds a did:web doc whose id matches the service DID', () => {
+    const doc = buildDidDocument(SERVICE_DID, SERVICE_URL)
+    expect(doc.id).toBe(SERVICE_DID)
+    expect(doc['@context']).toContain('https://www.w3.org/ns/did/v1')
+  })
+
+  it('publishes the #certified_group_service service entry pointing at the service URL', () => {
+    const doc = buildDidDocument(SERVICE_DID, SERVICE_URL)
+    expect(doc.service).toHaveLength(1)
+    const svc = doc.service[0]
+    expect(svc.id).toBe(`#${SERVICE_ID_FRAGMENT}`)
+    expect(svc.type).toBe(GROUP_SERVICE_TYPE)
+    expect(svc.serviceEndpoint).toBe(SERVICE_URL)
+  })
+
+  // NOTE: the scope-aud consistency guard (that `serviceScopeAud(serviceDid)`
+  // ends with this doc's service-entry id) belongs with the API-key scope layer
+  // and returns when `src/auth/scopes.ts` lands — `scopes.ts` will import
+  // SERVICE_ID_FRAGMENT from did-document.ts, so the two cannot drift.
+
+  it('strips a trailing slash from the service endpoint', () => {
+    const doc = buildDidDocument(SERVICE_DID, 'https://groups.example.com/')
+    expect(doc.service[0].serviceEndpoint).toBe('https://groups.example.com')
+  })
+})
+
+describe('GET /.well-known/did.json', () => {
+  function appWithDidRoute() {
+    const app = express()
+    const doc = buildDidDocument(SERVICE_DID, SERVICE_URL)
+    app.get('/.well-known/did.json', (_req, res) => res.json(doc))
+    return app
+  }
+
+  it('serves 200 with a resolvable did document', async () => {
+    const res = await request(appWithDidRoute()).get('/.well-known/did.json')
+    expect(res.status).toBe(200)
+    expect(res.body.id).toBe(SERVICE_DID)
+    expect(res.body.service[0].id).toBe(`#${SERVICE_ID_FRAGMENT}`)
+  })
+})
