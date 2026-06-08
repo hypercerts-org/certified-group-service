@@ -345,8 +345,10 @@ Severity is low: the leaked value is a public identifier, and this is plain
 atproto parity (`com.atproto.repo.*` queries already carry `repo` in the
 querystring). It is nonetheless a real metadata exposure — for a group whose mere
 existence is sensitive, its DID showing up in shared logs is a small disclosure.
-Whether queries could accept `repo` via a header or POST body without breaking
-stock-SDK DX is tracked as a follow-up ([#39](https://github.com/hypercerts-org/certified-group-service/issues/39)).
+A request body is not an option for queries (an atproto `query` has no `input`
+schema; see _Where `repo` lives_ above), so the only avenue that keeps stock-SDK
+DX is an HTTP header — whether that is workable is tracked as a follow-up
+([#39](https://github.com/hypercerts-org/certified-group-service/issues/39)).
 
 ---
 
@@ -375,6 +377,14 @@ Two facts follow, and they set the design:
   body-input procedure). The stock SDK has no way to put `repo` in the
   querystring on a typed procedure call. So CGS **must** read procedure `repo`
   from the body, or the developer is forced to bypass the SDK — a DX failure.
+- **Queries carry `repo` in the _querystring_, and have no other option.** An
+  atproto `query` lexicon declares a `parameters` block (→ querystring) and **no
+  `input` schema** — there is structurally no body slot for a query, and the
+  xrpc client/server route queries as GET with params in the querystring. (HTTP
+  GET _can_ carry a body in the abstract, but `fetch` — what `@atproto/api` uses
+  — forbids it, and RFC 9110 gives a GET body no defined semantics.) So a stock
+  SDK consumer calling `member.list` / `audit.query` can supply `repo` **only**
+  on the querystring; requiring a body would make the typed call impossible.
 - **The SDK mints `aud = serviceDid`.** It cannot place a group DID in `aud`;
   `aud` is the audience/service. So today's `aud = groupDid` overload is
   **unreachable through a stock SDK** without hand-crafting — the fix is what
