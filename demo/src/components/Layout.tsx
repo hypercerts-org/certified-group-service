@@ -64,6 +64,7 @@ export function Layout() {
         <Link to="/records" style={styles.link}>Records</Link>
         <Link to="/upload" style={styles.link}>Upload</Link>
         <Link to="/audit" style={styles.link}>Audit</Link>
+        <Link to="/keys" style={styles.link}>API Keys</Link>
         <span style={{ flex: 1 }} />
         {user && (
           <>

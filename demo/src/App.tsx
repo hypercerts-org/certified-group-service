@@ -8,6 +8,7 @@ import { Dashboard } from './pages/Dashboard'
 import { Records } from './pages/Records'
 import { Upload } from './pages/Upload'
 import { AuditLog } from './pages/AuditLog'
+import { ApiKeys } from './pages/ApiKeys'
 
 interface AuthUser {
   did: string
@@ -99,6 +100,7 @@ export function App() {
               <Route path="/records" element={user ? <Records /> : <Navigate to="/login" />} />
               <Route path="/upload" element={user ? <Upload /> : <Navigate to="/login" />} />
               <Route path="/audit" element={user ? <AuditLog /> : <Navigate to="/login" />} />
+              <Route path="/keys" element={user ? <ApiKeys /> : <Navigate to="/login" />} />
             </Route>
           </Routes>
         </BrowserRouter>
