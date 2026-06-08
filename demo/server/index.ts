@@ -1,4 +1,6 @@
 import './env.js'
+import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import express from 'express'
 import session from 'express-session'
 import cors from 'cors'
@@ -9,7 +11,8 @@ import registerRoutes from './routes/register.js'
 import keysRoutes from './routes/keys.js'
 
 const app = express()
-const PORT = parseInt(process.env.BFF_PORT || '3001', 10)
+// PORT is Railway's convention; BFF_PORT is the local dev override; 3001 default.
+const PORT = parseInt(process.env.PORT || process.env.BFF_PORT || '3001', 10)
 
 const sessionSecret = process.env.SESSION_SECRET
 if (!sessionSecret) throw new Error('SESSION_SECRET must be set')
@@ -62,6 +65,22 @@ app.use('/api/keys', keysRoutes)
 
 // Health check
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
+
+// Serve the built SPA in production. In dev, Vite serves the client (port 5173)
+// and proxies /api here, so this block is inactive. On a single-process deploy
+// (e.g. Railway) the BFF serves both the API and the built client. The client
+// dist defaults to ../dist relative to the compiled server (dist-server/),
+// overridable with CLIENT_DIST.
+if (process.env.NODE_ENV === 'production') {
+  const here = fileURLToPath(new URL('.', import.meta.url))
+  const clientDist = process.env.CLIENT_DIST || join(here, '..', 'dist')
+  app.use(express.static(clientDist))
+  // SPA fallback: any non-/api route returns index.html so client-side routing
+  // (react-router) works on deep links / refresh.
+  app.get(/^(?!\/api\/).*/, (_req, res) => {
+    res.sendFile(join(clientDist, 'index.html'))
+  })
+}
 
 app.listen(PORT, () => {
   console.log(`BFF server running on http://localhost:${PORT}`)
