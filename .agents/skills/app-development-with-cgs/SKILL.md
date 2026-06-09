@@ -289,6 +289,22 @@ For `rpc:` scopes pass the **friendly** `rpc:<method>` name — do **not** add a
 back the canonical form. `InvalidScope` is returned for an unparseable scope, a
 non-RPC method, or an `aud` for a different service.
 
+**Permission sets (`include:`).** The Hypercerts / Certified record types are
+published as permission sets — scope bundles named by one `include:<nsid>` scope:
+`org.hypercerts.permissions.crud` (write on all `org.hypercerts.*` collections)
+and `app.certified.permissions.crud` (write on all `app.certified.*`). Two sets,
+never one: a set may only reference its own namespace authority. Caveats for an
+agent:
+
+- **OAuth path: usable now.** An app reaching CGS via OAuth + service proxying
+  requests `include:<nsid>` as a scope; the user's PDS expands it. No CGS change
+  needed.
+- **API-key path: NOT yet implemented.** `keys.create` today accepts only
+  `rpc:`/`repo:`/`blob:` (an `include:` scope returns `InvalidScope`). Expanding
+  `include:` at key-create is planned — `docs/design/api-key-permission-sets.md`.
+  Until then, list the concrete `repo:org.hypercerts.…?action=…` scopes
+  explicitly. Do **not** tell a user an API key can take an `include:` scope yet.
+
 **Two authorization axes apply to every key request:**
 
 1. **Scope** — does the key's scope set cover this operation? Outside scope →

@@ -729,3 +729,34 @@ await fetch(`${GROUP_SERVICE}/xrpc/app.certified.group.repo.createRecord?repo=${
 ```
 
 A `repo:` scope picks the collection + action; the issuing owner's **role** still decides whose records may be touched — a member-issued key can only mutate records that member authored (`repo:` scopes have no own-vs-any axis). Storing a narrowly-scoped key is far less sensitive than holding the owner's signing key. See `docs/design/api-keys.md`.
+
+### Permission sets: granting whole namespaces at once
+
+Listing every `repo:<collection>?action=…` scope by hand is tedious and easy to get out of date. The Hypercerts and Certified record types are published as **permission sets** — named, reusable scope bundles you reference with a single `include:<nsid>` scope:
+
+| Permission set                    | Grants write (create/update/delete) on    |
+| --------------------------------- | ----------------------------------------- |
+| `org.hypercerts.permissions.crud` | all `org.hypercerts.*` record collections |
+| `app.certified.permissions.crud`  | all `app.certified.*` record collections  |
+
+These are published in the [`hypercerts-lexicon`](https://github.com/hypercerts-org/hypercerts-lexicon) repo (the namespace authority), and are usable in **two** ways:
+
+**1. As an OAuth scope (available now).** If your app reaches CGS through standard AT Protocol OAuth + service proxying, request the set as a scope in your authorization request and the user's PDS expands it for you:
+
+```text
+scope: include:org.hypercerts.permissions.crud
+```
+
+The user sees the set's plain-language description ("Manage your Hypercerts data") on the consent screen. An app that writes both Hypercerts and Certified records requests **both** `include:` scopes — a permission set may only reference its own namespace authority, so the two cannot be combined into one set.
+
+**2. As an API-key scope (planned, not yet available).** The intent is for `keys.create` to accept `include:<nsid>` and expand it to the underlying `repo:` scopes at key-creation time. **This is not implemented yet** (design: `docs/design/api-key-permission-sets.md`). Until it lands, an API key that needs Hypercerts/Certified write access must list the concrete `repo:` scopes explicitly — e.g.:
+
+```typescript
+scopes: [
+  'repo:org.hypercerts.claim.activity?action=create',
+  'repo:org.hypercerts.claim.activity?action=update',
+  // …one per collection + action you need
+]
+```
+
+Reading these records never needs a scope (or a permission set) at all — atproto repo records are public.
