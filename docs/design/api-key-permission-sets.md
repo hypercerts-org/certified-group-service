@@ -119,7 +119,7 @@ in the lexicon doc): NSID → `_lexicon.` DNS TXT → authority DID → PDS →
 > lookups. A follow-up adds that resolver plus a spec-compliant cache (the spec
 > recommends a ~24h stale lifetime and warns not to long-cache the DNS step).
 > Mechanism is confirmed — it is build work, not an unknown.
-
+>
 > **Confirm at implementation:** that `IncludeScope.toScopes` applies an
 > invocation `aud` to `inheritAud` permissions outside a full OAuth grant. If not,
 > construct the expanded `rpc:` strings with
@@ -128,7 +128,7 @@ in the lexicon doc): NSID → `_lexicon.` DNS TXT → authority DID → PDS →
 
 ## Worked example (API-key path)
 
-```
+```text
 POST app.certified.group.keys.create
 { "repo": "<group>", "name": "hypercerts-backend",
   "scopes": ["include:org.hypercerts.permissions.crud"] }
