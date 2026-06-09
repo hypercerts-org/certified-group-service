@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useGroup } from '../App'
 import { proxyGet, resolveIdentifier } from '../api'
-import { CopyDid } from '../components/CopyDid'
+import { HandleId } from '../components/HandleId'
+import { useHandles } from '../useHandles'
 
 const inputStyle: React.CSSProperties = {
   padding: '8px 12px',
@@ -42,6 +43,9 @@ export function AuditLog() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Reverse-resolve actor DIDs so the Actor column leads with the handle.
+  const handles = useHandles(entries.map((e) => e.actorDid))
+
   const fetchEntries = async (paginationCursor?: string) => {
     if (!groupDid) return
     setError('')
@@ -81,7 +85,10 @@ export function AuditLog() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 16 }}>Audit Log</h2>
+      <h2 style={{ marginBottom: 4 }}>Audit Log</h2>
+      <div style={{ marginBottom: 16 }}>
+        <HandleId did={group.did} handle={group.handle} layout="stacked" style={{ fontSize: 16 }} />
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -129,7 +136,9 @@ export function AuditLog() {
               {entries.map((e) => (
                 <tr key={e.id} style={{ borderBottom: '1px solid #eee' }}>
                   <td style={{ padding: 8 }}>{e.id}</td>
-                  <td style={{ padding: 8, fontSize: 11 }}><CopyDid did={e.actorDid} /></td>
+                  <td style={{ padding: 8, fontSize: 11 }}>
+                    <HandleId did={e.actorDid} handle={handles[e.actorDid]} layout="compact" />
+                  </td>
                   <td style={{ padding: 8 }}>{e.action}</td>
                   <td style={{ padding: 8, fontSize: 11 }}>{e.collection || '-'}</td>
                   <td style={{ padding: 8, fontFamily: 'monospace', fontSize: 11 }}>{e.rkey || '-'}</td>

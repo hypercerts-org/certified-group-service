@@ -9,6 +9,7 @@ import {
   type CreatedApiKey,
 } from '../api'
 import { JsonEditor } from '../components/JsonEditor'
+import { HandleId } from '../components/HandleId'
 import { COLLECTIONS, recordTemplate } from '../collections'
 
 // The service binds the `aud` for rpc: scopes, so clients pass the friendly
@@ -293,7 +294,10 @@ export function ApiKeys() {
 
   return (
     <div style={{ maxWidth: 820 }}>
-      <h2>API keys</h2>
+      <h2 style={{ marginBottom: 4 }}>API keys</h2>
+      <div style={{ marginBottom: 12 }}>
+        <HandleId did={group.did} handle={group.handle} layout="stacked" style={{ fontSize: 16 }} />
+      </div>
       <p style={{ color: '#555', fontSize: 14 }}>
         Mint a long-lived, scope-limited key an external backend can use via the{' '}
         <code>X-API-Key</code> header — no owner session, no 2-minute JWT refresh. The plaintext is

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useGroup } from '../App'
 import { proxyGet, proxyPost, resolveIdentifier } from '../api'
-import { CopyDid } from '../components/CopyDid'
+import { HandleId } from '../components/HandleId'
+import { useHandles } from '../useHandles'
 
 const inputStyle: React.CSSProperties = {
   padding: '8px 12px',
@@ -44,6 +45,10 @@ export function Dashboard() {
   const [actionMsg, setActionMsg] = useState('')
 
   const groupDid = group?.did || ''
+
+  // Reverse-resolve the DIDs shown in the table (members + their adders) so the
+  // table can lead with handles; unresolved DIDs fall back to the DID.
+  const handles = useHandles(members.flatMap((m) => [m.did, m.addedBy]))
 
   const fetchMembers = async () => {
     if (!groupDid) return
@@ -114,7 +119,11 @@ export function Dashboard() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 16 }}>Dashboard</h2>
+      <h2 style={{ marginBottom: 4 }}>Dashboard</h2>
+      {/* Group identity: handle leads, DID is the secondary copyable line. */}
+      <div style={{ marginBottom: 16 }}>
+        <HandleId did={group.did} handle={group.handle} layout="stacked" style={{ fontSize: 16 }} />
+      </div>
 
       {error && <div style={{ color: '#e74c3c', marginBottom: 12, fontSize: 13 }}>{error}</div>}
       {actionMsg && <div style={{ color: '#2196f3', marginBottom: 12, fontSize: 13 }}>{actionMsg}</div>}
@@ -124,7 +133,7 @@ export function Dashboard() {
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 24, fontSize: 14 }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #ddd', textAlign: 'left' }}>
-              <th style={{ padding: 8 }}>DID</th>
+              <th style={{ padding: 8 }}>Member</th>
               <th style={{ padding: 8 }}>Role</th>
               <th style={{ padding: 8 }}>Added By</th>
               <th style={{ padding: 8 }}>Added At</th>
@@ -134,7 +143,9 @@ export function Dashboard() {
           <tbody>
             {members.map((m) => (
               <tr key={m.did} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: 8, fontSize: 12 }}><CopyDid did={m.did} /></td>
+                <td style={{ padding: 8, fontSize: 12 }}>
+                  <HandleId did={m.did} handle={handles[m.did]} layout="compact" />
+                </td>
                 <td style={{ padding: 8 }}>
                   <span style={{
                     padding: '2px 8px',
@@ -146,7 +157,9 @@ export function Dashboard() {
                     {m.role}
                   </span>
                 </td>
-                <td style={{ padding: 8, fontSize: 12 }}><CopyDid did={m.addedBy} /></td>
+                <td style={{ padding: 8, fontSize: 12 }}>
+                  <HandleId did={m.addedBy} handle={handles[m.addedBy]} layout="compact" />
+                </td>
                 <td style={{ padding: 8, fontSize: 12 }}>{new Date(m.addedAt).toLocaleString()}</td>
                 <td style={{ padding: 8, display: 'flex', gap: 4 }}>
                   <select

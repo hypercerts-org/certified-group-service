@@ -2,6 +2,42 @@ import { Router } from 'express'
 
 const router = Router()
 const EPDS_URL = process.env.EPDS_URL || 'https://epds1.test.certified.app'
+const PLC_URL = process.env.PLC_URL || 'https://plc.directory'
+
+/**
+ * Resolve a DID to its primary handle by reading the DID document's
+ * `alsoKnownAs` (the first `at://` entry, per atproto convention). Returns null
+ * when the DID does not resolve or declares no handle — callers fall back to
+ * showing the DID. Only `did:plc:` (via the PLC directory) and `did:web:`
+ * (via `/.well-known/did.json`) are supported; other methods return null.
+ */
+async function didToHandle(did: string): Promise<string | null> {
+  const docUrl = didDocumentUrl(did)
+  if (!docUrl) return null
+  const upstream = await fetch(docUrl)
+  if (!upstream.ok) return null
+  const doc = (await upstream.json().catch(() => null)) as { alsoKnownAs?: unknown } | null
+  const aka = Array.isArray(doc?.alsoKnownAs) ? doc.alsoKnownAs : []
+  const atUri = aka.find((v): v is string => typeof v === 'string' && v.startsWith('at://'))
+  return atUri ? atUri.slice('at://'.length) : null
+}
+
+/** The URL of a DID's document, or null for an unsupported DID method. */
+export function didDocumentUrl(did: string): string | null {
+  if (did.startsWith('did:plc:')) {
+    return `${PLC_URL.replace(/\/$/, '')}/${encodeURIComponent(did)}`
+  }
+  if (did.startsWith('did:web:')) {
+    // did:web:<host>[:<path>] → https://<host>[/<path>]/.well-known/did.json
+    const rest = did.slice('did:web:'.length)
+    const parts = rest.split(':').map(decodeURIComponent)
+    const host = parts[0]
+    const path = parts.slice(1).join('/')
+    const base = path ? `https://${host}/${path}` : `https://${host}`
+    return `${base}/.well-known/did.json`
+  }
+  return null
+}
 
 /**
  * GET /api/resolve?identifier=<did-or-handle>
@@ -37,6 +73,41 @@ router.get('/', async (req, res) => {
   } catch (err: any) {
     res.status(502).json({ error: err?.message || 'Handle resolution failed' })
   }
+})
+
+const MAX_BATCH = 100
+
+/**
+ * POST /api/resolve-handles  body: { dids: string[] }
+ *
+ * Reverse-resolve a batch of DIDs to their handles for display (handle-primary,
+ * DID-secondary in the UI). Returns `{ handles: { [did]: handle | null } }`;
+ * a DID that does not resolve maps to null so the caller shows the DID instead.
+ * Resolution is best-effort and per-DID independent — one failure never fails
+ * the batch. Done server-side to keep DID-doc fetches off the browser.
+ */
+router.post('/handles', async (req, res) => {
+  const raw = (req.body as { dids?: unknown })?.dids
+  if (!Array.isArray(raw)) {
+    return res.status(400).json({ error: 'Body must be { dids: string[] }' })
+  }
+  // De-duplicate and keep only well-formed DID strings, capped to bound fan-out.
+  const dids = [...new Set(raw.filter((d): d is string => typeof d === 'string' && d.startsWith('did:')))].slice(
+    0,
+    MAX_BATCH,
+  )
+
+  const entries = await Promise.all(
+    dids.map(async (did) => {
+      try {
+        return [did, await didToHandle(did)] as const
+      } catch {
+        return [did, null] as const
+      }
+    }),
+  )
+
+  res.json({ handles: Object.fromEntries(entries) })
 })
 
 export default router

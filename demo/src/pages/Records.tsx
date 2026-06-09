@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useGroup } from '../App'
 import { proxyPost } from '../api'
 import { JsonEditor } from '../components/JsonEditor'
+import { HandleId } from '../components/HandleId'
 import { COLLECTIONS, recordTemplate } from '../collections'
 
 /** Pretty-printed starter JSON for a collection, stamped with the current time. */
@@ -136,7 +137,10 @@ export function Records() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 16 }}>Records</h2>
+      <h2 style={{ marginBottom: 4 }}>Records</h2>
+      <div style={{ marginBottom: 16 }}>
+        <HandleId did={group.did} handle={group.handle} layout="stacked" style={{ fontSize: 16 }} />
+      </div>
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 2, marginBottom: 0 }}>

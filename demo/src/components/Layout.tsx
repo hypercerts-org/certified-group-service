@@ -3,6 +3,7 @@ import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuth, useGroup } from '../App'
 import { logout, resolveIdentifier } from '../api'
 import { CopyDid } from './CopyDid'
+import { HandleId } from './HandleId'
 
 const styles = {
   nav: {
@@ -96,12 +97,12 @@ export function Layout() {
           {group ? (
             <>
               <span style={{ fontWeight: 600 }}>Active group:</span>
-              <code style={{ fontSize: 12, background: '#fff', padding: '2px 8px', borderRadius: 4 }}>
-                {group.handle || <CopyDid did={group.did} />}
-              </code>
-              {group.handle && (
-                <CopyDid did={group.did} style={{ opacity: 0.6, fontSize: 11 }} />
-              )}
+              <HandleId
+                did={group.did}
+                handle={group.handle}
+                layout="inline"
+                style={{ fontSize: 12, background: '#fff', padding: '2px 8px', borderRadius: 4 }}
+              />
               <button
                 onClick={() => setShowGroupInput(!showGroupInput)}
                 style={{ ...styles.btn, color: '#1a1a2e', borderColor: '#90a4ae', fontSize: 12, padding: '2px 8px' }}

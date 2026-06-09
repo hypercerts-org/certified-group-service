@@ -57,6 +57,17 @@ export const resolveIdentifier = (identifier: string) =>
     `/resolve?identifier=${encodeURIComponent(identifier.trim())}`,
   )
 
+/**
+ * Reverse-resolve a batch of DIDs to their handles for display (handle-primary,
+ * DID-secondary). Returns a map keyed by DID; an unresolved DID maps to null so
+ * the caller falls back to showing the DID. Best-effort — never throws per-DID.
+ */
+export const resolveHandles = (dids: string[]) =>
+  request<{ handles: Record<string, string | null> }>('/resolve/handles', {
+    method: 'POST',
+    body: JSON.stringify({ dids }),
+  })
+
 // Register (requires auth — owner DID comes from session, service auth proves DID control)
 export const registerGroup = (body: { handle: string }) =>
   request<{ groupDid: string; handle: string }>('/register', { method: 'POST', body: JSON.stringify(body) })
