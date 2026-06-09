@@ -9,8 +9,10 @@ export default defineConfig({
     },
     // tests/smoke/ holds manual smoke tests that hit a live deployment and need
     // real credentials; e2e/ holds the cucumber suite (run via `pnpm test:e2e`).
-    // Neither belongs in the automated vitest suite.
-    exclude: [...configDefaults.exclude, 'tests/smoke/**', 'e2e/**'],
+    // demo/ is a separate pnpm workspace with its own vitest run and deps (e.g.
+    // @hypercerts-org/lexicon) that the root install doesn't have — its tests
+    // must not be swept into the root suite. None belong in the automated suite.
+    exclude: [...configDefaults.exclude, 'tests/smoke/**', 'e2e/**', 'demo/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
