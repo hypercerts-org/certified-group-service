@@ -7,7 +7,8 @@ interface CopyDidProps {
   /**
    * Text to show instead of the DID itself (the full DID is still what gets
    * copied, and appears in the hover tooltip). Used by {@link HandleId} compact
-   * mode to render a handle that copies its DID. Ignored when `truncate` is set.
+   * mode to render a handle that copies its DID. Takes precedence over
+   * `truncate` when both are set.
    */
   label?: string
 }

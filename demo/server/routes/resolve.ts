@@ -3,38 +3,74 @@ import { Router } from 'express'
 const router = Router()
 const EPDS_URL = process.env.EPDS_URL || 'https://epds1.test.certified.app'
 const PLC_URL = process.env.PLC_URL || 'https://plc.directory'
+// Bound DID-document fetches so a stalled host can't tie up a BFF worker
+// (mirrors the AbortController pattern in routes/keys.ts).
+const DOC_FETCH_TIMEOUT_MS = 5_000
 
 /**
  * Resolve a DID to its primary handle by reading the DID document's
  * `alsoKnownAs` (the first `at://` entry, per atproto convention). Returns null
  * when the DID does not resolve or declares no handle — callers fall back to
- * showing the DID. Only `did:plc:` (via the PLC directory) and `did:web:`
- * (via `/.well-known/did.json`) are supported; other methods return null.
+ * showing the DID. Only `did:plc:` (via the PLC directory) and `did:web:` on a
+ * public host (via `/.well-known/did.json`) are supported; anything else
+ * returns null. The fetch is time-bounded.
  */
 async function didToHandle(did: string): Promise<string | null> {
   const docUrl = didDocumentUrl(did)
   if (!docUrl) return null
-  const upstream = await fetch(docUrl)
-  if (!upstream.ok) return null
-  const doc = (await upstream.json().catch(() => null)) as { alsoKnownAs?: unknown } | null
-  const aka = Array.isArray(doc?.alsoKnownAs) ? doc.alsoKnownAs : []
-  const atUri = aka.find((v): v is string => typeof v === 'string' && v.startsWith('at://'))
-  return atUri ? atUri.slice('at://'.length) : null
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), DOC_FETCH_TIMEOUT_MS)
+  try {
+    const upstream = await fetch(docUrl, { signal: controller.signal })
+    if (!upstream.ok) return null
+    const doc = (await upstream.json().catch(() => null)) as { alsoKnownAs?: unknown } | null
+    const aka = Array.isArray(doc?.alsoKnownAs) ? doc.alsoKnownAs : []
+    const atUri = aka.find((v): v is string => typeof v === 'string' && v.startsWith('at://'))
+    return atUri ? atUri.slice('at://'.length) : null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
-/** The URL of a DID's document, or null for an unsupported DID method. */
+/**
+ * Reject `did:web` hosts that point at the local network. The BFF fetches the
+ * DID document server-side, so an attacker-supplied `did:web:` could otherwise
+ * coax it into requesting an internal address (SSRF). This is a syntactic guard
+ * — it blocks the obvious internal targets (loopback, RFC1918, link-local,
+ * `.local`/`.internal`, bare/no-dot hosts) without doing DNS resolution.
+ */
+export function isPublicHost(host: string): boolean {
+  const h = host.toLowerCase()
+  if (!h || !h.includes('.')) return false // bare hostnames (e.g. "localhost")
+  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return false
+  if (h === '127.0.0.1' || h.startsWith('127.') || h === '0.0.0.0' || h === '::1') return false
+  // RFC1918 / link-local IPv4 ranges.
+  if (h.startsWith('10.') || h.startsWith('192.168.') || h.startsWith('169.254.')) return false
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false
+  return true
+}
+
+/** The URL of a DID's document, or null for an unsupported/unsafe DID. */
 export function didDocumentUrl(did: string): string | null {
   if (did.startsWith('did:plc:')) {
     return `${PLC_URL.replace(/\/$/, '')}/${encodeURIComponent(did)}`
   }
   if (did.startsWith('did:web:')) {
-    // did:web:<host>[:<path>] → https://<host>[/<path>]/.well-known/did.json
-    const rest = did.slice('did:web:'.length)
-    const parts = rest.split(':').map(decodeURIComponent)
-    const host = parts[0]
-    const path = parts.slice(1).join('/')
-    const base = path ? `https://${host}/${path}` : `https://${host}`
-    return `${base}/.well-known/did.json`
+    // did:web:<host>[:<path>] → https://<host>[/<path>]/.well-known/did.json.
+    // decodeURIComponent throws on malformed percent-encoding; treat that (and
+    // a non-public host) as "no document" rather than letting it propagate.
+    try {
+      const parts = did.slice('did:web:'.length).split(':').map(decodeURIComponent)
+      const host = parts[0]
+      if (!isPublicHost(host)) return null
+      const path = parts.slice(1).join('/')
+      const base = path ? `https://${host}/${path}` : `https://${host}`
+      return `${base}/.well-known/did.json`
+    } catch {
+      return null
+    }
   }
   return null
 }
@@ -78,7 +114,7 @@ router.get('/', async (req, res) => {
 const MAX_BATCH = 100
 
 /**
- * POST /api/resolve-handles  body: { dids: string[] }
+ * POST /api/resolve/handles  body: { dids: string[] }
  *
  * Reverse-resolve a batch of DIDs to their handles for display (handle-primary,
  * DID-secondary in the UI). Returns `{ handles: { [did]: handle | null } }`;
