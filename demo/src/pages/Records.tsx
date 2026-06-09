@@ -2,53 +2,12 @@ import { useState } from 'react'
 import { useGroup } from '../App'
 import { proxyPost } from '../api'
 import { JsonEditor } from '../components/JsonEditor'
+import { COLLECTIONS, recordTemplate } from '../collections'
 
-const COLLECTIONS = [
-  'org.hypercerts.claim.activity',
-  'org.hypercerts.context.attachment',
-  'org.hypercerts.context.measurement',
-  'org.hypercerts.context.evaluation',
-] as const
-
-const TEMPLATES: Record<string, object> = {
-  'org.hypercerts.claim.activity': {
-    $type: 'org.hypercerts.claim.activity',
-    title: '',
-    description: '',
-    workScope: [],
-    workTimeframe: { start: '', end: '' },
-    impactScope: [],
-    contributors: [],
-    createdAt: new Date().toISOString(),
-  },
-  'org.hypercerts.context.attachment': {
-    $type: 'org.hypercerts.context.attachment',
-    claim: 'at://...',
-    title: '',
-    description: '',
-    blob: null,
-    createdAt: new Date().toISOString(),
-  },
-  'org.hypercerts.context.measurement': {
-    $type: 'org.hypercerts.context.measurement',
-    claim: 'at://...',
-    metric: '',
-    value: 0,
-    unit: '',
-    description: '',
-    measuredAt: '',
-    createdAt: new Date().toISOString(),
-  },
-  'org.hypercerts.context.evaluation': {
-    $type: 'org.hypercerts.context.evaluation',
-    claim: 'at://...',
-    evaluator: '',
-    rating: '',
-    summary: '',
-    methodology: '',
-    evaluatedAt: '',
-    createdAt: new Date().toISOString(),
-  },
+/** Pretty-printed starter JSON for a collection, stamped with the current time. */
+const templateJson = (collection: string): string => {
+  const template = recordTemplate(collection, new Date().toISOString())
+  return template ? JSON.stringify(template, null, 2) : ''
 }
 
 const inputStyle: React.CSSProperties = {
@@ -79,7 +38,7 @@ export function Records() {
   const [collection, setCollection] = useState<string>(COLLECTIONS[0])
   const [customCollection, setCustomCollection] = useState('')
   const [useCustom, setUseCustom] = useState(false)
-  const [json, setJson] = useState(JSON.stringify(TEMPLATES[COLLECTIONS[0]], null, 2))
+  const [json, setJson] = useState(() => templateJson(COLLECTIONS[0]))
   const [rkey, setRkey] = useState('')
   const [result, setResult] = useState<any>(null)
   const [error, setError] = useState('')
@@ -90,9 +49,8 @@ export function Records() {
   const selectCollection = (c: string) => {
     setCollection(c)
     setUseCustom(false)
-    if (TEMPLATES[c]) {
-      setJson(JSON.stringify(TEMPLATES[c], null, 2))
-    }
+    const json = templateJson(c)
+    if (json) setJson(json)
   }
 
   const createRecord = async () => {

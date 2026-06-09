@@ -9,6 +9,7 @@ import {
   type CreatedApiKey,
 } from '../api'
 import { JsonEditor } from '../components/JsonEditor'
+import { COLLECTIONS, recordTemplate } from '../collections'
 
 // The service binds the `aud` for rpc: scopes, so clients pass the friendly
 // `rpc:<method>` form. repo:/blob: scopes carry no aud and are sent as-is.
@@ -136,6 +137,20 @@ export function ApiKeys() {
   const [trying, setTrying] = useState(false)
 
   const tryMethod = TRY_METHODS.find((m) => m.nsid === tryNsid) ?? TRY_METHODS[0]
+
+  // Pick a collection for the write methods: set the collection field and, when
+  // the method carries a record body, prefill it with that collection's
+  // lexicon-valid template so the user edits a correct skeleton instead of
+  // hand-writing one. Takes the method explicitly so it is safe to call from the
+  // method-change handler, where `tryMethod` still reflects the previous render.
+  const selectTryCollectionFor = (method: TryMethod, collection: string) => {
+    setTryCollection(collection)
+    if (collection && method.fields.includes('record')) {
+      const template = recordTemplate(collection, new Date().toISOString())
+      if (template) setTryRecord(JSON.stringify(template, null, 2))
+    }
+  }
+  const selectTryCollection = (collection: string) => selectTryCollectionFor(tryMethod, collection)
 
   // Assemble the scope list from the picker selections.
   const scopes: string[] = [
@@ -421,9 +436,17 @@ export function ApiKeys() {
             style={{ ...inputStyle, width: '100%', marginTop: 4 }}
             value={tryNsid}
             onChange={(e) => {
-              setTryNsid(e.target.value)
+              const nsid = e.target.value
+              setTryNsid(nsid)
               setTryResult(null)
               setTryError('')
+              // When switching to a collection method with nothing chosen yet,
+              // default to the first hypercerts collection (and prefill its
+              // record template) so the form starts from a valid example.
+              const next = TRY_METHODS.find((m) => m.nsid === nsid)
+              if (next?.fields.includes('collection') && !tryCollection) {
+                selectTryCollectionFor(next, COLLECTIONS[0])
+              }
             }}
           >
             {TRY_METHODS.map((m) => (
@@ -439,12 +462,35 @@ export function ApiKeys() {
           <label style={{ display: 'block', fontSize: 14, marginBottom: 8 }}>
             Collection
             <br />
-            <input
+            <select
               style={{ ...inputStyle, width: '100%', marginTop: 4 }}
-              value={tryCollection}
-              onChange={(e) => setTryCollection(e.target.value)}
-              placeholder="app.bsky.feed.post"
-            />
+              // A known hypercerts collection selects itself; anything else (a
+              // typed custom NSID, or the cleared default) shows the custom row.
+              value={(COLLECTIONS as readonly string[]).includes(tryCollection) ? tryCollection : '__custom__'}
+              onChange={(e) =>
+                selectTryCollection(e.target.value === '__custom__' ? '' : e.target.value)
+              }
+            >
+              {COLLECTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+              <option value="__custom__">Custom…</option>
+            </select>
+            {!(COLLECTIONS as readonly string[]).includes(tryCollection) && (
+              <input
+                style={{ ...inputStyle, width: '100%', marginTop: 6 }}
+                value={tryCollection}
+                onChange={(e) => setTryCollection(e.target.value)}
+                placeholder="your.custom.collection"
+              />
+            )}
+            {tryMethod.fields.includes('record') && (
+              <small style={{ display: 'block', color: '#777', marginTop: 4 }}>
+                Picking a hypercerts collection prefills a valid record template below.
+              </small>
+            )}
           </label>
         )}
 
