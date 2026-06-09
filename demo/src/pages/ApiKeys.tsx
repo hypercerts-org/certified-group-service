@@ -33,9 +33,11 @@ type RepoAction = (typeof REPO_ACTIONS)[number]
 // too: it takes a raw binary stream, not a JSON body, so it can't be driven from
 // this form (the Upload page covers blobs).
 //
-// `repo` is never a field here — it rides the querystring (added by the BFF) and
-// must not be repeated in the body, so each method's body is built from the
-// fields below only.
+// `repo` is not a user-editable field here — it is always the active group. It
+// rides the querystring (the BFF adds it, for auth) and, for the POST repo.*
+// procedures, is ALSO injected into the body: their lexicon marks `repo`
+// required, so the XRPC validator rejects a body without it; the service then
+// checks the two agree. The fields below are the per-method extras only.
 type TryField = 'collection' | 'rkey' | 'record' | 'auditFilters'
 
 interface TryMethod {
@@ -235,7 +237,11 @@ export function ApiKeys() {
     let params: Record<string, any> | undefined
     try {
       if (tryMethod.method === 'POST') {
-        body = {}
+        // `repo` rides the querystring (for auth) AND the body: the repo.*
+        // procedures declare `repo` as required in their lexicon input schema,
+        // so the XRPC validator rejects the body without it before the handler
+        // runs. The service checks the body `repo` matches the querystring one.
+        body = { repo: groupDid }
         if (tryMethod.fields.includes('collection')) body.collection = tryCollection.trim()
         if (tryMethod.fields.includes('rkey')) body.rkey = tryRkey.trim()
         if (tryMethod.fields.includes('record')) body.record = JSON.parse(tryRecord)
