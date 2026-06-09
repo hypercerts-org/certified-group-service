@@ -8,12 +8,37 @@ import {
   firstInvalidScope,
   canonicalizeScope,
   canonicalizeScopes,
+  expandIncludes,
   repoActionForOperation,
   repoScopesCover,
   blobScopesCover,
 } from '../src/auth/scopes.js'
+import type { PermissionSetResolver } from '../src/auth/permission-set-resolver.js'
 
 const SERVICE_DID = 'did:web:groups.example.com'
+
+/** A fake resolver: maps NSIDs to permission sets, or throws for unknown ones. */
+function fakeResolver(sets: Record<string, unknown>): PermissionSetResolver {
+  return {
+    resolve: async (nsid: string) => {
+      const set = sets[nsid]
+      if (!set) throw new Error(`unknown set ${nsid}`)
+      return set
+    },
+  } as unknown as PermissionSetResolver
+}
+
+const HYPERCERTS_SET = {
+  type: 'permission-set',
+  permissions: [
+    {
+      type: 'permission',
+      resource: 'repo',
+      collection: ['org.hypercerts.claim.activity', 'org.hypercerts.collection'],
+      action: ['create', 'update', 'delete'],
+    },
+  ],
+}
 // The package URL-encodes `#` as `%23` in the emitted scope string; use its own
 // output as the canonical form rather than hand-writing the encoding.
 const MEMBER_LIST_SCOPE = scopeNeededFor('member.list', SERVICE_DID)!
@@ -243,5 +268,59 @@ describe('canonicalizeScope — blob: scopes', () => {
 
   it('rejects a malformed blob: scope', () => {
     expect(canonicalizeScope('blob:*', SERVICE_DID).ok).toBe(false)
+  })
+})
+
+describe('expandIncludes', () => {
+  const resolver = fakeResolver({ 'org.hypercerts.authWrite': HYPERCERTS_SET })
+
+  it('expands an include: to one combined repo: scope covering all collections', async () => {
+    const res = await expandIncludes(['include:org.hypercerts.authWrite'], SERVICE_DID, resolver)
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    // IncludeScope.toScopes coalesces the collection array into a single scope.
+    expect(res.scopes).toHaveLength(1)
+    expect(res.scopes[0]).toContain('collection=org.hypercerts.claim.activity')
+    expect(res.scopes[0]).toContain('collection=org.hypercerts.collection')
+  })
+
+  it('passes non-include: scopes through untouched', async () => {
+    const res = await expandIncludes(
+      ['rpc:app.certified.group.member.list', 'blob:image/*'],
+      SERVICE_DID,
+      resolver,
+    )
+    expect(res).toEqual({
+      ok: true,
+      scopes: ['rpc:app.certified.group.member.list', 'blob:image/*'],
+    })
+  })
+
+  it('mixes an include: with explicit scopes', async () => {
+    const res = await expandIncludes(
+      ['include:org.hypercerts.authWrite', 'blob:image/*'],
+      SERVICE_DID,
+      resolver,
+    )
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.scopes).toContain('blob:image/*')
+    expect(res.scopes.some((s) => s.includes('collection=org.hypercerts.'))).toBe(true)
+  })
+
+  it('returns ok:false naming the include: when the set cannot be resolved', async () => {
+    const res = await expandIncludes(['include:org.unknown.authWrite'], SERVICE_DID, resolver)
+    expect(res.ok).toBe(false)
+    if (res.ok) return
+    expect(res.scope).toBe('include:org.unknown.authWrite')
+    expect(res.reason).toMatch(/unknown set/)
+  })
+
+  it('the expanded scopes pass canonicalizeScopes', async () => {
+    const res = await expandIncludes(['include:org.hypercerts.authWrite'], SERVICE_DID, resolver)
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    const canon = canonicalizeScopes(res.scopes, SERVICE_DID)
+    expect(canon.ok).toBe(true)
   })
 })

@@ -1,7 +1,15 @@
-import { ScopesSet, RpcPermission, RepoPermission, BlobPermission } from '@atproto/oauth-scopes'
+import {
+  ScopesSet,
+  RpcPermission,
+  RepoPermission,
+  BlobPermission,
+  IncludeScope,
+} from '@atproto/oauth-scopes'
 import type { RepoAction } from '@atproto/oauth-scopes'
 import type { Operation } from '../rbac/permissions.js'
 import { SERVICE_ID_FRAGMENT } from '../did-document.js'
+import type { PermissionSetResolver } from './permission-set-resolver.js'
+import { PermissionSetResolutionError } from './permission-set-resolver.js'
 
 /**
  * The scope-layer `aud` for CGS's own DID, used by `rpc:` scopes.
@@ -162,9 +170,15 @@ export type ScopeCanonicalization =
  *   verbatim after validation; nothing is appended.
  */
 export function canonicalizeScope(scope: string, serviceDid: string): ScopeCanonicalization {
-  if (scope.startsWith('repo:')) return canonicalizeRepoScope(scope)
-  if (scope.startsWith('blob:')) return canonicalizeBlobScope(scope)
-  if (scope.startsWith('rpc:')) return canonicalizeRpcScope(scope, serviceDid)
+  // A scope's resource kind is its leading token before the first `:` or `?`.
+  // Both separators are valid AT Protocol scope syntax: the positional form
+  // (`repo:<collection>`) and the query form (`repo?collection=a&collection=b`),
+  // the latter emitted by IncludeScope.toScopes when a set lists multiple
+  // collections. Match on the kind, not on a `<kind>:` prefix.
+  const kind = scope.split(/[:?]/, 1)[0]
+  if (kind === 'repo') return canonicalizeRepoScope(scope)
+  if (kind === 'blob') return canonicalizeBlobScope(scope)
+  if (kind === 'rpc') return canonicalizeRpcScope(scope, serviceDid)
   return { ok: false, scope, reason: 'unsupported scope kind (expected rpc:, repo: or blob:)' }
 }
 
@@ -222,6 +236,69 @@ export function canonicalizeScopes(
     const result = canonicalizeScope(scope, serviceDid)
     if (!result.ok) return { ok: false, scope: result.scope, reason: result.reason }
     out.push(result.scope)
+  }
+  return { ok: true, scopes: out }
+}
+
+/** Outcome of expanding `include:` scopes in a client-supplied scope list. */
+export type IncludeExpansion =
+  | { ok: true; scopes: string[] }
+  | { ok: false; scope: string; reason: string }
+
+/**
+ * Expand any `include:<nsid>` permission-set scopes into the concrete `rpc:` /
+ * `repo:` scopes they bundle, leaving non-`include:` scopes untouched. Runs
+ * **before** `canonicalizeScopes`, so the expanded output is validated and
+ * normalised exactly like an explicitly-listed scope.
+ *
+ * For each `include:`, the set is resolved (via the standard Lexicon resolution
+ * system — namespace-agnostic, no built-in knowledge of any namespace) and
+ * expanded with `IncludeScope.toScopes`, whose own namespace-authority check
+ * guarantees the set can only widen access to its own namespace.
+ *
+ * The set's `aud` (for any `inheritAud` `rpc:` permission) is supplied by
+ * re-stamping the `include:` with this service's ref before expansion — the
+ * spec's parameterization path. The two record-collection CRUD sets CGS expects
+ * are `repo:`-only, so this is a no-op for them, but it keeps the path correct
+ * for a future `rpc:` set.
+ *
+ * Resolution failures are surfaced as `{ ok: false }` so the caller can return a
+ * `400` naming the offending scope, rather than minting a partial key.
+ */
+export async function expandIncludes(
+  scopes: string[],
+  serviceDid: string,
+  resolver: PermissionSetResolver,
+): Promise<IncludeExpansion> {
+  const aud = serviceScopeAud(serviceDid)
+  const out: string[] = []
+  for (const scope of scopes) {
+    const inc = IncludeScope.fromString(scope)
+    if (inc === null) {
+      // Not an `include:` — pass through for canonicalizeScopes to validate.
+      out.push(scope)
+      continue
+    }
+    let set
+    try {
+      set = await resolver.resolve(inc.nsid)
+    } catch (err) {
+      const reason =
+        err instanceof PermissionSetResolutionError
+          ? err.reason
+          : err instanceof Error
+            ? err.message
+            : String(err)
+      return { ok: false, scope, reason }
+    }
+    // Re-stamp with our aud so `inheritAud` rpc: permissions inherit it on
+    // expansion (no-op for aud-less repo: permissions).
+    const bound = IncludeScope.fromString(`include:${inc.nsid}?aud=${encodeURIComponent(aud)}`)
+    const expanded = (bound ?? inc).toScopes(set)
+    if (expanded.length === 0) {
+      return { ok: false, scope, reason: 'permission set expanded to no scopes' }
+    }
+    out.push(...expanded)
   }
   return { ok: true, scopes: out }
 }

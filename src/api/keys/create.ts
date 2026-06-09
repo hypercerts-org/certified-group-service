@@ -9,7 +9,7 @@ import {
   sqliteToIso,
 } from '../util.js'
 import { generateApiKey } from '../../auth/api-key.js'
-import { canonicalizeScopes } from '../../auth/scopes.js'
+import { canonicalizeScopes, expandIncludes } from '../../auth/scopes.js'
 
 export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.keys.create', ctx, {
@@ -30,12 +30,26 @@ export default function (server: Server, ctx: AppContext) {
         throw new XRPCError(400, 'At least one scope is required', 'InvalidRequest')
       }
 
+      // Expand any `include:<nsid>` permission-set scopes to the concrete
+      // `rpc:`/`repo:` scopes they bundle (resolved via Lexicon resolution), then
+      // canonicalize. A key stores only concrete scopes — the `include:` is a
+      // create-time convenience and is never persisted. Non-`include:` scopes
+      // pass through untouched.
+      const expanded = await expandIncludes(scopes, ctx.config.serviceDid, ctx.permissionSets)
+      if (!expanded.ok) {
+        throw new XRPCError(
+          400,
+          `Invalid scope: ${expanded.scope} (${expanded.reason})`,
+          'InvalidScope',
+        )
+      }
+
       // Canonicalize to this service's stored form: a key only ever calls the
       // CGS it was minted on, so we append our own scope `aud`. A friendly
       // `rpc:<lxm>` is expanded; an already-canonical scope is accepted only if
       // its `aud` is ours — a foreign service DID or wrong service fragment is
       // rejected rather than stored as a dead grant.
-      const canon = canonicalizeScopes(scopes, ctx.config.serviceDid)
+      const canon = canonicalizeScopes(expanded.scopes, ctx.config.serviceDid)
       if (!canon.ok) {
         throw new XRPCError(400, `Invalid scope: ${canon.scope} (${canon.reason})`, 'InvalidScope')
       }

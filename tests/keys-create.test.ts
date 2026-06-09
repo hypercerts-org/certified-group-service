@@ -137,4 +137,64 @@ describe('keys.create', () => {
       .send({ name: 'self-mint', scopes: [MEMBER_LIST_SCOPE] })
     expect(res.status).toBe(403)
   })
+
+  it('expands an include:<nsid> permission set into the concrete stored scopes', async () => {
+    await seedMember(groupDb, 'did:plc:testuser', 'owner')
+    // Override the resolver to return a known permission set for the include:.
+    ctx.permissionSets = {
+      resolve: async (nsid: string) => {
+        if (nsid !== 'org.hypercerts.authWrite') throw new Error(`unknown set ${nsid}`)
+        return {
+          type: 'permission-set',
+          permissions: [
+            {
+              type: 'permission',
+              resource: 'repo',
+              collection: ['org.hypercerts.claim.activity', 'org.hypercerts.collection'],
+              action: ['create', 'update', 'delete'],
+            },
+          ],
+        }
+      },
+    } as unknown as AppContext['permissionSets']
+
+    const res = await request(buildApp(ctx))
+      .post('/xrpc/app.certified.group.keys.create')
+      .send({ name: 'hypercerts-backend', scopes: ['include:org.hypercerts.authWrite'] })
+
+    expect(res.status).toBe(200)
+    // The key stores the EXPANDED concrete repo: scope (one combined scope
+    // covering all the set's collections), never the include: itself.
+    expect(res.body.scopes).toHaveLength(1)
+    expect(res.body.scopes[0]).toContain('collection=org.hypercerts.claim.activity')
+    expect(res.body.scopes[0]).toContain('collection=org.hypercerts.collection')
+    const row = await groupDb
+      .selectFrom('group_api_keys')
+      .select('scopes')
+      .where('key_ref', '=', res.body.keyRef)
+      .executeTakeFirst()
+    expect(row!.scopes).not.toContain('include:')
+  })
+
+  it('returns 400 InvalidScope when an include: set cannot be resolved', async () => {
+    await seedMember(groupDb, 'did:plc:testuser', 'owner')
+    ctx.permissionSets = {
+      resolve: async (nsid: string) => {
+        throw new Error(`no _lexicon TXT for ${nsid}`)
+      },
+    } as unknown as AppContext['permissionSets']
+
+    const res = await request(buildApp(ctx))
+      .post('/xrpc/app.certified.group.keys.create')
+      .send({ name: 'bad', scopes: ['include:org.nonexistent.authWrite'] })
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('InvalidScope')
+    // No key was minted.
+    const count = await groupDb
+      .selectFrom('group_api_keys')
+      .select(groupDb.fn.countAll().as('n'))
+      .executeTakeFirst()
+    expect(Number(count!.n)).toBe(0)
+  })
 })

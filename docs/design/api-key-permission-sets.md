@@ -1,11 +1,11 @@
 # Design: Permission Sets (`include:` scopes) for CGS API keys
 
-Status: **Proposed** (iteration 2 of API keys — builds on
+Status: **Implemented** (iteration 2 of API keys — builds on
 [`api-keys.md`](api-keys.md))
 
 > **Scope of this doc.** Permission sets are a general AT Protocol mechanism, and
-> the two sets CGS consumes (`org.hypercerts.permissions.crud`,
-> `app.certified.permissions.crud`) are designed, defined, and published in the
+> the two sets CGS consumes (`org.hypercerts.authWrite`,
+> `app.certified.authWrite`) are designed, defined, and published in the
 > **`hypercerts-lexicon`** repo. The canonical design — what a permission set is,
 > the namespace-authority rule, why there are two sets, wildcards, `aud` /
 > `inheritAud`, the Lexicon resolution chain, the set contents — lives there:
@@ -57,13 +57,16 @@ re-issued. An `include:`-minted key is a snapshot, not a live subscription. (Thi
 is a CGS-API-key property; the OAuth consumer has no such freeze — the user's PDS
 expands per grant.) Note this in the user-facing API docs.
 
-## Status: not yet implemented
+## Status: implemented
 
-`keys.create` today accepts only `rpc:`/`repo:`/`blob:`; `canonicalizeScope`
-returns `InvalidScope` for an `include:` scope (`src/auth/scopes.ts`). Until the
-work below lands, an API key needing Hypercerts/Certified write access must list
-the concrete `repo:<collection>?action=…` scopes explicitly. The OAuth path is
-unaffected — the user's PDS already resolves sets.
+`keys.create` accepts an `include:<nsid>` scope and expands it (via
+`expandIncludes` in `src/auth/scopes.ts`, resolving the set with
+`PermissionSetResolver` in `src/auth/permission-set-resolver.js`) into the
+concrete scopes stored on the key. An `include:` whose set cannot be resolved is
+rejected with `400 InvalidScope`, naming the offending scope; no partial key is
+minted. The resolver is **namespace-agnostic** — it resolves any published set
+via that set's own namespace authority, with no built-in knowledge of
+`org.hypercerts.*` / `app.certified.*`.
 
 ## Wiring it into `keys.create`
 
@@ -131,7 +134,7 @@ in the lexicon doc): NSID → `_lexicon.` DNS TXT → authority DID → PDS →
 ```text
 POST app.certified.group.keys.create
 { "repo": "<group>", "name": "hypercerts-backend",
-  "scopes": ["include:org.hypercerts.permissions.crud"] }
+  "scopes": ["include:org.hypercerts.authWrite"] }
 ```
 
 CGS resolves the set and expands it; the returned `scopes` array is the
