@@ -289,6 +289,23 @@ For `rpc:` scopes pass the **friendly** `rpc:<method>` name — do **not** add a
 back the canonical form. `InvalidScope` is returned for an unparseable scope, a
 non-RPC method, or an `aud` for a different service.
 
+**Permission sets (`include:`).** The Hypercerts / Certified record types are
+published as permission sets — scope bundles named by one `include:<nsid>` scope:
+`org.hypercerts.authWrite` (write on all `org.hypercerts.*` collections)
+and `app.certified.authWrite` (write on all `app.certified.*`). Two sets,
+never one: a set may only reference its own namespace authority. Caveats for an
+agent:
+
+- **OAuth path.** An app reaching CGS via OAuth + service proxying requests
+  `include:<nsid>` as a scope; the user's PDS expands it. No CGS change needed.
+- **API-key path.** `keys.create` accepts an `include:<nsid>` scope and expands
+  it to the concrete `repo:` scopes at create time (resolving the published set
+  via Lexicon resolution); the key stores the expanded scopes, not the
+  `include:`. An unresolvable set → `400 InvalidScope`, no key minted. The
+  expansion is a create-time snapshot — re-issue the key to pick up a later
+  change to the set. You may still list concrete `repo:…?action=…` scopes
+  directly instead.
+
 **Two authorization axes apply to every key request:**
 
 1. **Scope** — does the key's scope set cover this operation? Outside scope →

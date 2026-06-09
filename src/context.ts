@@ -5,6 +5,7 @@ import type { Config } from './config.js'
 import type { GlobalDatabase } from './db/schema.js'
 import type { GroupDbPool } from './db/group-db-pool.js'
 import type { AuthVerifier } from './auth/verifier.js'
+import type { PermissionSetResolver } from './auth/permission-set-resolver.js'
 import type { RbacChecker } from './rbac/check.js'
 import type { PdsAgentPool } from './pds/agent.js'
 import type { AuditLogger } from './audit.js'
@@ -17,6 +18,7 @@ export interface AppContext {
   groupDbs: GroupDbPool
   authVerifier: AuthVerifier
   idResolver: IdResolver
+  permissionSets: PermissionSetResolver
   rbac: RbacChecker
   pdsAgents: PdsAgentPool
   audit: AuditLogger

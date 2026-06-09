@@ -118,6 +118,10 @@ export function ApiKeys() {
   const [repoCollection, setRepoCollection] = useState('')
   const [repoActions, setRepoActions] = useState<RepoAction[]>([])
   const [blobMime, setBlobMime] = useState('')
+  // Permission-set NSID(s) to include, one per line. Each becomes an
+  // `include:<nsid>` scope, which the service resolves and expands into the
+  // set's concrete repo:/rpc: scopes at create time.
+  const [includeNsids, setIncludeNsids] = useState('')
 
   const [minted, setMinted] = useState<CreatedApiKey | null>(null)
   const [keys, setKeys] = useState<ApiKeySummary[]>([])
@@ -160,6 +164,11 @@ export function ApiKeys() {
       ? repoActions.map((a) => `repo:${repoCollection.trim()}?action=${a}`)
       : []),
     ...(blobMime.trim() ? [`blob:${blobMime.trim()}`] : []),
+    ...includeNsids
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((nsid) => `include:${nsid}`),
   ]
 
   const refresh = async () => {
@@ -193,6 +202,7 @@ export function ApiKeys() {
       setMinted(created)
       setTryKey(created.key) // prefill the "use a key" box with the fresh key
       setName('')
+      setIncludeNsids('')
       await refresh()
     } catch (err: any) {
       setError(err.message)
@@ -404,6 +414,20 @@ export function ApiKeys() {
               value={blobMime}
               onChange={(e) => setBlobMime(e.target.value)}
               placeholder="image/* or */*"
+            />
+          </label>
+        </fieldset>
+
+        <fieldset style={{ border: '1px solid #eee', borderRadius: 4, marginBottom: 12 }}>
+          <legend>Permission sets (include:)</legend>
+          <label style={{ display: 'block', fontSize: 14 }}>
+            One published permission-set NSID per line. The service resolves each
+            and expands it into the set's concrete scopes at create time.
+            <textarea
+              style={{ ...inputStyle, width: '100%', minHeight: 48, fontFamily: 'monospace' }}
+              value={includeNsids}
+              onChange={(e) => setIncludeNsids(e.target.value)}
+              placeholder="org.hypercerts.authWrite"
             />
           </label>
         </fieldset>
