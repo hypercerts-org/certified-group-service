@@ -15,15 +15,20 @@ const UPSTREAM_TIMEOUT_MS = 15_000
  * its own. `repo` rides the querystring — required on the key path, even for
  * write procedures (the service resolves the group before the body is parsed).
  *
- * Body: { key, nsid, repo, method?, body? }
+ * `params` (GET queries only) are appended to the querystring alongside `repo`,
+ * so a query method like audit.query can be exercised with its filters. They are
+ * ignored for POST, whose inputs travel in `body`.
+ *
+ * Body: { key, nsid, repo, method?, body?, params? }
  */
 router.post('/call', async (req, res) => {
-  const { key, nsid, repo, method = 'GET', body } = req.body as {
+  const { key, nsid, repo, method = 'GET', body, params } = req.body as {
     key?: string
     nsid?: string
     repo?: string
     method?: 'GET' | 'POST'
     body?: unknown
+    params?: Record<string, unknown>
   }
 
   if (!key || !nsid || !repo) {
@@ -42,7 +47,23 @@ router.post('/call', async (req, res) => {
     return res.status(500).json({ error: 'GROUP_SERVICE_URL not configured' })
   }
 
-  const url = `${base.replace(/\/$/, '')}/xrpc/${nsid}?repo=${encodeURIComponent(repo)}`
+  // Collect GET query filters, then force `repo` in last so a caller-supplied
+  // `repo` param can never override the top-level one (confused-deputy: it would
+  // retarget the call at a different group). Non-primitive values are rejected
+  // rather than String()'d into junk like `[object Object]`.
+  const filtered: Record<string, string> = {}
+  if (verb === 'GET' && params && typeof params === 'object' && !Array.isArray(params)) {
+    for (const [k, v] of Object.entries(params)) {
+      if (k === 'repo') continue
+      if (v === undefined || v === null || v === '') continue
+      if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+        return res.status(400).json({ error: `param "${k}" must be a primitive value` })
+      }
+      filtered[k] = String(v)
+    }
+  }
+  const query = new URLSearchParams({ ...filtered, repo })
+  const url = `${base.replace(/\/$/, '')}/xrpc/${nsid}?${query.toString()}`
 
   // Bound the upstream call so a hung group service can't tie up a worker.
   const controller = new AbortController()

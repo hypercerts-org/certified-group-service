@@ -8,6 +8,8 @@ import {
   type ApiKeySummary,
   type CreatedApiKey,
 } from '../api'
+import { JsonEditor } from '../components/JsonEditor'
+import { COLLECTIONS, recordTemplate } from '../collections'
 
 // The service binds the `aud` for rpc: scopes, so clients pass the friendly
 // `rpc:<method>` form. repo:/blob: scopes carry no aud and are sent as-is.
@@ -18,6 +20,74 @@ const READ_SCOPES = [
 
 const REPO_ACTIONS = ['create', 'update', 'delete'] as const
 type RepoAction = (typeof REPO_ACTIONS)[number]
+
+// --- "Use a key" method catalog ---------------------------------------------
+// The XRPC methods an API key can actually authenticate, with the form fields
+// each one needs. This is the *key-accessible* subset of the CGS surface:
+//
+//   - `rpc:` query methods (member.list, audit.query) — gated by an rpc: scope.
+//   - `repo:` write procedures (create/put/deleteRecord) — gated by a
+//     repo:<collection>?action=… scope; the role still decides own-vs-any.
+//
+// Owner-only methods (keys.*, role.set, member.add/remove, group.register) have
+// no key scope and would always 403, so they are omitted. uploadBlob is omitted
+// too: it takes a raw binary stream, not a JSON body, so it can't be driven from
+// this form (the Upload page covers blobs).
+//
+// `repo` is not a user-editable field here — it is always the active group. It
+// rides the querystring (the BFF adds it, for auth) and, for the POST repo.*
+// procedures, is ALSO injected into the body: their lexicon marks `repo`
+// required, so the XRPC validator rejects a body without it; the service then
+// checks the two agree. The fields below are the per-method extras only.
+type TryField = 'collection' | 'rkey' | 'record' | 'auditFilters'
+
+interface TryMethod {
+  nsid: string
+  label: string
+  method: 'GET' | 'POST'
+  /** Which extra inputs to render + collect into the call. */
+  fields: TryField[]
+  /** One-line reminder of the scope a key needs to pass authorization. */
+  scopeHint: string
+}
+
+const TRY_METHODS: TryMethod[] = [
+  {
+    nsid: 'app.certified.group.member.list',
+    label: 'member.list — list members (GET)',
+    method: 'GET',
+    fields: [],
+    scopeHint: 'needs rpc:app.certified.group.member.list',
+  },
+  {
+    nsid: 'app.certified.group.audit.query',
+    label: 'audit.query — query the audit log (GET)',
+    method: 'GET',
+    fields: ['auditFilters'],
+    scopeHint: 'needs rpc:app.certified.group.audit.query',
+  },
+  {
+    nsid: 'app.certified.group.repo.createRecord',
+    label: 'repo.createRecord — create a record (POST)',
+    method: 'POST',
+    fields: ['collection', 'record'],
+    scopeHint: 'needs repo:<collection>?action=create',
+  },
+  {
+    nsid: 'app.certified.group.repo.putRecord',
+    label: 'repo.putRecord — create/replace a record (POST)',
+    method: 'POST',
+    fields: ['collection', 'rkey', 'record'],
+    scopeHint: 'needs repo:<collection>?action=update',
+  },
+  {
+    nsid: 'app.certified.group.repo.deleteRecord',
+    label: 'repo.deleteRecord — delete a record (POST)',
+    method: 'POST',
+    fields: ['collection', 'rkey'],
+    scopeHint: 'needs repo:<collection>?action=delete',
+  },
+]
 
 const inputStyle: React.CSSProperties = {
   padding: '8px 12px',
@@ -57,9 +127,30 @@ export function ApiKeys() {
 
   // "Use a key" demo state
   const [tryKey, setTryKey] = useState('')
+  const [tryNsid, setTryNsid] = useState(TRY_METHODS[0].nsid)
+  const [tryCollection, setTryCollection] = useState('')
+  const [tryRkey, setTryRkey] = useState('')
+  const [tryRecord, setTryRecord] = useState('{\n  "$type": ""\n}')
+  const [tryAuditFilters, setTryAuditFilters] = useState('{}')
   const [tryResult, setTryResult] = useState<{ status: number; data: any } | null>(null)
   const [tryError, setTryError] = useState('')
   const [trying, setTrying] = useState(false)
+
+  const tryMethod = TRY_METHODS.find((m) => m.nsid === tryNsid) ?? TRY_METHODS[0]
+
+  // Pick a collection for the write methods: set the collection field and, when
+  // the method carries a record body, prefill it with that collection's
+  // lexicon-valid template so the user edits a correct skeleton instead of
+  // hand-writing one. Takes the method explicitly so it is safe to call from the
+  // method-change handler, where `tryMethod` still reflects the previous render.
+  const selectTryCollectionFor = (method: TryMethod, collection: string) => {
+    setTryCollection(collection)
+    if (collection && method.fields.includes('record')) {
+      const template = recordTemplate(collection, new Date().toISOString())
+      if (template) setTryRecord(JSON.stringify(template, null, 2))
+    }
+  }
+  const selectTryCollection = (collection: string) => selectTryCollectionFor(tryMethod, collection)
 
   // Assemble the scope list from the picker selections.
   const scopes: string[] = [
@@ -135,19 +226,58 @@ export function ApiKeys() {
     }
   }
 
-  // Call member.list with the key — no owner session involved, proving the key
-  // stands on its own. A key without the member.list scope gets a 403 here.
-  const useKeyForMemberList = async () => {
+  // Call the chosen XRPC with the key — no owner session involved, proving the
+  // key stands on its own. A key whose scopes don't cover the method gets a 403.
+  // `repo` rides the querystring (the BFF adds it); the body carries only the
+  // method's own fields, never `repo`.
+  const useKey = async () => {
     setTryError('')
     setTryResult(null)
     if (!tryKey.trim()) return setTryError('Paste a key (the cgsk_… value shown at creation).')
+
+    // Build the request from the selected method's declared fields. POST inputs
+    // go in `body`; GET filters go in `params` (the BFF appends them to the
+    // querystring). Parse the JSON inputs up front so a typo surfaces here, not
+    // as an opaque upstream error.
+    // collection + rkey are required wherever the method declares them; catch a
+    // blank here so the user sees a clear message rather than an upstream 400.
+    if (tryMethod.fields.includes('collection') && !tryCollection.trim()) {
+      return setTryError('Collection is required for this method.')
+    }
+    if (tryMethod.fields.includes('rkey') && !tryRkey.trim()) {
+      return setTryError('Record key (rkey) is required for this method.')
+    }
+
+    let body: Record<string, any> | undefined
+    let params: Record<string, any> | undefined
+    try {
+      if (tryMethod.method === 'POST') {
+        // `repo` rides the querystring (for auth) AND the body: the repo.*
+        // procedures declare `repo` as required in their lexicon input schema,
+        // so the XRPC validator rejects the body without it before the handler
+        // runs. The service checks the body `repo` matches the querystring one.
+        body = { repo: groupDid }
+        if (tryMethod.fields.includes('collection')) body.collection = tryCollection.trim()
+        if (tryMethod.fields.includes('rkey')) body.rkey = tryRkey.trim()
+        if (tryMethod.fields.includes('record')) body.record = JSON.parse(tryRecord)
+      } else if (tryMethod.fields.includes('auditFilters')) {
+        const filters = JSON.parse(tryAuditFilters)
+        // Empty object = unfiltered; send nothing extra in that case.
+        if (filters && typeof filters === 'object' && Object.keys(filters).length) params = filters
+      }
+    } catch (err: any) {
+      return setTryError(`Invalid JSON: ${err.message}`)
+    }
+
     setTrying(true)
     try {
       const res = await callWithApiKey({
         key: tryKey.trim(),
-        nsid: 'app.certified.group.member.list',
+        nsid: tryMethod.nsid,
         repo: groupDid,
-        method: 'GET',
+        method: tryMethod.method,
+        body,
+        params,
       })
       setTryResult(res)
     } catch (err: any) {
@@ -288,8 +418,9 @@ export function ApiKeys() {
       <div style={{ border: '1px solid #ddd', borderRadius: 6, padding: 16, margin: '12px 0' }}>
         <h3 style={{ marginTop: 0 }}>Use a key</h3>
         <p style={{ fontSize: 13, color: '#555', marginTop: 0 }}>
-          Calls <code>member.list</code> with the key via the <code>X-API-Key</code> header — no
-          owner session. A key without the <code>member.list</code> scope returns <code>403</code>.
+          Call any key-accessible XRPC with the key via the <code>X-API-Key</code> header — no owner
+          session. The call succeeds only if the key's scopes cover the method; otherwise the group
+          service returns <code>403</code>.
         </p>
         <input
           style={{ ...inputStyle, width: '100%', fontFamily: 'monospace', marginBottom: 8 }}
@@ -297,8 +428,108 @@ export function ApiKeys() {
           onChange={(e) => setTryKey(e.target.value)}
           placeholder="cgsk_…"
         />
-        <button style={btnStyle} onClick={useKeyForMemberList} disabled={trying}>
-          {trying ? 'Calling…' : 'Call member.list with this key'}
+
+        <label style={{ display: 'block', fontSize: 14, marginBottom: 8 }}>
+          Method
+          <br />
+          <select
+            style={{ ...inputStyle, width: '100%', marginTop: 4 }}
+            value={tryNsid}
+            onChange={(e) => {
+              const nsid = e.target.value
+              setTryNsid(nsid)
+              setTryResult(null)
+              setTryError('')
+              // When switching to a collection method with nothing chosen yet,
+              // default to the first hypercerts collection (and prefill its
+              // record template) so the form starts from a valid example.
+              const next = TRY_METHODS.find((m) => m.nsid === nsid)
+              if (next?.fields.includes('collection') && !tryCollection) {
+                selectTryCollectionFor(next, COLLECTIONS[0])
+              }
+            }}
+          >
+            {TRY_METHODS.map((m) => (
+              <option key={m.nsid} value={m.nsid}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div style={{ fontSize: 12, color: '#777', marginBottom: 8 }}>{tryMethod.scopeHint}</div>
+
+        {tryMethod.fields.includes('collection') && (
+          <label style={{ display: 'block', fontSize: 14, marginBottom: 8 }}>
+            Collection
+            <br />
+            <select
+              style={{ ...inputStyle, width: '100%', marginTop: 4 }}
+              // A known hypercerts collection selects itself; anything else (a
+              // typed custom NSID, or the cleared default) shows the custom row.
+              value={(COLLECTIONS as readonly string[]).includes(tryCollection) ? tryCollection : '__custom__'}
+              onChange={(e) =>
+                selectTryCollection(e.target.value === '__custom__' ? '' : e.target.value)
+              }
+            >
+              {COLLECTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+              <option value="__custom__">Custom…</option>
+            </select>
+            {!(COLLECTIONS as readonly string[]).includes(tryCollection) && (
+              <input
+                style={{ ...inputStyle, width: '100%', marginTop: 6 }}
+                value={tryCollection}
+                onChange={(e) => setTryCollection(e.target.value)}
+                placeholder="your.custom.collection"
+              />
+            )}
+            {tryMethod.fields.includes('record') && (
+              <small style={{ display: 'block', color: '#777', marginTop: 4 }}>
+                Picking a hypercerts collection prefills a valid record template below.
+              </small>
+            )}
+          </label>
+        )}
+
+        {tryMethod.fields.includes('rkey') && (
+          <label style={{ display: 'block', fontSize: 14, marginBottom: 8 }}>
+            Record key (rkey)
+            <br />
+            <input
+              style={{ ...inputStyle, width: '100%', marginTop: 4 }}
+              value={tryRkey}
+              onChange={(e) => setTryRkey(e.target.value)}
+              placeholder="3abc001"
+            />
+          </label>
+        )}
+
+        {tryMethod.fields.includes('record') && (
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: 14 }}>Record JSON</label>
+            <div style={{ marginTop: 4 }}>
+              <JsonEditor value={tryRecord} onChange={setTryRecord} rows={8} />
+            </div>
+          </div>
+        )}
+
+        {tryMethod.fields.includes('auditFilters') && (
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ fontSize: 14 }}>
+              Filters (JSON — optional; e.g.{' '}
+              <code>{'{ "action": "createRecord", "limit": 10 }'}</code>)
+            </label>
+            <div style={{ marginTop: 4 }}>
+              <JsonEditor value={tryAuditFilters} onChange={setTryAuditFilters} rows={5} />
+            </div>
+          </div>
+        )}
+
+        <button style={btnStyle} onClick={useKey} disabled={trying}>
+          {trying ? 'Calling…' : `Call ${tryMethod.nsid.replace('app.certified.group.', '')} with this key`}
         </button>
         {tryError && <div style={{ color: '#c0392b', marginTop: 8 }}>{tryError}</div>}
         {tryResult && (

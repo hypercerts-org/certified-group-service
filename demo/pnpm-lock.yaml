@@ -17,6 +17,9 @@ importers:
       '@atproto/oauth-client-node':
         specifier: ^0.3.17
         version: 0.3.17
+      '@hypercerts-org/lexicon':
+        specifier: ^0.13.0
+        version: 0.13.0(@atproto/xrpc@0.7.7)
       cors:
         specifier: ^2.8.5
         version: 2.8.6
@@ -544,6 +547,11 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@hypercerts-org/lexicon@0.13.0':
+    resolution: {integrity: sha512-ht1b+IsRsPfes3xq79ZVUqmB1kGKCDDGP6DlSF5hscOXD8vv+4j5iS0vlHdB+mpzbgnqF/54li92bjyUdM9wxA==}
+    peerDependencies:
+      '@atproto/xrpc': '*'
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1139,6 +1147,9 @@ packages:
     resolution: {integrity: sha512-VzGiVigcG9zUAoCNU+xShztrlr1auZOlurXynNvO9GiWD1/mTBbUljOKY+qMeazBqXgRnjzeEgJI/wyjJUHg9A==}
     engines: {node: '>= 6.0.0'}
     deprecated: Multer 1.x is impacted by a number of vulnerabilities, which have been patched in 2.x. You should upgrade to the latest 2.x version.
+
+  multiformats@13.4.2:
+    resolution: {integrity: sha512-eh6eHCrRi1+POZ3dA+Dq1C6jhP1GNtr9CRINMb67OKzqW9I5DUuZM/3jLPlzhgpGeiNUlEGEbkCYChXMCc/8DQ==}
 
   multiformats@9.9.0:
     resolution: {integrity: sha512-HoMUjhH9T8DDBNT+6xzkrd9ga/XiBI4xLr58LJACwK6G3HTOPeMz4nB4KJs33L2BelrIJa7P0VuNaVF3hMYfjg==}
@@ -1899,6 +1910,12 @@ snapshots:
   '@esbuild/win32-x64@0.27.4':
     optional: true
 
+  '@hypercerts-org/lexicon@0.13.0(@atproto/xrpc@0.7.7)':
+    dependencies:
+      '@atproto/lexicon': 0.6.2
+      '@atproto/xrpc': 0.7.7
+      multiformats: 13.4.2
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -2505,6 +2522,8 @@ snapshots:
       object-assign: 4.1.1
       type-is: 1.6.18
       xtend: 4.0.2
+
+  multiformats@13.4.2: {}
 
   multiformats@9.9.0: {}
 

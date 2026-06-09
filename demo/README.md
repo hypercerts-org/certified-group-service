@@ -20,14 +20,25 @@ Each page maps to part of the CGS surface:
 | **Records**   | Create / update / delete records via `app.certified.group.repo.*`.                 |
 | **Upload**    | Upload a blob to the group's repo.                                                 |
 | **Audit**     | Query the group's audit log.                                                       |
-| **API Keys**  | Mint scope-limited API keys, show the secret once, list/revoke, and **use** a key. |
+| **API Keys**  | Mint scope-limited API keys, show the secret once, list/revoke, and **use** a key against any key-accessible XRPC. |
 
 The **API Keys** page is the most complete example of the key framework: it mints
-a key with a scope picker (read `rpc:` scopes, record-write `repo:` scopes, blob
-`blob:` scopes), shows the plaintext exactly once, lists/revokes keys, and then
-**calls `member.list` with the key via the `X-API-Key` header** — no owner
-session — so you can watch a key work on its own (and get a `403` if it lacks the
-scope).
+a key with a scope picker (`rpc:` scopes for service methods, `repo:` scopes for
+record writes, and `blob:` scopes), shows the plaintext exactly once, and
+lists/revokes keys. Its
+**Use a key** box then **calls any key-accessible XRPC with the key via the
+`X-API-Key` header** — no owner session — so you can watch a key work on its own
+(and get a `403` when it lacks the scope). The method picker offers the methods a
+key's scopes can actually authorize:
+
+- `member.list` and `audit.query` — `rpc:`-scoped queries (with optional audit
+  filters);
+- `repo.createRecord` / `repo.putRecord` / `repo.deleteRecord` — `repo:`-scoped
+  writes, proxied to the group's PDS.
+
+Owner-only methods (`keys.*`, `role.set`, `member.add`/`remove`, `group.register`)
+carry no key scope and so are omitted; `uploadBlob` is omitted too, as it takes a
+raw binary stream rather than a JSON body (use the **Upload** page for blobs).
 
 ## Architecture
 

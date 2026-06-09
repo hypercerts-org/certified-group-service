@@ -14,6 +14,7 @@
     "@atproto/api": "^0.19.3",
     "@atproto/lexicon": "^0.6.2",
     "@atproto/oauth-client-node": "^0.3.17",
+    "@hypercerts-org/lexicon": "^0.13.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.0",
     "express": "^4.21.0",
