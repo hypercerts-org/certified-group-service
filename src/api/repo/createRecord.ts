@@ -28,9 +28,14 @@ export default function (server: Server, ctx: AppContext) {
       // RBAC check with audit on denial
       const groupDb = ctx.groupDbs.get(groupDid)
       const operation: Operation = 'createRecord'
-      await assertCanWithAudit(ctx, groupDb, callerDid, operation, {
-        collection: input.collection,
-      })
+      await assertCanWithAudit(
+        ctx,
+        groupDb,
+        callerDid,
+        operation,
+        { collection: input.collection },
+        auth.credentials,
+      )
 
       // Forward to group's PDS via withAgent. Send the resolved group DID as
       // `repo` — the caller may have supplied a handle, which the PDS won't take.

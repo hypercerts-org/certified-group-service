@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuth, useGroup } from '../App'
-import { logout } from '../api'
+import { logout, resolveIdentifier } from '../api'
 import { CopyDid } from './CopyDid'
+import { HandleId } from './HandleId'
 
 const styles = {
   nav: {
@@ -40,6 +41,7 @@ export function Layout() {
   const navigate = useNavigate()
   const [showGroupInput, setShowGroupInput] = useState(false)
   const [didInput, setDidInput] = useState('')
+  const [didInputError, setDidInputError] = useState('')
 
   const handleLogout = async () => {
     await logout()
@@ -47,11 +49,18 @@ export function Layout() {
     navigate('/login')
   }
 
-  const handleSetGroupDid = () => {
-    if (didInput.trim()) {
-      setGroup({ did: didInput.trim(), handle: '' })
+  const handleSetGroupDid = async () => {
+    const value = didInput.trim()
+    if (!value) return
+    setDidInputError('')
+    try {
+      // Accept a DID or a handle.
+      const { did, handle } = await resolveIdentifier(value)
+      setGroup({ did, handle: handle ?? '' })
       setDidInput('')
       setShowGroupInput(false)
+    } catch (err: any) {
+      setDidInputError(err.message)
     }
   }
 
@@ -64,6 +73,7 @@ export function Layout() {
         <Link to="/records" style={styles.link}>Records</Link>
         <Link to="/upload" style={styles.link}>Upload</Link>
         <Link to="/audit" style={styles.link}>Audit</Link>
+        <Link to="/keys" style={styles.link}>API Keys</Link>
         <span style={{ flex: 1 }} />
         {user && (
           <>
@@ -87,12 +97,12 @@ export function Layout() {
           {group ? (
             <>
               <span style={{ fontWeight: 600 }}>Active group:</span>
-              <code style={{ fontSize: 12, background: '#fff', padding: '2px 8px', borderRadius: 4 }}>
-                {group.handle || <CopyDid did={group.did} />}
-              </code>
-              {group.handle && (
-                <CopyDid did={group.did} style={{ opacity: 0.6, fontSize: 11 }} />
-              )}
+              <HandleId
+                did={group.did}
+                handle={group.handle}
+                layout="inline"
+                style={{ fontSize: 12, background: '#fff', padding: '2px 8px', borderRadius: 4 }}
+              />
               <button
                 onClick={() => setShowGroupInput(!showGroupInput)}
                 style={{ ...styles.btn, color: '#1a1a2e', borderColor: '#90a4ae', fontSize: 12, padding: '2px 8px' }}
@@ -122,7 +132,7 @@ export function Layout() {
             </>
           )}
           {showGroupInput && (
-            <div style={{ display: 'flex', gap: 4, marginLeft: 8 }}>
+            <div style={{ display: 'flex', gap: 4, marginLeft: 8, alignItems: 'center' }}>
               <input
                 style={{
                   padding: '3px 8px',
@@ -133,7 +143,7 @@ export function Layout() {
                 }}
                 value={didInput}
                 onChange={(e) => setDidInput(e.target.value)}
-                placeholder="did:plc:..."
+                placeholder="Group DID or handle"
                 onKeyDown={(e) => e.key === 'Enter' && handleSetGroupDid()}
                 autoFocus
               />
@@ -143,6 +153,9 @@ export function Layout() {
               >
                 Set
               </button>
+              {didInputError && (
+                <span style={{ color: '#c0392b', fontSize: 11 }}>{didInputError}</span>
+              )}
             </div>
           )}
         </div>

@@ -1,7 +1,44 @@
 # AGENTS.md
 
-Agent-facing notes for the group service. For architecture gotchas and
-day-to-day commands, see [`CLAUDE.md`](CLAUDE.md).
+Instructions for AI coding agents working **on this codebase**. This is the
+single source of truth; `CLAUDE.md` is a symlink to this file.
+
+**Scope:** this file is exclusively for AI-assisted development of the group
+service itself — its internals, conventions, gotchas, and contributor workflow.
+It is **not** documentation for users of the service or for developers building
+apps on top of it; that audience is served by the XRPC API reference and
+integration guide under [`docs/`](docs/). When you add notes here, keep them
+contributor-facing.
+
+## Commands
+
+- `pnpm test` — vitest (fork-isolated per file, in-memory SQLite)
+- `pnpm dev` — tsx watch
+- Conventional commits: `feat|fix|chore|refactor|test|docs(scope): message`
+
+## Terminology
+
+- "group service" (never "GPDS")
+- "group's PDS" (never "group PDS")
+
+## Architecture gotchas
+
+- **Per-group databases**: each group DID is SHA256-hashed to a filename (`data/groups/{hash}.sqlite`). No reverse mapping exists — you must know the DID.
+- **PDS agent auto-retry**: `PdsAgentPool.withAgent()` silently re-authenticates on 401/expired token and retries once. Don't add your own retry around it.
+- **Nonce TTL is 2 minutes**, hardcoded. JWTs with longer expiry can be replayed after the nonce window closes.
+- **Blob uploads** read the raw request stream into memory (not streamed to PDS). Route registration order matters: `registerRawRoutes` (uploadBlob) is mounted before `express.json()`, `registerJsonRoutes` after. New raw-stream routes go in `registerRawRoutes`.
+- **Owner is created only** via `group.register` (seeds DB) and is immutable thereafter: `role.set` rejects both promoting to owner and modifying an existing owner, and `member.remove` rejects removing an owner. `member.add` caps at admin. Ownership transfer is a separate, not-yet-implemented operation.
+- **Record authorship is immutable**: `onConflict(...).doNothing()` preserves original author on putRecord. Used to gate cross-author mutations — only admins can `putAnyRecord` or `deleteAnyRecord`; members can only edit/delete records they authored.
+- **Profile edits** (`app.bsky.actor.profile` + rkey `self`) use a special operation `putRecord:profile` requiring admin, regardless of authorship.
+- **`datetime('now')` is step-stable, not transaction-stable**: each `prepare().run()` maps to a separate `sqlite3_step()`, so two INSERTs in the same transaction can produce different timestamps. When the same timestamp must appear in multiple tables, read it back from the first INSERT and reuse it.
+
+## Testing
+
+- `pnpm test` exits after one run (no watch mode). Redirect output to a temp file so you can inspect failures without re-running: `pnpm test > /tmp/test-output.log 2>&1` then read the file.
+- `createTestContext(overrides?)` in `tests/helpers/mock-server.ts` — builds a full `AppContext` with in-memory DBs and mocks. Pass `Partial<AppContext>` to override.
+- Default mock auth returns `{ iss: 'did:plc:testuser', aud: 'did:plc:testgroup' }`. Override `authVerifier.verify` to test other callers.
+- `seedMember(groupDb, did, role)` and `seedAuthorship(groupDb, uri, did, collection)` are the main test helpers.
+- Tests run in forked processes — in-memory state resets per file but not per test within a file.
 
 ## Testing & Coverage
 
@@ -43,14 +80,14 @@ feature), add tests for other code to compensate.
 
 ## Coverage Summary
 
-Baseline as of this document (240 tests across 23 files):
+Baseline as of this document (421 tests across 36 files):
 
 | Metric     | Coverage | Threshold |
 | ---------- | -------- | --------- |
-| Statements | 91.65%   | 91        |
-| Branches   | 91.85%   | 91        |
-| Functions  | 87.61%   | 87        |
-| Lines      | 91.65%   | 91        |
+| Statements | 94.38%   | 94        |
+| Branches   | 91%      | 91        |
+| Functions  | 92.54%   | 92        |
+| Lines      | 94.38%   | 94        |
 
 ### Known gaps (highest impact first)
 
@@ -66,9 +103,6 @@ Baseline as of this document (240 tests across 23 files):
 - **`src/config.ts` — 56%** (lines 29-45). Environment-variable parsing
   branch. Unit-testable by setting `process.env` and asserting the parsed
   `Config`.
-- **`src/auth/verifier.ts` — 83%** (lines 119-144). JWT verification error
-  paths (malformed/expired/wrong-audience). Unit-testable by feeding crafted
-  tokens; complements the existing nonce tests.
 - **Migrations — 75-90%.** `down()` / index-drop paths in
   `group/002_audit_indexes.ts` and `group/001_initial.ts` are unexercised.
   Low priority unless rollback is part of the supported flow.

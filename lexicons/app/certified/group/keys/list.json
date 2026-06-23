@@ -1,0 +1,63 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.keys.list",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "List API keys issued for the group. Owner-only. Never returns the secret or its hash.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "at-identifier",
+            "description": "The handle or DID of the target group. Optional during the #27 deprecation window: omit it and the group is taken from the (deprecated) JWT aud claim instead."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": { "type": "string" },
+          "includeRevoked": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include revoked keys. Defaults to false (active keys only)."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["keys"],
+          "properties": {
+            "cursor": { "type": "string" },
+            "keys": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#key" }
+            }
+          }
+        }
+      },
+      "errors": [{ "name": "Unauthorized" }, { "name": "Forbidden" }]
+    },
+    "key": {
+      "type": "object",
+      "required": ["keyRef", "name", "scopes", "createdBy", "createdAt"],
+      "properties": {
+        "keyRef": { "type": "string" },
+        "name": { "type": "string" },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "createdBy": { "type": "string", "format": "did" },
+        "createdAt": { "type": "string", "format": "datetime" },
+        "lastUsedAt": { "type": "string", "format": "datetime" },
+        "revokedAt": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}

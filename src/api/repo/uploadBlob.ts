@@ -31,12 +31,20 @@ export default function (server: Server, ctx: AppContext) {
       }
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      await assertCanWithAudit(ctx, groupDb, callerDid, 'uploadBlob')
+      // input.encoding is the Content-Type header. Pass it as `mime` so an API
+      // key is scoped by a `blob:<mime>` permission against this upload's type.
+      const contentType = input?.encoding ?? 'application/octet-stream'
+      await assertCanWithAudit(
+        ctx,
+        groupDb,
+        callerDid,
+        'uploadBlob',
+        { mime: contentType },
+        auth.credentials,
+      )
 
       // input.body is a Readable stream (framework applied no body parser for */* encoding)
-      // input.encoding is the Content-Type header
       const blobData = await streamToBuffer(input?.body as Readable)
-      const contentType = input?.encoding ?? 'application/octet-stream'
 
       const response = await proxyToPds(ctx.pdsAgents, groupDid, (agent) =>
         agent.com.atproto.repo.uploadBlob(blobData, { encoding: contentType }),

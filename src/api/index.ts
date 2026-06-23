@@ -14,6 +14,9 @@ import membershipList from './membership/list.js'
 import groupRegister from './group/register.js'
 import groupImport from './group/import.js'
 import groupDestroy from './group/destroy.js'
+import keysCreate from './keys/create.js'
+import keysList from './keys/list.js'
+import keysDelete from './keys/delete.js'
 
 export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   createRecord(server, ctx)
@@ -29,4 +32,7 @@ export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   groupRegister(server, ctx)
   groupImport(server, ctx)
   groupDestroy(server, ctx)
+  keysCreate(server, ctx)
+  keysList(server, ctx)
+  keysDelete(server, ctx)
 }

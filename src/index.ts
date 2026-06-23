@@ -9,6 +9,7 @@ import { mkdirSync } from 'node:fs'
 import { createGroupServer } from './server.js'
 import { loadConfig } from './config.js'
 import { AuthVerifier } from './auth/verifier.js'
+import { PermissionSetResolver } from './auth/permission-set-resolver.js'
 import { NonceCache } from './auth/nonce.js'
 import { RbacChecker } from './rbac/check.js'
 import { registerXrpcMethods } from './api/index.js'
@@ -60,8 +61,18 @@ async function main() {
     () => nonceCache.cleanup().catch((err) => logger.error(err)),
     60_000,
   )
-  const authVerifier = new AuthVerifier(idResolver, nonceCache, globalDb, config.serviceDid)
+  const authVerifier = new AuthVerifier(
+    idResolver,
+    nonceCache,
+    globalDb,
+    config.serviceDid,
+    groupDbs,
+    undefined,
+    undefined,
+    logger,
+  )
   const rbac = new RbacChecker()
+  const permissionSets = new PermissionSetResolver(idResolver, { logger })
 
   // Express app
   const app = express()
@@ -79,6 +90,7 @@ async function main() {
     groupDbs,
     authVerifier,
     idResolver,
+    permissionSets,
     rbac,
     pdsAgents,
     audit,

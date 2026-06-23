@@ -12,6 +12,7 @@ export interface GroupDatabase {
   group_members: GroupMembersTable
   group_record_authors: GroupRecordAuthorsTable
   group_audit_log: GroupAuditLogTable
+  group_api_keys: GroupApiKeysTable
 }
 
 interface GroupsTable {
@@ -59,4 +60,15 @@ interface GroupAuditLogTable {
   detail: string | null // JSON string
   jti: string | null
   created_at: Generated<string>
+}
+
+interface GroupApiKeysTable {
+  key_ref: string
+  key_hash: string
+  name: string
+  scopes: string // JSON array of @atproto/oauth-scopes scope strings
+  created_by: string
+  created_at: Generated<string>
+  last_used_at: string | null
+  revoked_at: string | null
 }

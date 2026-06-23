@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { createProxyAgent, isSessionExpiredError } from '../oauth/proxy-agent.js'
+import { uploadGroupBlob, isSessionExpiredError } from '../oauth/proxy-agent.js'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
@@ -24,14 +24,13 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'No file uploaded' })
     }
 
-    const agent = await createProxyAgent(req.session.user.did, groupDid)
-    const response = await agent.call(
-      'app.certified.group.repo.uploadBlob',
-      {},
+    const { status, data } = await uploadGroupBlob(
+      req.session.user.did,
+      groupDid,
       new Uint8Array(req.file.buffer),
-      { encoding: req.file.mimetype },
+      req.file.mimetype,
     )
-    res.json(response.data)
+    res.status(status).json(data)
   } catch (err: any) {
     console.error('Upload error:', err.message)
     if (isSessionExpiredError(err)) {

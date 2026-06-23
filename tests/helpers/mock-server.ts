@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import type { AppContext } from '../../src/context.js'
 import type { Config } from '../../src/config.js'
 import { RbacChecker } from '../../src/rbac/check.js'
+import { PermissionSetResolver } from '../../src/auth/permission-set-resolver.js'
 import type { Role } from '../../src/rbac/permissions.js'
 import { AuditLogger } from '../../src/audit.js'
 import { TestMemberIndex } from '../../src/db/member-index.js'
@@ -96,6 +97,13 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     groupDbs: mockGroupDbs as any,
     authVerifier: mockAuth('did:plc:testuser'),
     idResolver: mockIdResolver(),
+    // No permission sets resolvable by default (DNS lookup rejects); tests that
+    // exercise `include:` override `permissionSets` with stubbed resolution.
+    permissionSets: new PermissionSetResolver(mockIdResolver(), {
+      txtResolver: async () => {
+        throw new Error('no DNS in tests')
+      },
+    }),
     rbac: new RbacChecker(),
     pdsAgents: mockPdsAgents as any,
     audit: new AuditLogger(),
@@ -225,7 +233,7 @@ export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
         const { iss, groupDid, legacyAud } = await this.verify(req)
-        return { credentials: { callerDid: iss, groupDid, legacyAud } }
+        return { credentials: { callerDid: iss, groupDid, legacyAud, authKind: 'jwt' } }
       }
     },
     xrpcServiceAuth() {
@@ -261,7 +269,7 @@ export function mockAuthNewPath(iss: string, group: string = 'did:plc:testgroup'
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
         const { iss: callerDid, groupDid, legacyAud } = await this.verify(req)
-        return { credentials: { callerDid, groupDid, legacyAud } }
+        return { credentials: { callerDid, groupDid, legacyAud, authKind: 'jwt' } }
       }
     },
     xrpcServiceAuth() {

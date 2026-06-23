@@ -1,0 +1,40 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.keys.delete",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Revoke an API key by its keyRef. Owner-only. Soft-delete: the key is rejected on its next use.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["keyRef"],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the target group. Optional during the #27 deprecation window: omit it and the group is taken from the (deprecated) JWT aud claim instead."
+            },
+            "keyRef": {
+              "type": "string",
+              "description": "The non-secret key id returned by keys.create / keys.list."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["keyRef", "revokedAt"],
+          "properties": {
+            "keyRef": { "type": "string" },
+            "revokedAt": { "type": "string", "format": "datetime" }
+          }
+        }
+      },
+      "errors": [{ "name": "Unauthorized" }, { "name": "Forbidden" }, { "name": "KeyNotFound" }]
+    }
+  }
+}

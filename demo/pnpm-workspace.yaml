@@ -1,0 +1,9 @@
+# The demo's pnpm workspace root. It declares no sub-packages — it exists only
+# to allow the build scripts pnpm would otherwise skip, so a non-interactive
+# `pnpm install` (e.g. in the Dockerfile) builds esbuild's and core-js's native
+# pieces without an interactive `pnpm approve-builds`. Mirrors the repo-root
+# pnpm-workspace.yaml. Install from demo/ as the workspace root (no
+# --ignore-workspace) so this file is read.
+allowBuilds:
+  esbuild: true
+  core-js: true

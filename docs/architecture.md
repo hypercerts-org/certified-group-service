@@ -276,16 +276,16 @@ Each log entry captures:
 ```mermaid
 sequenceDiagram
     actor GO
-    participant ME as Ma Earth backend<br>on behalf of group owner
+    participant BE as Platform backend<br>on behalf of group owner
     participant PDS as User PDS
     participant CGS as CGS<br/>(Certified Group Service)
     participant ePDS as Group ePDS<br/>(Extended PDS)
 
     Note over GO,PDS: Already authenticated via OAuth
 
-    ME ->>+ PDS: com.atproto.server.getServiceAuth
-    PDS -->>+ ME: JWT for app.certified.group.register
-    ME ->>+ CGS: app.certified.group.register
+    BE ->>+ PDS: com.atproto.server.getServiceAuth
+    PDS -->>+ BE: JWT for app.certified.group.register
+    BE ->>+ CGS: app.certified.group.register
     CGS -->> CGS: create recovery keypair
     CGS ->>+ ePDS: com.atproto.server.createAccount(<br>handle, password, ..., recoveryKey)
     ePDS -->>- CGS: new group DID
@@ -293,18 +293,18 @@ sequenceDiagram
     PLC -->>- CGS:
     CGS -->>+ ePDS: createAppPassword
     ePDS -->>- CGS: app password
-    CGS -->>- ME: Response
+    CGS -->>- BE: Response
 
     Note over GO, ePDS: switch email to group owner
-    GO ->>+ ME: request setting email<br>for group account
-    ME ->>+ PDS: app.certified.group.claimControl<br>atproto-proxy:<br>did:plc:<group DID>#certified_group_service
+    GO ->>+ BE: request setting email<br>for group account
+    BE ->>+ PDS: app.certified.group.claimControl<br>atproto-proxy:<br>did:plc:<group DID>#certified_group_service
     PDS ->>+ CGS: app.certified.group.claimControl<br>(proxied)
     CGS -->> CGS: check user is group owner
     CGS ->>+ ePDS: app.certified.admin.group.updateEmail
     ePDS -->>- CGS:
     CGS -->>- PDS:
-    PDS -->>- ME:
-    ME -->>- GO:
+    PDS -->>- BE:
+    BE -->>- GO:
 ```
 
 1. **Registration**: `group.register` requires a service auth JWT proving the caller controls the `ownerDid`. It then creates a PDS account, generates a recovery keypair (used to sign PLC operations directly instead of relying on the PDS's `signPlcOperation` endpoint), registers a `#certified_group` service endpoint in the group's DID document, stores encrypted credentials and the encrypted recovery key, and seeds the owner.

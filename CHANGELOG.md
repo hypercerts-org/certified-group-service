@@ -1,5 +1,44 @@
 # group-service
 
+## 0.3.0
+
+### Who should read this release
+
+- **Client app developers:**
+  - [Backend services can now use revocable API keys for group-owned records.](#v0.3.0-backend-services-can-now-use-revocable-api-keys-for-group)
+- **Operators:**
+  - [Backend services can now use revocable API keys for group-owned records.](#v0.3.0-backend-services-can-now-use-revocable-api-keys-for-group)
+  - [Authentication failures are now logged server-side, so an operator can diagnose a rejected request from the logs instead of having to reproduce it.](#v0.3.0-authentication-failures-are-now-logged-server-side-so-an)
+
+### Minor Changes
+
+- <a id="v0.3.0-backend-services-can-now-use-revocable-api-keys-for-group"></a> [#34](https://github.com/hypercerts-org/certified-group-service/pull/34) [`e6c8f87`](https://github.com/hypercerts-org/certified-group-service/commit/e6c8f87d6c129412f54a2eedd2cff4d99e47990e) Thanks [@aspiers](https://github.com/aspiers)! - Backend services can now use revocable API keys for group-owned records.
+
+  **Affects:** Client app developers, Operators
+
+  **Client app developers:** group owners can create, list, and revoke keys with `app.certified.group.keys.create`, `app.certified.group.keys.list`, and `app.certified.group.keys.delete`. Key auth uses `X-API-Key` and supports explicit scopes plus reusable permission-set scopes such as `include:org.hypercerts.authWrite`, so apps no longer need to list every record permission by hand. See `docs/design/api-keys.md`, `docs/design/api-key-permission-sets.md`, and `docs/integration-guide.md` for request shapes, supported permissions, and examples.
+
+  **Operators:** no new environment variables or manual migration are required. Leaked keys are recognizable by the `cgsk_` prefix and can be revoked by the group owner.
+
+### Patch Changes
+
+- <a id="v0.3.0-authentication-failures-are-now-logged-server-side-so-an"></a> [#43](https://github.com/hypercerts-org/certified-group-service/pull/43) [`a059e0f`](https://github.com/hypercerts-org/certified-group-service/commit/a059e0fa36f3ecbb44e6e1e4191f5092bc21e3c1) Thanks [@aspiers](https://github.com/aspiers)! - Authentication failures are now logged server-side, so an operator can diagnose a rejected request from the logs instead of having to reproduce it.
+
+  **Affects:** Operators
+
+  **Operators:** every auth rejection in the verifier now emits a `warn`-level log line `"Auth verification failed"` before the request is refused. Previously the fallback error handler returned the error to the client but logged nothing, so a production `401` (e.g. `Invalid audience`) left no server-side trace of who called or which group they targeted.
+  - **JWT (service-auth) failures** mostly log `{ reason, nsid, jwt: { header, payload } }`. The JWT is decoded for logging without verifying its signature, and the **signature segment is dropped** — it is a bearer credential and is never written to the logs (`jwt` is `null` for a token that is not a well-formed three-part base64url JWT). The exception is `Missing auth token`, which fires before any token exists and logs only `{ reason, path }`. `reason` is one of: `Missing auth token`, `verifyJwt threw`, `Token lifetime check failed`, `jwt audience does not match service did`, `repo did not resolve to a known group`, `Invalid audience`, `Missing jti`, `Replayed token`.
+  - **API-key failures** log `{ reason, authKind: 'apiKey', keyRef, groupDid }` — only the non-secret key reference, never the raw `X-API-Key` value. `reason` is one of: `Malformed API key`, `Missing repo for API-key request`, `repo did not resolve to a known group`, `Invalid API key`, `Corrupt API-key scopes`.
+  - No request that previously succeeded is affected, and the HTTP responses returned to clients are unchanged — this is purely additional logging at the existing `logLevel`.
+
+## 0.2.1
+
+### Patch Changes
+
+- Republish the container image. The v0.2.0 image build failed (its version-stamping step had no `.cgs-version` to read), so no `ghcr.io/hypercerts-org/group-service` tags were published for v0.2.0. The publish workflow now stamps the version before building; v0.2.1 is the first release to produce a working image. No functional change to the service versus what v0.2.0 would have shipped.
+
+  **Affects:** Operators
+
 ## 0.2.0
 
 ### Who should read this release

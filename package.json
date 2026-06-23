@@ -1,6 +1,6 @@
 {
   "name": "group-service",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Group-governed PDS for atproto",
   "private": true,
   "type": "module",
@@ -30,6 +30,7 @@
     "@atproto/crypto": "^0.4.5",
     "@atproto/identity": "^0.4.12",
     "@atproto/lexicon": "^0.6.2",
+    "@atproto/oauth-scopes": "^0.5.0",
     "@atproto/syntax": "^0.5.0",
     "@atproto/xrpc": "0.7.7",
     "@atproto/xrpc-server": "^0.10.15",

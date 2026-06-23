@@ -1,6 +1,6 @@
 # API Reference
 
-All endpoints (except `/health` and `/xrpc/_health`) require authentication via a signed JWT in the `Authorization: Bearer <token>` header. The JWT must include:
+All endpoints (except `/health` and `/xrpc/_health`) require authentication. The primary mode is a signed service-auth **JWT** in the `Authorization: Bearer <token>` header (below); group-scoped read and write methods additionally accept a long-lived, scope-limited **API key** in the `X-API-Key` header (see [Authenticating with an API key](#authenticating-with-an-api-key)). The JWT must include:
 
 - `iss` — the caller's DID
 - `aud` — the **service DID** (its standard RFC 7519 meaning: the audience is the service receiving the request)
@@ -62,6 +62,21 @@ A transitional form remains accepted during the migration window: set the JWT `a
 `repo` and the service-DID `aud` change **together**: for a query, sending `repo` with `aud` = a group DID is rejected with `jwt audience does not match service did` — there is no half-migrated state. Responses on the legacy path carry RFC 8594 headers (`Deprecation: true` + a `Link`); no `Sunset` date is set yet.
 
 For the full migration walkthrough (per-method `repo` placement, direct vs proxied, detecting un-migrated calls) see [`aud-migration.md`](./aud-migration.md); for the design rationale see [`design/aud-deprecation.md`](./design/aud-deprecation.md).
+
+## Authenticating with an API key
+
+As an alternative to a per-request service-auth JWT, an owner can issue a long-lived **API key** (see [API key management](#api-key-management)). A backend authenticates by sending the key in the `X-API-Key` header instead of `Authorization: Bearer`:
+
+```text
+X-API-Key: cgsk_<keyRef>.<secret>
+```
+
+The group is named with `repo` on the **querystring** (`?repo=<handle-or-did>`). Unlike the JWT path, an API-key request must put `repo` on the querystring **even for procedures** (e.g. record writes): API-key auth resolves and authenticates against the group before the JSON body is parsed, so a body `repo` is invisible at authentication time. Omitting the querystring `repo` is rejected with `401 Missing repo for API-key request`. If a procedure body _also_ carries a `repo`, it must resolve to the same group as the querystring — a mismatch is rejected (`400`), since the key was authenticated against the querystring group and cannot be redirected to another. There is no `aud`, no nonce, and no 2-minute lifetime: the key is valid until revoked. A key is constrained by its granted **scopes** _and_ by the role of the owner that issued it; a request outside the key's scopes is rejected with `403`.
+
+```bash
+curl "https://group-service.example.com/xrpc/app.certified.group.member.list?repo=did:plc:group123" \
+  -H "X-API-Key: cgsk_ab12cd34.Zlen…"
+```
 
 ## Health check
 
@@ -645,6 +660,78 @@ curl -X POST https://group-service.example.com/xrpc/app.certified.group.role.set
     "role": "admin"
   }'
 ```
+
+---
+
+## API key management
+
+Owner-only methods for issuing and revoking [API keys](#authenticating-with-an-api-key). All three are authenticated with a normal owner **JWT** (not a key — a key can never manage keys). They target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
+
+### `POST /xrpc/app.certified.group.keys.create`
+
+Mint a key. Owner-only.
+
+Request body:
+
+```json
+{
+  "repo": "did:plc:group123",
+  "name": "platform backend",
+  "scopes": ["rpc:app.certified.group.member.list"]
+}
+```
+
+**Scope kinds:**
+
+| kind    | form                                              | grants                                                                        |
+| ------- | ------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `rpc:`  | `rpc:<method>` (friendly)                         | a service read method (`member.list`, `audit.query`)                          |
+| `repo:` | `repo:<collection>?action=create\|update\|delete` | a PDS-repo write (createRecord / putRecord / deleteRecord) on that collection |
+| `blob:` | `blob:<accept>` (e.g. `blob:image/*`, `blob:*/*`) | `uploadBlob` of a matching content type                                       |
+
+For `rpc:` scopes, pass the friendly `rpc:<method>` name — a key only ever calls the CGS it was minted on, so the service binds each scope to its own audience (`?aud=did:web:<host>%23certified_group_service`) before storing; you do **not** supply an `aud`, and the response echoes the stored **canonical** form. `repo:` and `blob:` scopes carry no `aud` and are stored as given. For a `repo:` write, the scope picks the collection + action; the caller's **role** still decides whose records may be touched (a member-issued key can only mutate records that member authored — `repo:` scopes have no own-vs-any axis).
+
+Response — the plaintext `key` is returned **only here**:
+
+```json
+{
+  "keyRef": "ab12cd34",
+  "key": "cgsk_ab12cd34.Zlen…",
+  "scopes": [
+    "rpc:app.certified.group.member.list?aud=did:web:group-service.example.com%23certified_group_service"
+  ],
+  "createdAt": "2026-06-06T12:00:00.000Z"
+}
+```
+
+Errors: `Forbidden` (not the owner), `InvalidScope` (a scope that is unparseable, names a non-RPC method, or carries an `aud` for a different service).
+
+### `GET /xrpc/app.certified.group.keys.list`
+
+List the group's keys. Owner-only. Never returns the secret or its hash. Params: `repo`, `limit`, `cursor`, `includeRevoked` (default `false`).
+
+```json
+{
+  "keys": [
+    {
+      "keyRef": "ab12cd34",
+      "name": "platform backend",
+      "scopes": [
+        "rpc:app.certified.group.member.list?aud=did:web:group-service.example.com%23certified_group_service"
+      ],
+      "createdBy": "did:plc:owner",
+      "createdAt": "2026-06-06T12:00:00.000Z",
+      "lastUsedAt": "2026-06-06T12:05:00.000Z"
+    }
+  ]
+}
+```
+
+### `POST /xrpc/app.certified.group.keys.delete`
+
+Revoke a key (soft-delete; rejected on next use). Owner-only. Idempotent.
+
+Request body: `{ "repo": "did:plc:group123", "keyRef": "ab12cd34" }`. Response: `{ "keyRef": "ab12cd34", "revokedAt": "2026-06-06T13:00:00.000Z" }`. Errors: `Forbidden`, `KeyNotFound`.
 
 ---
 

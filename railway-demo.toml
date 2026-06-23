@@ -1,0 +1,29 @@
+# Railway config for the DEMO app — a separate Railway service from the group
+# service (which uses the repo-root railway.toml). The demo builds with the REPO
+# ROOT as context; demo/Dockerfile copies only demo/*.
+#
+# On the demo Railway service, set:
+#   - Root Directory:        the repo root (default / unset)
+#   - Config-as-code path:   railway-demo.toml (this file)
+# (Both are needed because the repo root already has railway.toml for the group
+# service, so this demo config must be selected explicitly.)
+#
+# Required service variables (set in Railway, not committed):
+#   GROUP_SERVICE_URL   e.g. https://dev.groups.certified.app
+#   GROUP_SERVICE_DID   e.g. did:web:dev.groups.certified.app
+#   EPDS_URL            https://epds1.test.certified.app
+#   SESSION_SECRET      a long random string
+#   OAUTH_CLIENT_ID     https://<this-demo-domain>/client-metadata.json
+#   OAUTH_REDIRECT_URI  https://<this-demo-domain>/api/oauth/callback
+# Railway injects PORT; the BFF listens on it and serves both /api and the SPA.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "demo/Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+drainingSeconds = 30

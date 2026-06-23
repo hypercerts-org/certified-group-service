@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { getMe, setOnUnauthorized } from './api'
+import { getMe, setOnUnauthorized, resolveHandles } from './api'
 import { Layout } from './components/Layout'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
@@ -8,6 +8,7 @@ import { Dashboard } from './pages/Dashboard'
 import { Records } from './pages/Records'
 import { Upload } from './pages/Upload'
 import { AuditLog } from './pages/AuditLog'
+import { ApiKeys } from './pages/ApiKeys'
 
 interface AuthUser {
   did: string
@@ -83,6 +84,26 @@ export function App() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Backfill the active group's handle when it is missing — e.g. the group was
+  // entered as a raw DID, or restored from legacy DID-only storage. Reverse-
+  // resolving here means every consumer (banner, page headers) gets the
+  // human-readable handle without each having to resolve it. Best-effort: on
+  // failure the DID simply remains the display value.
+  useEffect(() => {
+    if (!group || group.handle) return
+    let cancelled = false
+    resolveHandles([group.did])
+      .then((res) => {
+        const handle = res.handles[group.did]
+        if (!cancelled && handle) setGroup({ did: group.did, handle })
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [group?.did, group?.handle])
+
   if (loading) {
     return <div style={{ padding: 40, textAlign: 'center' }}>Loading...</div>
   }
@@ -99,6 +120,7 @@ export function App() {
               <Route path="/records" element={user ? <Records /> : <Navigate to="/login" />} />
               <Route path="/upload" element={user ? <Upload /> : <Navigate to="/login" />} />
               <Route path="/audit" element={user ? <AuditLog /> : <Navigate to="/login" />} />
+              <Route path="/keys" element={user ? <ApiKeys /> : <Navigate to="/login" />} />
             </Route>
           </Routes>
         </BrowserRouter>
