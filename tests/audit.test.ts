@@ -15,9 +15,18 @@ describe('AuditLogger', () => {
   })
 
   it('logs action with all fields', async () => {
-    await audit.log(groupDb, 'did:plc:actor', 'createRecord', 'permitted', {
-      collection: 'app.bsky.feed.post', rkey: 'abc', extra: 'data',
-    }, 'jti-1')
+    await audit.log(
+      groupDb,
+      'did:plc:actor',
+      'createRecord',
+      'permitted',
+      {
+        collection: 'app.bsky.feed.post',
+        rkey: 'abc',
+        extra: 'data',
+      },
+      'jti-1',
+    )
 
     const rows = await groupDb.selectFrom('group_audit_log').selectAll().execute()
     expect(rows).toHaveLength(1)
@@ -42,7 +51,9 @@ describe('AuditLogger', () => {
 
   it('extracts collection and rkey from detail', async () => {
     await audit.log(groupDb, 'did:plc:actor', 'createRecord', 'permitted', {
-      collection: 'x', rkey: 'y', extra: 'z',
+      collection: 'x',
+      rkey: 'y',
+      extra: 'z',
     })
 
     const rows = await groupDb.selectFrom('group_audit_log').selectAll().execute()
@@ -53,15 +64,21 @@ describe('AuditLogger', () => {
 
   it('detail serialized as JSON string', async () => {
     await audit.log(groupDb, 'did:plc:actor', 'member.add', 'permitted', {
-      memberDid: 'did:plc:new', role: 'member',
+      memberDid: 'did:plc:new',
+      role: 'member',
     })
 
     const rows = await groupDb.selectFrom('group_audit_log').selectAll().execute()
-    expect(JSON.parse(rows[0].detail!)).toEqual({ memberDid: 'did:plc:new', role: 'member' })
+    expect(JSON.parse(rows[0].detail!)).toEqual({
+      memberDid: 'did:plc:new',
+      role: 'member',
+    })
   })
 
   it('jti is optional', async () => {
-    await audit.log(groupDb, 'did:plc:actor', 'createRecord', 'permitted', { collection: 'x' })
+    await audit.log(groupDb, 'did:plc:actor', 'createRecord', 'permitted', {
+      collection: 'x',
+    })
 
     const rows = await groupDb.selectFrom('group_audit_log').selectAll().execute()
     expect(rows[0].jti).toBeNull()

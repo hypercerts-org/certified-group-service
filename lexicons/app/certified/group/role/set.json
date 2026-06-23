@@ -11,6 +11,11 @@
           "type": "object",
           "required": ["memberDid", "role"],
           "properties": {
+            "repo": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the target group. Optional during the #27 deprecation window: omit it and the group is taken from the (deprecated) JWT aud claim instead."
+            },
             "memberDid": { "type": "string", "format": "did" },
             "role": {
               "type": "string",
@@ -26,7 +31,10 @@
           "required": ["memberDid", "role", "updatedAt"],
           "properties": {
             "memberDid": { "type": "string", "format": "did" },
-            "role": { "type": "string", "knownValues": ["member", "admin", "owner"] },
+            "role": {
+              "type": "string",
+              "knownValues": ["member", "admin", "owner"]
+            },
             "updatedAt": { "type": "string", "format": "datetime" }
           }
         }
@@ -35,9 +43,18 @@
         { "name": "Unauthorized" },
         { "name": "Forbidden" },
         { "name": "MemberNotFound" },
-        { "name": "InvalidRole", "description": "Role must be one of: member, admin, owner" },
-        { "name": "CannotModifyOwner", "description": "Cannot change owner role — use ownership transfer instead" },
-        { "name": "CannotPromoteToOwner", "description": "Cannot promote to owner — use ownership transfer instead" }
+        {
+          "name": "InvalidRole",
+          "description": "Role must be one of: member, admin, owner"
+        },
+        {
+          "name": "CannotModifyOwner",
+          "description": "Cannot change owner role — use ownership transfer instead"
+        },
+        {
+          "name": "CannotPromoteToOwner",
+          "description": "Cannot promote to owner — use ownership transfer instead"
+        }
       ]
     }
   }

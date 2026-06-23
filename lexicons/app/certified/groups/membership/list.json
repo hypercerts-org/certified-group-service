@@ -8,7 +8,12 @@
       "parameters": {
         "type": "params",
         "properties": {
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
           "cursor": { "type": "string" }
         }
       },
@@ -26,16 +31,17 @@
           }
         }
       },
-      "errors": [
-        { "name": "Unauthorized" }
-      ]
+      "errors": [{ "name": "Unauthorized" }]
     },
     "groupMembership": {
       "type": "object",
       "required": ["groupDid", "role", "joinedAt"],
       "properties": {
         "groupDid": { "type": "string", "format": "did" },
-        "role": { "type": "string", "knownValues": ["member", "admin", "owner"] },
+        "role": {
+          "type": "string",
+          "knownValues": ["member", "admin", "owner"]
+        },
         "joinedAt": { "type": "string", "format": "datetime" }
       }
     }

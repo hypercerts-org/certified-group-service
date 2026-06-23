@@ -2,9 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import express from 'express'
 import request from 'supertest'
 import { AuthRequiredError } from '@atproto/xrpc-server'
-import { createTestContext, silentLogger } from './helpers/mock-server.js'
+import { createTestContext, createTestApp, mockAuth } from './helpers/mock-server.js'
 import groupRegisterHandler from '../src/api/group/register.js'
-import { createFallbackErrorHandler } from '../src/api/error-handler.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase, GroupDatabase } from '../src/db/schema.js'
@@ -18,7 +17,12 @@ vi.mock('@atproto/api', () => {
         atproto: {
           server: {
             createAccount: vi.fn().mockResolvedValue({
-              data: { did: 'did:plc:newgroup', handle: 'mygroup.pds.example.com', accessJwt: 'jwt', refreshJwt: 'rjwt' },
+              data: {
+                did: 'did:plc:newgroup',
+                handle: 'mygroup.pds.example.com',
+                accessJwt: 'jwt',
+                refreshJwt: 'rjwt',
+              },
             }),
             createAppPassword: vi.fn().mockResolvedValue({
               data: { name: 'group-service', password: 'app-pass-xxxx' },
@@ -30,7 +34,12 @@ vi.mock('@atproto/api', () => {
                 rotationKeys: ['did:key:zQ3shtest'],
                 verificationMethods: { atproto: 'did:key:zQ3shverify' },
                 alsoKnownAs: ['at://mygroup.pds.example.com'],
-                services: { atproto_pds: { type: 'AtprotoPersonalDataServer', endpoint: 'https://pds.example.com' } },
+                services: {
+                  atproto_pds: {
+                    type: 'AtprotoPersonalDataServer',
+                    endpoint: 'https://pds.example.com',
+                  },
+                },
               },
             }),
           },
@@ -51,20 +60,23 @@ vi.mock('../src/pds/plc.js', async (importOriginal) => {
       export: vi.fn().mockResolvedValue(new Uint8Array(32)),
     }),
     getLatestPlcCid: vi.fn().mockResolvedValue('bafygenesis'),
-    signPlcOperation: vi.fn().mockResolvedValue({ type: 'plc_operation', sig: 'mock-recovery-sig' }),
+    signPlcOperation: vi
+      .fn()
+      .mockResolvedValue({ type: 'plc_operation', sig: 'mock-recovery-sig' }),
     submitPlcOperation: vi.fn().mockResolvedValue(undefined),
   }
 })
 
 import { AtpAgent } from '@atproto/api'
-import { generateRecoveryKey, getLatestPlcCid, signPlcOperation, submitPlcOperation } from '../src/pds/plc.js'
+import {
+  generateRecoveryKey,
+  getLatestPlcCid,
+  signPlcOperation,
+  submitPlcOperation,
+} from '../src/pds/plc.js'
 
 function createApp(ctx: AppContext) {
-  const app = express()
-  app.use(express.json())
-  groupRegisterHandler(app, ctx)
-  app.use(createFallbackErrorHandler(silentLogger as any))
-  return app
+  return createTestApp(ctx, groupRegisterHandler)
 }
 
 const validBody = {
@@ -81,15 +93,7 @@ describe('group.register', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     const test = await createTestContext({
-      authVerifier: {
-        verify: async () => ({ iss: 'did:plc:owner', aud: 'did:plc:testgroup' }),
-        verifyRegistration: async () => ({ iss: 'did:plc:owner' }),
-        xrpcAuth() {
-          return async () => ({
-            credentials: { callerDid: 'did:plc:owner', groupDid: 'did:plc:testgroup' },
-          })
-        },
-      } as any,
+      authVerifier: mockAuth('did:plc:owner'),
     })
     ctx = test.ctx
     globalDb = test.globalDb
@@ -103,9 +107,7 @@ describe('group.register', () => {
   })
 
   it('creates account on group PDS and registers the group', async () => {
-    const res = await request(app)
-      .post('/xrpc/app.certified.group.register')
-      .send(validBody)
+    const res = await request(app).post('/xrpc/app.certified.group.register').send(validBody)
     expect(res.status).toBe(200)
     expect(res.body.groupDid).toBe('did:plc:newgroup')
     expect(res.body.handle).toBe('mygroup.pds.example.com')
@@ -133,51 +135,59 @@ describe('group.register', () => {
   })
 
   it('returns error when PDS account creation fails', async () => {
-    vi.mocked(AtpAgent).mockImplementationOnce(() => ({
-      resumeSession: vi.fn().mockResolvedValue(undefined),
-      com: {
-        atproto: {
-          server: {
-            createAccount: vi.fn().mockRejectedValue(
-              Object.assign(new Error('Handle taken'), { status: 400, error: 'HandleNotAvailable' }),
-            ),
-            createAppPassword: vi.fn(),
+    vi.mocked(AtpAgent).mockImplementationOnce(
+      () =>
+        ({
+          resumeSession: vi.fn().mockResolvedValue(undefined),
+          com: {
+            atproto: {
+              server: {
+                createAccount: vi.fn().mockRejectedValue(
+                  Object.assign(new Error('Handle taken'), {
+                    status: 400,
+                    error: 'HandleNotAvailable',
+                  }),
+                ),
+                createAppPassword: vi.fn(),
+              },
+              identity: {
+                getRecommendedDidCredentials: vi.fn(),
+              },
+            },
           },
-          identity: {
-            getRecommendedDidCredentials: vi.fn(),
-          },
-        },
-      },
-    }) as any)
+        }) as any,
+    )
 
-    const res = await request(app)
-      .post('/xrpc/app.certified.group.register')
-      .send(validBody)
+    const res = await request(app).post('/xrpc/app.certified.group.register').send(validBody)
     expect(res.status).toBe(409)
     expect(res.body.error).toBe('HandleNotAvailable')
   })
 
   it('forwards PDS handle-validation errors as 400', async () => {
-    vi.mocked(AtpAgent).mockImplementationOnce(() => ({
-      resumeSession: vi.fn().mockResolvedValue(undefined),
-      com: {
-        atproto: {
-          server: {
-            createAccount: vi.fn().mockRejectedValue(
-              Object.assign(new Error('Handle too long'), { status: 400, error: 'InvalidHandle' }),
-            ),
-            createAppPassword: vi.fn(),
+    vi.mocked(AtpAgent).mockImplementationOnce(
+      () =>
+        ({
+          resumeSession: vi.fn().mockResolvedValue(undefined),
+          com: {
+            atproto: {
+              server: {
+                createAccount: vi.fn().mockRejectedValue(
+                  Object.assign(new Error('Handle too long'), {
+                    status: 400,
+                    error: 'InvalidHandle',
+                  }),
+                ),
+                createAppPassword: vi.fn(),
+              },
+              identity: {
+                getRecommendedDidCredentials: vi.fn(),
+              },
+            },
           },
-          identity: {
-            getRecommendedDidCredentials: vi.fn(),
-          },
-        },
-      },
-    }) as any)
+        }) as any,
+    )
 
-    const res = await request(app)
-      .post('/xrpc/app.certified.group.register')
-      .send(validBody)
+    const res = await request(app).post('/xrpc/app.certified.group.register').send(validBody)
     expect(res.status).toBe(400)
     expect(res.body.message).toBe('Handle too long')
   })
@@ -208,9 +218,7 @@ describe('group.register', () => {
   })
 
   it('uses placeholder email when none provided', async () => {
-    const res = await request(app)
-      .post('/xrpc/app.certified.group.register')
-      .send(validBody)
+    const res = await request(app).post('/xrpc/app.certified.group.register').send(validBody)
     expect(res.status).toBe(200)
 
     const mockAgent = vi.mocked(AtpAgent).mock.results[0].value
@@ -228,22 +236,15 @@ describe('group.register', () => {
   it('rejects unauthenticated requests', async () => {
     const test = await createTestContext({
       authVerifier: {
-        verify: async () => ({ iss: 'did:plc:owner', aud: 'did:plc:testgroup' }),
-        verifyRegistration: async () => {
+        ...mockAuth('did:plc:owner'),
+        verifyServiceAuth: async () => {
           throw new AuthRequiredError('Missing auth token')
         },
-        xrpcAuth() {
-          return async () => ({
-            credentials: { callerDid: 'did:plc:owner', groupDid: 'did:plc:testgroup' },
-          })
-        },
-      } as any,
+      },
     })
     const unauthApp = createApp(test.ctx)
 
-    const res = await request(unauthApp)
-      .post('/xrpc/app.certified.group.register')
-      .send(validBody)
+    const res = await request(unauthApp).post('/xrpc/app.certified.group.register').send(validBody)
     expect(res.status).toBe(401)
 
     await test.globalDb.destroy()
@@ -252,15 +253,7 @@ describe('group.register', () => {
 
   it('rejects when token issuer does not match ownerDid', async () => {
     const test = await createTestContext({
-      authVerifier: {
-        verify: async () => ({ iss: 'did:plc:attacker', aud: 'did:plc:testgroup' }),
-        verifyRegistration: async () => ({ iss: 'did:plc:attacker' }),
-        xrpcAuth() {
-          return async () => ({
-            credentials: { callerDid: 'did:plc:attacker', groupDid: 'did:plc:testgroup' },
-          })
-        },
-      } as any,
+      authVerifier: mockAuth('did:plc:attacker'),
     })
     const mismatchApp = createApp(test.ctx)
 
@@ -275,9 +268,7 @@ describe('group.register', () => {
   })
 
   it('registers service endpoint in DID document using recovery key', async () => {
-    const res = await request(app)
-      .post('/xrpc/app.certified.group.register')
-      .send(validBody)
+    const res = await request(app).post('/xrpc/app.certified.group.register').send(validBody)
     expect(res.status).toBe(200)
 
     // Recovery key generated and passed to createAccount
@@ -302,19 +293,16 @@ describe('group.register', () => {
       }),
       expect.objectContaining({ did: expect.any(Function) }),
     )
-    expect(submitPlcOperation).toHaveBeenCalledWith(
-      'https://plc.directory',
-      'did:plc:newgroup',
-      { type: 'plc_operation', sig: 'mock-recovery-sig' },
-    )
+    expect(submitPlcOperation).toHaveBeenCalledWith('https://plc.directory', 'did:plc:newgroup', {
+      type: 'plc_operation',
+      sig: 'mock-recovery-sig',
+    })
   })
 
   it('fails registration if PLC operation submission fails', async () => {
     vi.mocked(submitPlcOperation).mockRejectedValueOnce(new Error('PLC submission failed'))
 
-    const res = await request(app)
-      .post('/xrpc/app.certified.group.register')
-      .send(validBody)
+    const res = await request(app).post('/xrpc/app.certified.group.register').send(validBody)
     expect(res.status).toBe(500)
 
     const group = await globalDb

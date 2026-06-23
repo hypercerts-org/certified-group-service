@@ -16,7 +16,10 @@
               "description": "Short name for the group (e.g. 'mygroup'). Will be combined with the PDS hostname to form the full handle."
             },
             "ownerDid": { "type": "string", "format": "did" },
-            "email": { "type": "string", "description": "Optional recovery email for the group account. Enables the forgot-password flow for credible exit." }
+            "email": {
+              "type": "string",
+              "description": "Optional recovery email for the group account. Enables the forgot-password flow for credible exit."
+            }
           }
         }
       },
@@ -27,8 +30,14 @@
           "required": ["groupDid", "handle"],
           "properties": {
             "groupDid": { "type": "string", "format": "did" },
-            "handle": { "type": "string", "description": "Full handle assigned to the group account" },
-            "accountPassword": { "type": "string", "description": "Primary password for the group account. The owner must save this for credible exit." }
+            "handle": {
+              "type": "string",
+              "description": "Full handle assigned to the group account"
+            },
+            "accountPassword": {
+              "type": "string",
+              "description": "Primary password for the group account. The owner must save this for credible exit."
+            }
           }
         }
       },

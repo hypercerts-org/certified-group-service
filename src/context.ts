@@ -1,5 +1,6 @@
 import type { Kysely } from 'kysely'
 import type { Logger } from 'pino'
+import type { IdResolver } from '@atproto/identity'
 import type { Config } from './config.js'
 import type { GlobalDatabase } from './db/schema.js'
 import type { GroupDbPool } from './db/group-db-pool.js'
@@ -15,6 +16,7 @@ export interface AppContext {
   globalDbPath: string
   groupDbs: GroupDbPool
   authVerifier: AuthVerifier
+  idResolver: IdResolver
   rbac: RbacChecker
   pdsAgents: PdsAgentPool
   audit: AuditLogger

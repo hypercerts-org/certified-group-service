@@ -22,6 +22,9 @@ export class NonceCache {
   }
 
   async cleanup(): Promise<void> {
-    await this.db.deleteFrom('nonce_cache').where('expires_at', '<', sql<string>`datetime('now')`).execute()
+    await this.db
+      .deleteFrom('nonce_cache')
+      .where('expires_at', '<', sql<string>`datetime('now')`)
+      .execute()
   }
 }

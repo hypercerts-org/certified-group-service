@@ -4,7 +4,7 @@ import request from 'supertest'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 import { createTestGroupDb } from './helpers/test-db.js'
-import { createTestContext, seedMember, createTestApp, mockAuth } from './helpers/mock-server.js'
+import { createTestContext, seedMember, createTestApp } from './helpers/mock-server.js'
 import roleSetHandler from '../src/api/role/set.js'
 
 // ---------------------------------------------------------------------------
@@ -21,7 +21,12 @@ describe('role.set', () => {
     // createTestContext mock auth always returns callerDid = 'did:plc:testuser'
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
     const { ctx } = await createTestContext({
-      groupDbs: { get: () => groupDb, getRaw: () => testGroup.raw, migrateGroup: async () => {}, destroyAll: async () => {} } as any,
+      groupDbs: {
+        get: () => groupDb,
+        getRaw: () => testGroup.raw,
+        migrateGroup: async () => {},
+        destroyAll: async () => {},
+      } as any,
     })
     app = createTestApp(ctx, (server, appCtx) => {
       roleSetHandler(server, appCtx)
@@ -40,7 +45,10 @@ describe('role.set', () => {
       .send({ memberDid: 'did:plc:member1', role: 'admin' })
 
     expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({ memberDid: 'did:plc:member1', role: 'admin' })
+    expect(res.body).toMatchObject({
+      memberDid: 'did:plc:member1',
+      role: 'admin',
+    })
   })
 
   it('demotes admin to member', async () => {
@@ -51,7 +59,10 @@ describe('role.set', () => {
       .send({ memberDid: 'did:plc:admin1', role: 'member' })
 
     expect(res.status).toBe(200)
-    expect(res.body).toMatchObject({ memberDid: 'did:plc:admin1', role: 'member' })
+    expect(res.body).toMatchObject({
+      memberDid: 'did:plc:admin1',
+      role: 'member',
+    })
   })
 
   it('setting same role is a no-op success', async () => {

@@ -6,9 +6,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('member_did', 'text', (col) => col.primaryKey())
     .addColumn('role', 'text', (col) => col.notNull())
     .addColumn('added_by', 'text', (col) => col.notNull())
-    .addColumn('added_at', 'text', (col) =>
-      col.defaultTo(sql`(datetime('now'))`).notNull(),
-    )
+    .addColumn('added_at', 'text', (col) => col.defaultTo(sql`(datetime('now'))`).notNull())
     .execute()
 
   await db.schema
@@ -16,9 +14,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('record_uri', 'text', (col) => col.primaryKey())
     .addColumn('author_did', 'text', (col) => col.notNull())
     .addColumn('collection', 'text', (col) => col.notNull())
-    .addColumn('created_at', 'text', (col) =>
-      col.defaultTo(sql`(datetime('now'))`).notNull(),
-    )
+    .addColumn('created_at', 'text', (col) => col.defaultTo(sql`(datetime('now'))`).notNull())
     .execute()
 
   await db.schema
@@ -37,9 +33,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('result', 'text', (col) => col.notNull())
     .addColumn('detail', 'text')
     .addColumn('jti', 'text')
-    .addColumn('created_at', 'text', (col) =>
-      col.defaultTo(sql`(datetime('now'))`).notNull(),
-    )
+    .addColumn('created_at', 'text', (col) => col.defaultTo(sql`(datetime('now'))`).notNull())
     .execute()
 
   await db.schema

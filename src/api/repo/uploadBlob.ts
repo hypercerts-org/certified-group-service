@@ -1,6 +1,13 @@
 import type { Readable } from 'node:stream'
 import type { Server } from '@atproto/xrpc-server'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit, proxyToPds, type AuthedMethodConfig } from '../util.js'
+import { XRPCError } from '@atproto/xrpc-server'
+import {
+  registerAuthedMethod,
+  jsonResponse,
+  assertCanWithAudit,
+  proxyToPds,
+  type AuthedMethodConfig,
+} from '../util.js'
 import type { AppContext } from '../../context.js'
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -16,6 +23,12 @@ export default function (server: Server, ctx: AppContext) {
     opts: { blobLimit: ctx.config.maxBlobSize },
     handler: async ({ auth, input }) => {
       const { callerDid, groupDid } = auth.credentials
+      // uploadBlob's body is a raw byte stream, so the group cannot ride in the
+      // body — it is named by the `repo` querystring (resolved by the verifier)
+      // or, for a legacy caller, by the `aud` overload.
+      if (!groupDid) {
+        throw new XRPCError(400, 'Missing repo', 'InvalidRequest')
+      }
       const groupDb = ctx.groupDbs.get(groupDid)
 
       await assertCanWithAudit(ctx, groupDb, callerDid, 'uploadBlob')

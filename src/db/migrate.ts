@@ -17,7 +17,9 @@ async function runMigrations(db: Kysely<unknown>, folder: string): Promise<void>
     }),
   })
   const { error } = await migrator.migrateToLatest()
-  if (error) throw error
+  if (error) {
+    throw error instanceof Error ? error : new Error(JSON.stringify(error))
+  }
 }
 
 export async function runGlobalMigrations(db: Kysely<GlobalDatabase>): Promise<void> {

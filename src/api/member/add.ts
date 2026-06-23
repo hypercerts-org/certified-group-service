@@ -2,29 +2,38 @@ import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import { ensureValidDid } from '@atproto/syntax'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, sqliteToIso } from '../util.js'
+import { registerAuthedMethod, jsonResponse, sqliteToIso, resolveGroupDid } from '../util.js'
 import { ConflictError, ForbiddenError } from '../../errors.js'
 import { ASSIGNABLE_ROLES, ROLE_HIERARCHY, type Role } from '../../rbac/permissions.js'
 
 export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.member.add', ctx, {
     handler: async ({ auth, input: xrpcInput }) => {
-      const { callerDid, groupDid } = auth.credentials
-      const { memberDid, role } = xrpcInput?.body as { memberDid: string; role: Role }
+      const { callerDid } = auth.credentials
+      const { repo, memberDid, role } = xrpcInput?.body as {
+        repo?: string
+        memberDid: string
+        role: Role
+      }
 
       // Validate inputs before any async work
       ensureValidDid(memberDid)
       if (!ASSIGNABLE_ROLES.includes(role)) {
-        throw new XRPCError(400, `Role must be one of: ${ASSIGNABLE_ROLES.join(', ')}`, 'InvalidRole')
+        throw new XRPCError(
+          400,
+          `Role must be one of: ${ASSIGNABLE_ROLES.join(', ')}`,
+          'InvalidRole',
+        )
       }
 
+      const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
       const groupDb = ctx.groupDbs.get(groupDid)
       const groupRaw = ctx.groupDbs.getRaw(groupDid)
 
       const callerRole = await ctx.rbac.assertCan(groupDb, callerDid, 'member.add')
 
       // Cannot assign equal or higher role
-      if (ROLE_HIERARCHY[callerRole] <= ROLE_HIERARCHY[role as Role]) {
+      if (ROLE_HIERARCHY[callerRole] <= ROLE_HIERARCHY[role]) {
         throw new ForbiddenError('Cannot assign a role equal to or higher than your own')
       }
 
@@ -44,7 +53,10 @@ export default function (server: Server, ctx: AppContext) {
         .where('member_did', '=', memberDid)
         .executeTakeFirstOrThrow()
 
-      await ctx.audit.log(groupDb, callerDid, 'member.add', 'permitted', { memberDid, role })
+      await ctx.audit.log(groupDb, callerDid, 'member.add', 'permitted', {
+        memberDid,
+        role,
+      })
 
       return jsonResponse({
         memberDid: member.member_did,

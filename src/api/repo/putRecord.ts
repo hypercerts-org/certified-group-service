@@ -1,18 +1,27 @@
 import type { Server } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, assertCanWithAudit, proxyToPds, type AuthedMethodConfig } from '../util.js'
-import { ForbiddenError } from '../../errors.js'
+import {
+  registerAuthedMethod,
+  jsonResponse,
+  assertCanWithAudit,
+  proxyToPds,
+  resolveGroupDid,
+  type AuthedMethodConfig,
+} from '../util.js'
 import type { Operation } from '../../rbac/permissions.js'
 
 export default function (server: Server, ctx: AppContext) {
   const config: AuthedMethodConfig = {
     handler: async ({ auth, input: xrpcInput }) => {
-      const { callerDid, groupDid } = auth.credentials
-      const input = xrpcInput?.body as { repo: string; collection: string; rkey: string; record: { [x: string]: unknown } }
-
-      if (input.repo !== groupDid) {
-        throw new ForbiddenError('repo field must match the group DID')
+      const { callerDid } = auth.credentials
+      const input = xrpcInput?.body as {
+        repo: string
+        collection: string
+        rkey: string
+        record: { [x: string]: unknown }
       }
+
+      const groupDid = await resolveGroupDid(ctx, auth.credentials, input.repo)
 
       const groupDb = ctx.groupDbs.get(groupDid)
 
@@ -38,22 +47,28 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       // RBAC check with audit on denial
-      await assertCanWithAudit(ctx, groupDb, callerDid, operation, { collection: input.collection, rkey: input.rkey })
+      await assertCanWithAudit(ctx, groupDb, callerDid, operation, {
+        collection: input.collection,
+        rkey: input.rkey,
+      })
 
-      // Forward to group's PDS
+      // Forward to group's PDS. Send the resolved group DID as `repo` — the
+      // caller may have supplied a handle, which the PDS won't accept.
       const response = await proxyToPds(ctx.pdsAgents, groupDid, (agent) =>
-        agent.com.atproto.repo.putRecord(input),
+        agent.com.atproto.repo.putRecord({ ...input, repo: groupDid }),
       )
 
       const postOps: Promise<unknown>[] = [
         ctx.audit.log(groupDb, callerDid, operation, 'permitted', {
-          collection: input.collection, rkey: input.rkey,
+          collection: input.collection,
+          rkey: input.rkey,
         }),
       ]
       // Upsert authorship (for new records via putRecord, skip profiles)
       if (!isProfileUpdate) {
         postOps.push(
-          groupDb.insertInto('group_record_authors')
+          groupDb
+            .insertInto('group_record_authors')
             .values({
               record_uri: response.data.uri,
               author_did: callerDid,

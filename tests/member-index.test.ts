@@ -4,7 +4,13 @@ import type express from 'express'
 import type { Kysely } from 'kysely'
 import type { AppContext } from '../src/context.js'
 import type { GlobalDatabase, GroupDatabase } from '../src/db/schema.js'
-import { createTestContext, seedMember, seedMemberWithIndex, createTestApp, mockAuth } from './helpers/mock-server.js'
+import {
+  createTestContext,
+  seedMember,
+  seedMemberWithIndex,
+  createTestApp,
+  mockAuth,
+} from './helpers/mock-server.js'
 import { createTestGroupDb } from './helpers/test-db.js'
 import memberAddHandler from '../src/api/member/add.js'
 import memberRemoveHandler from '../src/api/member/remove.js'
@@ -57,8 +63,7 @@ describe('member_index round-trip', () => {
 
     // Query membership.list as that member
     const memberApp = buildApp({ ...ctx, authVerifier: mockAuth(memberDid) })
-    const listRes = await request(memberApp)
-      .get('/xrpc/app.certified.groups.membership.list')
+    const listRes = await request(memberApp).get('/xrpc/app.certified.groups.membership.list')
     expect(listRes.status).toBe(200)
     expect(listRes.body.groups).toHaveLength(1)
     expect(listRes.body.groups[0].groupDid).toBe(groupDid)
@@ -78,8 +83,7 @@ describe('member_index round-trip', () => {
 
     // membership.list should be empty for that member
     const memberApp = buildApp({ ...ctx, authVerifier: mockAuth(memberDid) })
-    const listRes = await request(memberApp)
-      .get('/xrpc/app.certified.groups.membership.list')
+    const listRes = await request(memberApp).get('/xrpc/app.certified.groups.membership.list')
     expect(listRes.status).toBe(200)
     expect(listRes.body.groups).toEqual([])
   })
@@ -98,8 +102,7 @@ describe('member_index round-trip', () => {
 
     // membership.list should reflect admin
     const memberApp = buildApp({ ...ctx, authVerifier: mockAuth(memberDid) })
-    const listRes = await request(memberApp)
-      .get('/xrpc/app.certified.groups.membership.list')
+    const listRes = await request(memberApp).get('/xrpc/app.certified.groups.membership.list')
     expect(listRes.status).toBe(200)
     expect(listRes.body.groups).toHaveLength(1)
     expect(listRes.body.groups[0].role).toBe('admin')
@@ -149,16 +152,22 @@ describe('backfillMemberIndex', () => {
     groupDbB = testB.db
 
     // Register groups in global DB
-    await globalDb.insertInto('groups').values({
-      did: groupADid,
-      pds_url: 'https://pds.example.com',
-      encrypted_app_password: 'enc_a',
-    }).execute()
-    await globalDb.insertInto('groups').values({
-      did: groupBDid,
-      pds_url: 'https://pds.example.com',
-      encrypted_app_password: 'enc_b',
-    }).execute()
+    await globalDb
+      .insertInto('groups')
+      .values({
+        did: groupADid,
+        pds_url: 'https://pds.example.com',
+        encrypted_app_password: 'enc_a',
+      })
+      .execute()
+    await globalDb
+      .insertInto('groups')
+      .values({
+        did: groupBDid,
+        pds_url: 'https://pds.example.com',
+        encrypted_app_password: 'enc_b',
+      })
+      .execute()
 
     // Seed members in group DBs only (no index)
     await seedMember(groupDbA, 'did:plc:alice', 'owner')

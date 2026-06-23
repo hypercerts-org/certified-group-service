@@ -8,13 +8,23 @@
       "parameters": {
         "type": "params",
         "properties": {
+          "repo": {
+            "type": "string",
+            "format": "at-identifier",
+            "description": "The handle or DID of the target group. Optional during the #27 deprecation window: omit it and the group is taken from the (deprecated) JWT aud claim instead."
+          },
           "actorDid": { "type": "string", "format": "did" },
           "targetDid": { "type": "string", "format": "did" },
           "action": { "type": "string" },
           "collection": { "type": "string" },
           "since": { "type": "string", "format": "datetime" },
           "until": { "type": "string", "format": "datetime" },
-          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
           "cursor": { "type": "string" }
         }
       },
@@ -32,10 +42,7 @@
           }
         }
       },
-      "errors": [
-        { "name": "Unauthorized" },
-        { "name": "Forbidden" }
-      ]
+      "errors": [{ "name": "Unauthorized" }, { "name": "Forbidden" }]
     },
     "auditEntry": {
       "type": "object",

@@ -13,6 +13,7 @@ export type Operation =
   | 'member.list'
   | 'role.set'
   | 'audit.query'
+  | 'group.destroy'
 
 export const ROLE_HIERARCHY: Record<Role, number> = {
   member: 0,
@@ -35,6 +36,7 @@ const MIN_ROLE_FOR_OPERATION: Record<Operation, Role> = {
   'member.remove': 'admin',
   'audit.query': 'admin',
   'role.set': 'owner',
+  'group.destroy': 'owner',
 }
 
 export function canPerform(userRole: Role, operation: Operation): boolean {

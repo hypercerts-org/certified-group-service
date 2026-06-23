@@ -1,0 +1,48 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.import",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Import an existing PDS account as a group. Sibling to app.certified.group.register, but reuses an existing account rather than creating a new one. Stores the supplied app password so the service can act on the account's behalf, and seeds the caller as owner. Does not modify the account's DID document.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid", "appPassword", "ownerDid"],
+          "properties": {
+            "groupDid": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the existing account to import as a group."
+            },
+            "appPassword": {
+              "type": "string",
+              "description": "An app password for the account, so the service can act on its behalf. Stored encrypted, exactly as supplied; the owner manages its lifecycle and may revoke it."
+            },
+            "ownerDid": { "type": "string", "format": "did" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid", "handle"],
+          "properties": {
+            "groupDid": { "type": "string", "format": "did" },
+            "handle": {
+              "type": "string",
+              "description": "Handle resolved from the imported account."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "InvalidRequest" },
+        { "name": "InvalidAppPassword" },
+        { "name": "GroupAlreadyRegistered" }
+      ]
+    }
+  }
+}

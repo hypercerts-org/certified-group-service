@@ -56,7 +56,7 @@ interface GroupAuditLogTable {
   collection: string | null
   rkey: string | null
   result: 'permitted' | 'denied'
-  detail: string | null  // JSON string
+  detail: string | null // JSON string
   jti: string | null
   created_at: Generated<string>
 }

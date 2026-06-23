@@ -120,9 +120,11 @@ describe('MemberIndex (ATTACH DATABASE)', () => {
     const otherMember = 'did:plc:bob'
 
     // First, insert into member_index directly to create PK conflict
-    globalRaw.prepare(
-      `INSERT INTO member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, datetime('now'))`,
-    ).run(otherMember, groupDid, 'member', addedBy)
+    globalRaw
+      .prepare(
+        `INSERT INTO member_index (member_did, group_did, role, added_by, added_at) VALUES (?, ?, ?, ?, datetime('now'))`,
+      )
+      .run(otherMember, groupDid, 'member', addedBy)
 
     // Now try add() which will try to insert into group_members AND member_index.
     // member_index insert should fail (PK violation), rolling back group_members too.
@@ -147,10 +149,7 @@ describe('MemberIndex (ATTACH DATABASE)', () => {
     }).toThrow()
 
     // Group DB should still be usable (no stale ATTACH)
-    const rows = await groupDb
-      .selectFrom('group_members')
-      .selectAll()
-      .execute()
+    const rows = await groupDb.selectFrom('group_members').selectAll().execute()
     expect(rows).toHaveLength(1)
     expect(rows[0].member_did).toBe(memberDid)
   })

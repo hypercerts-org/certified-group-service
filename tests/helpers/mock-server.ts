@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import type { AppContext } from '../../src/context.js'
 import type { Config } from '../../src/config.js'
 import { RbacChecker } from '../../src/rbac/check.js'
+import type { Role } from '../../src/rbac/permissions.js'
 import { AuditLogger } from '../../src/audit.js'
 import { TestMemberIndex } from '../../src/db/member-index.js'
 import { createTestGlobalDb, createTestGroupDb } from './test-db.js'
@@ -44,6 +45,7 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     get: () => groupDb,
     getRaw: () => groupRaw,
     migrateGroup: async () => {},
+    destroyGroup: async () => {},
     destroyAll: async () => {},
   }
 
@@ -55,14 +57,26 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
           atproto: {
             repo: {
               createRecord: async (_input: unknown) => ({
-                data: { uri: 'at://did:plc:testgroup/app.bsky.feed.post/abc123', cid: 'bafytest' },
+                data: {
+                  uri: 'at://did:plc:testgroup/app.bsky.feed.post/abc123',
+                  cid: 'bafytest',
+                },
               }),
               deleteRecord: async () => ({ data: {} }),
               putRecord: async (_input: unknown) => ({
-                data: { uri: 'at://did:plc:testgroup/app.bsky.feed.post/abc123', cid: 'bafytest' },
+                data: {
+                  uri: 'at://did:plc:testgroup/app.bsky.feed.post/abc123',
+                  cid: 'bafytest',
+                },
               }),
               uploadBlob: async () => ({
-                data: { blob: { ref: { $link: 'bafyblob' }, mimeType: 'image/png', size: 1024 } },
+                data: {
+                  blob: {
+                    ref: { $link: 'bafyblob' },
+                    mimeType: 'image/png',
+                    size: 1024,
+                  },
+                },
               }),
             },
           },
@@ -81,23 +95,34 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     globalDbPath: ':memory:',
     groupDbs: mockGroupDbs as any,
     authVerifier: mockAuth('did:plc:testuser'),
+    idResolver: mockIdResolver(),
     rbac: new RbacChecker(),
     pdsAgents: mockPdsAgents as any,
     audit: new AuditLogger(),
     memberIndex,
-    logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} } as any,
+    logger: {
+      info: () => {},
+      error: () => {},
+      warn: () => {},
+      debug: () => {},
+    } as any,
     ...overrides,
   }
 
   return { ctx, globalDb, globalRaw, groupDb, groupRaw }
 }
 
-export const silentLogger = { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+export const silentLogger = {
+  info: () => {},
+  error: () => {},
+  warn: () => {},
+  debug: () => {},
+}
 
 export async function seedMember(
   groupDb: Kysely<GroupDatabase>,
   memberDid: string,
-  role: string,
+  role: Role,
   addedBy = 'did:plc:owner',
 ): Promise<void> {
   await groupDb
@@ -115,7 +140,7 @@ export async function seedMemberWithIndex(
   globalDb: Kysely<GlobalDatabase>,
   memberDid: string,
   groupDid: string,
-  role: string,
+  role: Role,
   addedBy = 'did:plc:owner',
 ): Promise<void> {
   await groupDb
@@ -173,21 +198,96 @@ export function createTestApp(
   return app
 }
 
+/**
+ * Mock AuthVerifier mirroring the real surface after the #27 fix.
+ *
+ * By default it simulates the **legacy** path (group taken from `aud`, so
+ * `groupDid` is set on the credential and `legacyAud` is true) — matching the
+ * existing tests, which mint `aud = the group DID`. Tests exercising the new
+ * path override `verify`/`xrpcAuth` to return `groupDid: undefined` (procedures
+ * resolve from the body) or `legacyAud: false`.
+ *
+ * `resolveRepoToGroup` accepts only the configured group (`aud`): the group DID
+ * itself, or the handle `group.example.com`. Any other value throws, mirroring
+ * the real verifier rejecting an unregistered group — so a handler resolving
+ * `input.body.repo` exercises the same accept/reject behaviour without a real
+ * groups table.
+ */
 export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
   return {
-    verify: async () => ({ iss, aud }),
-    verifyRegistration: async () => ({ iss }),
+    verify: async () => ({ iss, groupDid: aud, legacyAud: true }),
     verifyServiceAuth: async () => ({ iss }),
+    resolveRepoToGroup: async (repo: string) => {
+      if (repo === aud || repo === 'group.example.com') return aud
+      const { AuthRequiredError } = await import('@atproto/xrpc-server')
+      throw new AuthRequiredError('Unknown group')
+    },
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
-        const { iss, aud } = await this.verify(req)
-        return { credentials: { callerDid: iss, groupDid: aud } }
+        const { iss, groupDid, legacyAud } = await this.verify(req)
+        return { credentials: { callerDid: iss, groupDid, legacyAud } }
       }
     },
     xrpcServiceAuth() {
-      return async () => {
+      return async ({ req }: { req: any }) => {
+        const { iss } = await this.verifyServiceAuth(req)
         return { credentials: { callerDid: iss } }
       }
+    },
+  } as any
+}
+
+/**
+ * Mock AuthVerifier simulating the **new** (#27-fixed) path: `aud` is the
+ * service DID and the group is named by an explicit `repo`. For queries the
+ * group is read from `req.query.repo` (resolved here); for body-input
+ * procedures it is left undefined so the handler resolves `input.body.repo`.
+ * `legacyAud` is always false, so no deprecation signal fires.
+ */
+export function mockAuthNewPath(iss: string, group: string = 'did:plc:testgroup') {
+  const resolveRepoToGroup = async (repo: string) => {
+    if (repo === group || repo === 'group.example.com') return group
+    const { AuthRequiredError } = await import('@atproto/xrpc-server')
+    throw new AuthRequiredError('Unknown group')
+  }
+  return {
+    verify: async (req: any) => {
+      const repo = typeof req?.query?.repo === 'string' ? req.query.repo : undefined
+      const groupDid = repo !== undefined ? await resolveRepoToGroup(repo) : undefined
+      return { iss, groupDid, legacyAud: false }
+    },
+    verifyServiceAuth: async () => ({ iss }),
+    resolveRepoToGroup,
+    xrpcAuth() {
+      return async ({ req }: { req: any }) => {
+        const { iss: callerDid, groupDid, legacyAud } = await this.verify(req)
+        return { credentials: { callerDid, groupDid, legacyAud } }
+      }
+    },
+    xrpcServiceAuth() {
+      return async ({ req }: { req: any }) => {
+        const { iss: callerDid } = await this.verifyServiceAuth(req)
+        return { credentials: { callerDid } }
+      }
+    },
+  } as any
+}
+
+/**
+ * Minimal IdResolver mock. By default resolves any DID to atproto data whose
+ * `pds` points at the test PDS, so the group.import success path works out of
+ * the box. Tests override `did.resolveAtprotoData` to exercise other cases
+ * (e.g. a different PDS, or a throw for an unresolvable DID).
+ */
+export function mockIdResolver(pdsUrl = 'https://pds.example.com') {
+  return {
+    did: {
+      resolveAtprotoData: async (did: string) => ({
+        did,
+        signingKey: 'did:key:zQ3shmockSigningKey',
+        handle: 'imported.pds.example.com',
+        pds: pdsUrl,
+      }),
     },
   } as any
 }

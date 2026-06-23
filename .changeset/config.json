@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": [
+    "@changesets/changelog-github",
+    { "repo": "hypercerts-org/certified-group-service" }
+  ],
+  "commit": false,
+  "fixed": [],
+  "linked": [],
+  "access": "restricted",
+  "privatePackages": { "version": true, "tag": true },
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}

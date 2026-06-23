@@ -1,39 +1,48 @@
 import { randomBytes } from 'node:crypto'
-import type { Express } from 'express'
+import type { Server } from '@atproto/xrpc-server'
 import { AtpAgent } from '@atproto/api'
 import { ensureValidDid } from '@atproto/syntax'
 import { AuthRequiredError, InvalidRequestError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
 import { ConflictError } from '../../errors.js'
-import { encrypt } from '../../pds/credentials.js'
+import { registerServiceAuthMethod, jsonResponse } from '../util.js'
 import {
   generateRecoveryKey,
   getLatestPlcCid,
   signPlcOperation,
   submitPlcOperation,
 } from '../../pds/plc.js'
+import { finalizeGroup } from './finalize.js'
 
-export default function (app: Express, ctx: AppContext) {
-  app.post('/xrpc/app.certified.group.register', async (req, res, next) => {
-    try {
-      const { handle, ownerDid, email } = req.body
-
-      // Validate inputs
-      if (!handle || !ownerDid) {
-        throw new InvalidRequestError('Missing required fields: handle, ownerDid')
+/**
+ * app.certified.group.register — create a new group account and bring it under
+ * service management.
+ *
+ * Auth is service-level (aud = the service DID), because the group does not yet
+ * exist in the service. The handler additionally verifies the authenticated
+ * caller matches the ownerDid it is about to seed.
+ */
+export default function (server: Server, ctx: AppContext) {
+  registerServiceAuthMethod(server, 'app.certified.group.register', ctx, {
+    handler: async ({ auth, input }) => {
+      const { callerDid } = auth.credentials
+      const { handle, ownerDid, email } = input?.body as {
+        handle: string
+        ownerDid: string
+        email?: string
       }
+
+      // Validate inputs (the lexicon enforces presence + did format; we also
+      // guard explicitly for the handle charset and a clean DID error)
       try {
         ensureValidDid(ownerDid)
       } catch {
         throw new InvalidRequestError('Invalid ownerDid')
       }
 
-      // Verify the caller controls the claimed ownerDid
-      const { iss } = await ctx.authVerifier.verifyRegistration(req)
-      if (iss !== ownerDid) {
-        throw new AuthRequiredError(
-          'Service auth token issuer does not match ownerDid',
-        )
+      // The authenticated caller must be the owner they are seeding
+      if (callerDid !== ownerDid) {
+        throw new AuthRequiredError('Service auth token issuer does not match ownerDid')
       }
       if (!/^[a-zA-Z0-9-]+$/.test(handle)) {
         throw new InvalidRequestError('Invalid handle: must be alphanumeric with hyphens')
@@ -65,18 +74,20 @@ export default function (app: Express, ctx: AppContext) {
           handle: fullHandle,
           password: accountPassword,
           recoveryKey: recoveryDidKey,
-          ...(ctx.config.groupPdsInviteCode && { inviteCode: ctx.config.groupPdsInviteCode }),
+          ...(ctx.config.groupPdsInviteCode && {
+            inviteCode: ctx.config.groupPdsInviteCode,
+          }),
         })
-      } catch (err: any) {
+      } catch (err) {
+        const e = err as { status?: number; error?: string; message?: string }
         if (
-          err?.status === 400 &&
-          (err?.error === 'HandleNotAvailable' ||
-            err?.message?.includes('Handle already taken'))
+          e?.status === 400 &&
+          (e?.error === 'HandleNotAvailable' || e?.message?.includes('Handle already taken'))
         ) {
           throw new ConflictError('Handle already taken on the PDS', 'HandleNotAvailable')
         }
-        if (err?.status === 400) {
-          throw new InvalidRequestError(err?.message ?? 'Invalid request')
+        if (e?.status === 400) {
+          throw new InvalidRequestError(e?.message ?? 'Invalid request')
         }
         throw err
       }
@@ -103,11 +114,11 @@ export default function (app: Express, ctx: AppContext) {
       const operation = await signPlcOperation(
         {
           type: 'plc_operation',
-          rotationKeys: recommended.rotationKeys as string[] ?? [recoveryDidKey],
+          rotationKeys: (recommended.rotationKeys as string[]) ?? [recoveryDidKey],
           verificationMethods: (recommended.verificationMethods as Record<string, string>) ?? {},
           alsoKnownAs: (recommended.alsoKnownAs as string[]) ?? [],
           services: {
-            ...(recommended.services as Record<string, { type: string; endpoint: string }>) ?? {},
+            ...((recommended.services as Record<string, { type: string; endpoint: string }>) ?? {}),
             certified_group: {
               type: 'CertifiedGroupService',
               endpoint: ctx.config.serviceUrl,
@@ -126,51 +137,19 @@ export default function (app: Express, ctx: AppContext) {
       })
       const appPassword = appPasswordRes.data.password
 
-      // Encrypt and store
-      const encryptionKey = Buffer.from(ctx.config.encryptionKey, 'hex')
-      const encrypted = encrypt(appPassword, encryptionKey)
+      // Persist credentials, init per-group DB, seed owner, audit-log
       const recoveryKeyBytes = await recoveryKey.export()
-      const encryptedRecoveryKey = encrypt(
-        Buffer.from(recoveryKeyBytes).toString('base64url'),
-        encryptionKey,
-      )
-      try {
-        await ctx.globalDb
-          .insertInto('groups')
-          .values({
-            did: groupDid,
-            pds_url: pdsUrl,
-            encrypted_app_password: encrypted,
-            encrypted_recovery_key: encryptedRecoveryKey,
-          })
-          .execute()
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        if (msg.includes('UNIQUE constraint failed') || msg.includes('PRIMARY KEY constraint failed')) {
-          throw new ConflictError('Group already registered', 'GroupAlreadyRegistered')
-        }
-        throw err
-      }
-
-      // Initialize per-group database and run migrations
-      await ctx.groupDbs.migrateGroup(groupDid)
-
-      // Seed owner (atomic write to both group DB and member_index)
-      const groupDb = ctx.groupDbs.get(groupDid)
-      const groupRaw = ctx.groupDbs.getRaw(groupDid)
-      ctx.memberIndex.add(groupRaw, groupDid, ownerDid, 'owner', ownerDid)
-
-      // Audit log the group creation
-      await ctx.audit.log(groupDb, ownerDid, 'group.register', 'permitted', {
-        handle: fullHandle,
-      })
-
-      res.json({
+      await finalizeGroup(ctx, {
         groupDid,
+        pdsUrl,
+        appPassword,
+        ownerDid,
+        recoveryKeyMaterial: Buffer.from(recoveryKeyBytes).toString('base64url'),
+        action: 'group.register',
         handle: fullHandle,
       })
-    } catch (err) {
-      next(err)
-    }
+
+      return jsonResponse({ groupDid, handle: fullHandle })
+    },
   })
 }
