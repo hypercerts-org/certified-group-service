@@ -48,7 +48,16 @@ export default function (server: Server, ctx: AppContext) {
       const groupDb = ctx.groupDbs.get(groupDid)
 
       // Owner-only. Denials are audit-logged to the (still-present) group DB.
-      await assertCanWithAudit(ctx, groupDb, callerDid, 'group.destroy')
+      // Pass credentials so an API-key caller has its scopes enforced (destroy
+      // is not key-accessible, so any key is denied here).
+      await assertCanWithAudit(
+        ctx,
+        groupDb,
+        callerDid,
+        'group.destroy',
+        undefined,
+        auth.credentials,
+      )
 
       // The per-group audit log is about to be deleted, so the durable record
       // of the destroy is the service log, not an audit row.

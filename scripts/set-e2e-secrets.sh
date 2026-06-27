@@ -15,8 +15,10 @@
 #   --dry-run   print what would be set, without calling gh
 #
 # Notes:
-#   - CGS_URL is intentionally NOT pushed: the workflow derives the service URL
-#     from the Railway deployment, so a CGS_URL value would be ignored/stale.
+#   - E2E_CGS_URL and E2E_CGS_SERVICE_DID are intentionally NOT pushed: the
+#     workflow tests the PR's Railway preview and derives both from it per run.
+#     A fixed value (e.g. copied from a staging-pointed e2e/.env) would mismatch
+#     the preview's host and fail with BadJwtAudience.
 #   - Blank vars and comment lines are skipped (e.g. unset RBAC accounts).
 #   - Values are read literally; surrounding single/double quotes are stripped.
 #
@@ -44,22 +46,22 @@ fi
 
 # SECRETS — credentials only.
 SECRETS="
-IMPORTER_PASSWORD
-IMPORTER_APP_PASSWORD
-GROUP_OWNER_PASSWORD
-ADMIN_PASSWORD
-MEMBER_PASSWORD
-OUTSIDER_PASSWORD
+E2E_GROUP_IMPORTER_PASSWORD
+E2E_GROUP_IMPORTER_APP_PASSWORD
+E2E_GROUP_OWNER_PASSWORD
+E2E_GROUP_ADMIN_PASSWORD
+E2E_GROUP_MEMBER_PASSWORD
+E2E_GROUP_OUTSIDER_PASSWORD
 "
 
-# VARIABLES — public, non-sensitive values.
+# VARIABLES — public, non-sensitive values. (E2E_CGS_SERVICE_DID is NOT here:
+# the workflow derives it per preview deployment; see the skip below.)
 VARIABLES="
-CGS_SERVICE_DID
-IMPORTER_IDENTIFIER
-GROUP_OWNER_IDENTIFIER
-ADMIN_IDENTIFIER
-MEMBER_IDENTIFIER
-OUTSIDER_IDENTIFIER
+E2E_GROUP_IMPORTER_IDENTIFIER
+E2E_GROUP_OWNER_IDENTIFIER
+E2E_GROUP_ADMIN_IDENTIFIER
+E2E_GROUP_MEMBER_IDENTIFIER
+E2E_GROUP_OUTSIDER_IDENTIFIER
 "
 
 # Classify a key as "secret", "variable", or "" (unrecognised).
@@ -104,14 +106,20 @@ while IFS= read -r line || [ -n "$line" ]; do
     \'*\') value="${value#\'}"; value="${value%\'}" ;;
   esac
 
-  if [ "$key" = "CGS_URL" ]; then
-    echo "skip      $key (derived from the Railway deployment)"
+  # Both of these are derived per-deployment by the workflow, NOT pushed: the
+  # `run` job tests the PR's Railway PREVIEW, whose host (and thus did:web)
+  # differs per PR. A fixed value copied from a staging-pointed e2e/.env would
+  # mismatch the preview and fail every run with `BadJwtAudience`. The workflow
+  # sets E2E_CGS_URL from the resolved preview URL and leaves E2E_CGS_SERVICE_DID
+  # unset so env.ts derives `did:web:<preview host>`.
+  if [ "$key" = "E2E_CGS_URL" ] || [ "$key" = "E2E_CGS_SERVICE_DID" ]; then
+    echo "skip      $key (derived per-deployment by the workflow)"
     skip_count=$((skip_count + 1))
     continue
   fi
   # Local-only vars the workflow never consumes — intentionally not pushed.
   case "$key" in
-    IMPORTER_APP_PASSWORD_NAME | REGISTER_HANDLE)
+    E2E_GROUP_IMPORTER_APP_PASSWORD_NAME | REGISTER_HANDLE)
       echo "skip      $key (local-only; not used by the workflow)"
       skip_count=$((skip_count + 1))
       continue

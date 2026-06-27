@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3'
 import type { AppContext } from '../../src/context.js'
 import type { Config } from '../../src/config.js'
 import { RbacChecker } from '../../src/rbac/check.js'
+import { PermissionSetResolver } from '../../src/auth/permission-set-resolver.js'
 import type { Role } from '../../src/rbac/permissions.js'
 import { AuditLogger } from '../../src/audit.js'
 import { TestMemberIndex } from '../../src/db/member-index.js'
@@ -96,6 +97,13 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     groupDbs: mockGroupDbs as any,
     authVerifier: mockAuth('did:plc:testuser'),
     idResolver: mockIdResolver(),
+    // No permission sets resolvable by default (DNS lookup rejects); tests that
+    // exercise `include:` override `permissionSets` with stubbed resolution.
+    permissionSets: new PermissionSetResolver(mockIdResolver(), {
+      txtResolver: async () => {
+        throw new Error('no DNS in tests')
+      },
+    }),
     rbac: new RbacChecker(),
     pdsAgents: mockPdsAgents as any,
     audit: new AuditLogger(),
@@ -225,7 +233,7 @@ export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
         const { iss, groupDid, legacyAud } = await this.verify(req)
-        return { credentials: { callerDid: iss, groupDid, legacyAud } }
+        return { credentials: { callerDid: iss, groupDid, legacyAud, authKind: 'jwt' } }
       }
     },
     xrpcServiceAuth() {
@@ -234,7 +242,37 @@ export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
         return { credentials: { callerDid: iss } }
       }
     },
+    xrpcAdminAuth() {
+      return mockAdminVerifier()
+    },
   } as any
+}
+
+/** Password the mock admin verifier accepts (Basic admin:TEST_ADMIN_PASSWORD). */
+export const TEST_ADMIN_PASSWORD = 'test-admin-pass'
+
+/**
+ * Admin-auth verifier for tests: HTTP Basic, user `admin`, password
+ * TEST_ADMIN_PASSWORD. Mirrors the real verifier's accept/reject behaviour so
+ * admin-endpoint tests can exercise the unauthenticated and bad-credential
+ * paths without standing up a full AuthVerifier.
+ */
+export function mockAdminVerifier() {
+  return async ({ req }: { req: any }) => {
+    const { AuthRequiredError } = await import('@atproto/xrpc-server')
+    const header: string | undefined = req.headers?.authorization
+    if (!header?.startsWith('Basic ')) {
+      throw new AuthRequiredError('Missing admin credentials')
+    }
+    const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8')
+    const sep = decoded.indexOf(':')
+    const username = sep === -1 ? decoded : decoded.slice(0, sep)
+    const password = sep === -1 ? '' : decoded.slice(sep + 1)
+    if (username !== 'admin' || password !== TEST_ADMIN_PASSWORD) {
+      throw new AuthRequiredError('Invalid admin credentials')
+    }
+    return { credentials: { type: 'admin' } }
+  }
 }
 
 /**
@@ -261,7 +299,7 @@ export function mockAuthNewPath(iss: string, group: string = 'did:plc:testgroup'
     xrpcAuth() {
       return async ({ req }: { req: any }) => {
         const { iss: callerDid, groupDid, legacyAud } = await this.verify(req)
-        return { credentials: { callerDid, groupDid, legacyAud } }
+        return { credentials: { callerDid, groupDid, legacyAud, authKind: 'jwt' } }
       }
     },
     xrpcServiceAuth() {
@@ -269,6 +307,9 @@ export function mockAuthNewPath(iss: string, group: string = 'did:plc:testgroup'
         const { iss: callerDid } = await this.verifyServiceAuth(req)
         return { credentials: { callerDid } }
       }
+    },
+    xrpcAdminAuth() {
+      return mockAdminVerifier()
     },
   } as any
 }

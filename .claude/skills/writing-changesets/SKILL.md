@@ -233,6 +233,20 @@ per-audience section: **does the reader's adaptation depend on
 knowing this?** If they could change their config / code correctly
 without it, leave it out.
 
+**Do not reproduce the API reference.** A changeset is a release note,
+not endpoint documentation. Name the new/changed endpoint and describe
+what it does at a high level, then point to the API reference for the
+contract. Do **not** paste full request/response JSON shapes, `curl`
+invocations, `Authorization` header formats, field-by-field response
+descriptions, or exhaustive error-code tables into a changeset — that
+detail belongs in `docs/api-reference.md` and only drifts out of date
+when duplicated here. A common failure mode is an "Operators" or
+"Client app developers" bullet that reads like a mini API doc; compress
+it to the functional summary plus a link. (Env var names, their
+defaults/validation, and the observable behaviour change are adaptation
+detail and DO belong — the line to cut is the wire-level request/response
+mechanics.)
+
 ### Structure dense sections as bullets
 
 When a per-audience section has 3+ distinct points (a behaviour

@@ -1,6 +1,6 @@
 # Design: API Keys for the Group Service
 
-Status: **Draft / proposal**
+Status: **Implemented** (iteration 1 — read scopes `member.list` / `audit.query`, PDS-repo write scopes `repo:…?action=create|update|delete`, and `blob:` uploads)
 
 Tracking issues:
 
@@ -17,7 +17,7 @@ A platform that integrates with the group service often needs to keep its own
 backend in sync with group membership held in AT Protocol — e.g. synchronising
 a platform-side group membership list with the group service's view of who
 belongs to a group. The original request ([#12](https://github.com/hypercerts-org/certified-group-service/issues/12))
-was narrow: a read-only key for `member.list`. Combined with Ma Earth's need to
+was narrow: a read-only key for `member.list`. Combined with a separate need to
 authenticate _write_ access from a backend (retroactively repairing broken
 records), it became clear the key mechanism must be **generalised** rather than
 bolted onto a single method — see _Group targeting_ below.
@@ -42,7 +42,7 @@ repeatedly.
 ## Goals
 
 - An owner can mint a long-lived key scoped to a **single read-only operation**
-  (`member.list`) — the concrete need for Ma Earth.
+  (`member.list`) — the concrete need that motivated this work.
 - An owner can **list** and **revoke** keys they have issued.
 - The scope model is **extensible** so further scopes (more read ops, then
   PDS-repo reads, then writes) can be added incrementally without redesign.
@@ -59,7 +59,6 @@ repeatedly.
 
 ## Non-goals (this iteration)
 
-- Write scopes / PDS-repo write access. Designed for, not built.
 - Returning a key from `app.certified.group.register` output (issue comment 1).
   Deprioritised by the issue author because it does not help groups that
   already exist; captured below as a future option only.
@@ -82,8 +81,8 @@ the two ways doesn't work for API keys at all.
   the group DID.
 - **`member.list` and other queries** carry the group **only** in the JWT
   `aud` claim. There is no group request parameter; passing one is actively
-  rejected (`"Invalid query parameter: groupDid"`, observed in maearth-app's
-  `DirectCgsClient`). The group is implied entirely by the token.
+  rejected (`"Invalid query parameter: groupDid"`, observed in a client
+  integration's direct CGS client). The group is implied entirely by the token.
 
 So the resource selector (which group) and the auth credential (the JWT) are
 entangled differently per method.
@@ -105,7 +104,7 @@ token is presented to** — the audience identifies the _recipient_, not the
 _resource_ being acted on. The reference library enforces `payload.aud ===
 ownDid` unless you pass `null` to skip it; this service passes `null`
 (`src/auth/verifier.ts`) precisely so it can repurpose `aud` as a group
-selector. maearth-app mirrors this by requesting
+selector. Existing clients mirror this by requesting
 `com.atproto.server.getServiceAuth?aud=<groupDid>`.
 
 Fixing that overload is a prerequisite, tracked separately as
@@ -196,13 +195,29 @@ package's own helpers, instead of our own ad-hoc strings:
 import { ScopesSet, RpcPermission } from '@atproto/oauth-scopes'
 
 // At request time, given an api-key credential:
-const granted = ScopesSet.fromString(JSON.stringify(key.scopes))
-const needed = RpcPermission.scopeNeededFor({
-  lxm: 'app.certified.group.member.list',
-  aud: ctx.serviceDid,
-})
-if (!granted.has(needed) /* or granted.matches(...) */) throw new Forbidden()
+// `ScopesSet.fromString` takes a SPACE-SEPARATED scope string, not JSON —
+// join the stored array with a space.
+const granted = ScopesSet.fromString(key.scopes.join(' '))
+// `matches` takes TWO args: the resource kind, then the match options.
+if (!granted.matches('rpc', { lxm: 'app.certified.group.member.list', aud: serviceAud })) {
+  throw new Forbidden()
+}
 ```
+
+> **Two API facts verified against `@atproto/oauth-scopes@0.5.0`** (the design's
+> earlier pseudo-code had both wrong — see [[reference_atproto-oauth-scopes-api]]):
+>
+> - **`ScopesSet.matches(resource, options)` is two-arg** — `matches('rpc', {
+lxm, aud })`, not `matches({ lxm, aud })`. The single-arg form silently
+>   returns `false` (treats the object as the `resource` key). `has(needed)`
+>   also won't match reliably because the stored string is normalised
+>   (`#` → `%23`); always go through `matches`.
+> - **The `aud` must be a service-ref DID with a fragment**
+>   (`did:web:host#fragment`), not a bare DID. `isAtprotoDidRefAbsolute`
+>   **rejects bare `did:plc:*` and fragment-less `did:web`** outright — only
+>   `did:web:host#frag` passes. CGS must therefore expose its service DID as a
+>   `did:web:…#<service-id>` ref for `rpc:` scopes to validate. This needs
+>   confirming against the deployed service DID — see Open questions.
 
 Group-service XRPC methods are a natural fit for **`rpc:` scopes** (they are
 RPC calls to our service, audience = our service DID). When we later proxy
@@ -246,10 +261,10 @@ It was considered and **rejected** for this feature. The reasons:
   complexity does.
 - **It reintroduces the credential we are trying to avoid holding.** A UCAN is
   signed by the holder's key, so for a platform backend to mint or refresh
-  UCANs on the owner's behalf it must hold the **owner's signing key material**
+  UCANs on a member's behalf it must hold that **member's signing key material**
   — exactly the situation the service-auth JWT path already imposes and the one
   this API-key design exists to escape. A revocable opaque key stored in the
-  platform backend is _less_ sensitive than the owner's signing key, not more.
+  platform backend is _less_ sensitive than a member's signing key, not more.
 - **Revocation is UCAN's weak spot.** Self-verifying tokens need a
   blacklist/CRL the verifier consults to revoke early — i.e. a central lookup,
   which negates the offline benefit and is precisely what our `revoked_at`
@@ -280,7 +295,7 @@ problem.
 ```text
 Platform backend                 Group Service                  Per-group DB
      |                                |                              |
-     |  (one-time, owner JWT auth)    |                              |
+     |  (one-time, member JWT auth)   |                              |
      |  keys.create {scopes:[...]}    |                              |
      |------------------------------->|  generate key                |
      |                                |  hash, store ----------------|--> group_api_keys
@@ -301,8 +316,9 @@ Three new pieces:
 1. **Request-level group targeting** (`repo`/explicit field) shared by both auth
    modes — see _Group targeting_. The DID comes from the request, never the key.
 2. A **key-auth branch** in the request path, parallel to the JWT branch.
-3. A **`group_api_keys` table** per group, plus three owner-only management
-   methods. No new global table — group isolation stays fully intact.
+3. A **`group_api_keys` table** per group, plus three JWT-authenticated
+   management methods. Members manage their own keys; owners can list and revoke
+   any key in the group. No new global table — group isolation stays fully intact.
 
 ---
 
@@ -348,9 +364,9 @@ data. Because the group is named by the request and located by forward hash,
 | -------------- | ---- | -------------------------------------------------------------- |
 | `key_ref`      | text | PK; the non-secret `<keyRef>` in the key string                |
 | `key_hash`     | text | SHA-256 of the secret; never the plaintext                     |
-| `name`         | text | owner-supplied label (e.g. "Ma Earth backend")                 |
+| `name`         | text | member-supplied label (e.g. "platform backend")                |
 | `scopes`       | text | JSON array of scope strings                                    |
-| `created_by`   | text | owner DID that minted the key                                  |
+| `created_by`   | text | member DID that minted the key                                 |
 | `created_at`   | text | `defaultTo(sql\`(datetime('now'))\`)`, per existing convention |
 | `last_used_at` | text | nullable; updated on use (best-effort)                         |
 | `revoked_at`   | text | nullable; set by `keys.delete` (soft delete)                   |
@@ -382,7 +398,7 @@ Proposed shape in `AuthVerifier` (`src/auth/verifier.ts`):
 ```ts
 // New credential variant
 export interface ApiKeyCredentials {
-  callerDid: string // the issuing owner's DID (see Open questions); key id travels in audit detail
+  callerDid: string // the issuing member's DID; key id travels in audit detail
   groupDid: string
   scopes: string[] // scope strings granted to this key
   authKind: 'apiKey'
@@ -434,40 +450,50 @@ request:
    `RpcPermission.scopeNeededFor({ lxm, aud })` gives the required scope and
    `ScopesSet.matches(...)` tests coverage (incl. wildcards). The package owns
    the grammar and matching semantics.
-2. **Role check (existing RBAC, unchanged):** the key acts on behalf of its
-   issuing owner. A key can never exceed the permissions of the role that
-   minted it, and is **further** narrowed by its scopes. First iteration's only
+2. **Role check (existing RBAC, unchanged):** the key acts on behalf of the
+   member who created it. A key can never exceed that member's current role,
+   and is **further** narrowed by its scopes. First iteration's only
    scope is a `member`-level read, so this is trivially satisfied, but the gate
    must enforce `effective = scopes ∩ role-perms`.
 
 Implementation: extend the gate so `assertCanWithAudit` (`src/api/util.ts`)
 understands a key principal — for an `apiKey` credential it runs the
 `@atproto/oauth-scopes` coverage check **and** the role-derived `canPerform`
-(`src/rbac/permissions.ts`), and logs the key id in the audit `detail`. Our
+(`src/rbac/permissions.ts`), and logs the key id in the audit `detail`. At
+creation time, `keys.create` also rejects scopes the caller's current role cannot
+use at all (for example, a member cannot mint an `audit.query` key). Our
 `Operation` union stays as the internal RBAC vocabulary; scope strings are the
 _external_ vocabulary, mapped to operations by a small lookup table.
 
-Scope registry (initial). Strings shown abbreviated; the real `rpc:` scope
-carries the audience param (`aud=<serviceDid>`) that `scopeNeededFor` emits:
+Scope registry. The `rpc:` strings are shown abbreviated; the real `rpc:` scope
+carries the audience param (`aud=<serviceDid>`) that `scopeNeededFor` emits, and
+is bound to this service for the client (clients pass the friendly form).
+`repo:`/`blob:` scopes carry no `aud` and are stored verbatim:
 
-| scope (abbrev.)                       | covers operation | iteration |
-| ------------------------------------- | ---------------- | --------- |
-| `rpc:app.certified.group.member.list` | `member.list`    | 1 (now)   |
-| `rpc:app.certified.group.audit.query` | `audit.query`    | later     |
-| `repo:<collection>?action=read`       | PDS repo read    | later     |
-| `repo:<collection>?action=write`      | PDS repo write   | future    |
+| scope                                 | covers operation              | iteration |
+| ------------------------------------- | ----------------------------- | --------- |
+| `rpc:app.certified.group.member.list` | `member.list` (read)          | 1 (now)   |
+| `rpc:app.certified.group.audit.query` | `audit.query` (read)          | 1 (now)   |
+| `repo:<collection>?action=create`     | `createRecord`                | 1 (now)   |
+| `repo:<collection>?action=update`     | `putRecord` (own/any/profile) | 1 (now)   |
+| `repo:<collection>?action=delete`     | `deleteRecord` (own/any)      | 1 (now)   |
+| `blob:<accept>` (e.g. `blob:image/*`) | `uploadBlob`                  | 1 (now)   |
+
+For `repo:` ops, the scope says _which collection + action_; the RBAC role check
+underneath still decides _whose_ records (own vs any) — `repo:` scopes have no
+ownership axis, so a member-issued key remains own-only. See _Authorization_.
 
 Audit logging already records `actor_did`, `action`, `result`
 (`group_audit_log`). Add a `detail.apiKeyRef` so key-driven actions are
-attributable to a specific key, not just to the owner DID.
+attributable to a specific key, not just to the issuing member DID.
 
 ---
 
 ## New lexicons / XRPC methods
 
-All three are **owner-only** and authenticated with the **existing JWT path**
-(an owner managing their keys is an interactive, high-trust action — keys
-should not be able to mint or revoke other keys in iteration 1).
+All three are authenticated with the **existing JWT path**. Any group member can
+create, list, and revoke their own keys; owners can list and revoke all keys in
+the group. Keys cannot mint, list, or revoke keys.
 
 ### `app.certified.group.keys.create` (procedure)
 
@@ -495,33 +521,33 @@ registered via `registerAuthedMethod` in `src/api/index.ts`.
 
 ---
 
-## Worked example: Ma Earth membership sync
+## Worked example: platform membership sync
 
-1. Group owner logs in to the platform; platform mints an owner service-auth
+1. A group member logs in to the platform; platform mints that member's service-auth
    JWT as today.
-2. Platform calls `keys.create { name: "Ma Earth sync", scopes:
+2. Platform calls `keys.create { name: "platform backend sync", scopes:
 ["rpc:app.certified.group.member.list"] }` → receives `cgsk_…` once.
 3. Platform stores the key in its backend secret store. (Storing a key good
    only for one read-only op is far less sensitive than full read/write.)
 4. Backend polls `member.list { repo: <groupDid> }` indefinitely with
    `X-API-Key: cgsk_…` — the group named in the request, no JWT, no 2-minute
-   refresh, no owner credentials held.
-5. If the key leaks, owner calls `keys.delete`; the key dies on next use.
+   refresh, no member credentials held.
+5. If the key leaks, its creator — or any owner — calls `keys.delete`; the key dies on next use.
 
 ---
 
 ## Open questions
 
 - **Synthetic `callerDid` for key principals.** Audit/RBAC code assumes a DID
-  actor. Use the issuing owner's DID (attribute key actions to the owner, plus
-  `detail.apiKeyRef`), or a synthetic `did:cgs:key:<ref>`? Owner-DID is simpler
-  and keeps RBAC unchanged; synthetic is cleaner for attribution. Leaning
-  owner-DID + `apiKeyRef`.
+  actor. Use the issuing member's DID (attribute key actions to the member, plus
+  `detail.apiKeyRef`), or a synthetic `did:cgs:key:<ref>`? Member-DID is simpler
+  and keeps RBAC unchanged; synthetic is cleaner for attribution. Decision:
+  member-DID + `apiKeyRef`.
 - **`last_used_at` write cost.** Touching it per request adds a write to a
   read-only path. Make it best-effort / sampled, or drop it from iteration 1.
-- **Key vs owner role drift.** If the issuing owner is later demoted/removed,
-  should their keys keep working? Proposal: a key is invalid if its issuer no
-  longer holds the role required by the key's scopes (re-checked at use time).
+- **Key vs member role drift.** If the issuing member is later demoted/removed,
+  should their keys keep working? Decision: a key is invalid if its issuer no
+  longer holds the role required by the requested operation (re-checked at use time).
 - **Rotation.** No rotation primitive in iteration 1; revoke + create is the
   story. Add `keys.rotate` later if needed.
 - **Group-targeting field name & shape (part of #26).** Reuse the AT Protocol
@@ -532,12 +558,33 @@ registered via `registerAuthedMethod` in `src/api/index.ts`.
   request, but the legacy JWT path still accepts `aud=groupDid`. During the
   deprecation window both must coexist; confirm the key path can rely on the new
   field being present before #27's hard cutover.
+- **Service-DID format for `rpc:` scope `aud` (RESOLVED).**
+  `@atproto/oauth-scopes` validates the `aud` in an `rpc:` scope with
+  `isAtprotoDidRefAbsolute`, which **requires a `did:web:host#fragment`
+  service ref** — it rejects a bare `did:web:host` and rejects `did:plc:*`
+  entirely. But CGS's `config.serviceDid` is a **bare** `did:web:${hostname}`
+  (`src/config.ts`). **Decision:** define one constant `SERVICE_SCOPE_AUD`
+  (`${config.serviceDid}#certified_group_service`) used for **both** minting
+  (`keys.create` → `RpcPermission.scopeNeededFor`) and checking
+  (`gate` → `ScopesSet.matches('rpc', …)`), so it stays internally consistent
+  regardless of the bare-DID config value.
+  - This scope-layer `aud` is **independent** of the JWT-auth `aud`. The
+    JWT-auth check **must stay bare-DID-tolerant**: the reference PDS **strips
+    the service fragment** from a proxied JWT's `aud` until Spring 2026
+    (atproto.com/specs/xrpc#service-proxying), so requiring a fragment in the
+    verifier would break proxied callers. Two `aud` concepts, two rules.
+  - The `#certified_group_service` fragment is backed by a real `service` entry:
+    CGS now serves its `did:web` document at `/.well-known/did.json` (issue #29).
+    So the scope `aud` is both internally consistent and third-party-resolvable.
 
 ## Future extensions
 
-- Additional read scopes (`audit.query`, PDS-repo reads via the proxy layer).
-- Write scopes to the group's PDS repo (raises the security bar on key
-  handling; would map onto AT Protocol `repo:…?action=…` scope strings).
+- PDS-repo **read** scopes (proxying record reads through the group's PDS).
+  Writes shipped in iteration 1; reads are the symmetric follow-up.
+- Finer-grained own-only write keys — see the limitation under _Authorization_:
+  today own-vs-any follows the issuing member's role, since AT Protocol `repo:`
+  scopes have no ownership axis. A future CGS-specific scope qualifier could let
+  an admin mint a self-limited "own records only" key.
 - Permission **sets** (named scope bundles) via the `IncludeScope` primitive
   already provided by `@atproto/oauth-scopes`.
 - Returning a key in `app.certified.group.register` output (issue comment 1) —

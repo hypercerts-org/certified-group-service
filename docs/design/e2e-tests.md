@@ -105,6 +105,7 @@ features/                      # Gherkin .feature files at repo root
   records.feature             # repo.createRecord/putRecord/uploadBlob/deleteRecord
   membership.feature          # RBAC across roles: member.*, role.set + positive/negative authz
   reporting.feature           # audit.query, membership.list
+  admin-set-owner.feature     # admin.setOwner (HTTP Basic auth) — @needs-cgs-admin
 e2e/
   cucumber.mjs                 # profiles + env-driven tag exclusions
   tsconfig.e2e.json
@@ -123,7 +124,27 @@ e2e/
     register.steps.ts          # group.register assertions (@manual)
     records.steps.ts           # repo.createRecord/putRecord/uploadBlob/deleteRecord
     members.steps.ts           # member.*, role.set, audit.query, membership.list
+    admin.steps.ts             # admin.setOwner via HTTP Basic auth
 ```
+
+**Admin endpoints (`admin-set-owner.feature`).** The `app.certified.group.admin.*`
+namespace is operator-gated, not member-gated: it authenticates with HTTP Basic
+auth against the service admin password, not a service-auth JWT. So its steps use
+a dedicated `callXrpcWithBasicAuth` wrapper rather than `mintServiceAuth` /
+`callXrpc`, and the feature is gated by a new `@needs-cgs-admin` tag that runs
+only when `CGS_ADMIN_PASSWORD` is configured (alongside `@needs-rbac-accounts`,
+since it needs the owner/admin accounts to swap between).
+
+> **Naming.** Every e2e-only env var is `E2E_`-prefixed (`E2E_GROUP_` for the
+> per-test-group accounts), so a test-group credential like
+> `E2E_GROUP_ADMIN_PASSWORD` (the admin _role account's_ PDS password) can never
+> be confused with a real service variable. The service admin password is the one
+> exception: it is `CGS_ADMIN_PASSWORD` — a real deployment credential (the same
+> var the CGS instance reads), not e2e-only, so it is **not** prefixed.
+
+The happy-path scenario reassigns ownership to the admin account and then reverts
+it, leaving the group as it started (the same non-destructive pattern the RBAC
+feature uses for seeding/cleanup).
 
 The import (clean-slate) and destroy (teardown) are also **`BeforeAll`/`AfterAll`
 fixtures** so the group exists for `records`/`membership`/`reporting` without
@@ -362,26 +383,31 @@ keep safety low-ceremony per the agreed scope.
 
 Matured superset of `tests/smoke/.env.example`:
 
-| Var                          | Required | Notes                                                                   |
-| ---------------------------- | -------- | ----------------------------------------------------------------------- |
-| `CGS_URL`                    | yes      | CGS base URL (the only var `/health` needs)                             |
-| `CGS_SERVICE_DID`            | no       | defaults to `did:web:<CGS_URL host>`                                    |
-| `IMPORTER_IDENTIFIER`        | yes      | pre-provisioned account promoted to a group (= groupDid); handle or DID |
-| `IMPORTER_PASSWORD`          | yes¹     | the importer's account password (import fixture + app-password helper)  |
-| `IMPORTER_APP_PASSWORD`      | yes¹     | app password stored by import; mint with the app-password helper        |
-| `IMPORTER_APP_PASSWORD_NAME` | no       | label for the app password the helper mints on the importer account     |
-| `GROUP_OWNER_IDENTIFIER`     | yes      | pre-provisioned RBAC owner; commonly == importer                        |
-| `GROUP_OWNER_PASSWORD`       | yes¹     | the owner's account password (owner-signed features)                    |
-| `ADMIN_IDENTIFIER`           | no²      | pre-provisioned account seeded as **admin** for RBAC tests              |
-| `ADMIN_PASSWORD`             | no²      | the admin's account password (so it can sign as itself)                 |
-| `MEMBER_IDENTIFIER`          | no²      | pre-provisioned account seeded as **member** for RBAC tests             |
-| `MEMBER_PASSWORD`            | no²      | the member's account password (so it can sign as itself)                |
-| `OUTSIDER_IDENTIFIER`        | no²      | pre-provisioned account that is **not** a member (negative tests)       |
-| `OUTSIDER_PASSWORD`          | no²      | the outsider's account password                                         |
+Every e2e-only var is `E2E_`-prefixed (`E2E_GROUP_` for the per-test-group
+accounts). `CGS_ADMIN_PASSWORD` is the exception — a real service-deployment
+credential, not e2e-only — so it is unprefixed.
+
+| Var                                    | Required | Notes                                                                   |
+| -------------------------------------- | -------- | ----------------------------------------------------------------------- |
+| `E2E_CGS_URL`                          | yes      | CGS base URL (the only var `/health` needs)                             |
+| `E2E_CGS_SERVICE_DID`                  | no       | defaults to `did:web:<E2E_CGS_URL host>`                                |
+| `E2E_GROUP_IMPORTER_IDENTIFIER`        | yes      | pre-provisioned account promoted to a group (= groupDid); handle or DID |
+| `E2E_GROUP_IMPORTER_PASSWORD`          | yes¹     | the importer's account password (import fixture + app-password helper)  |
+| `E2E_GROUP_IMPORTER_APP_PASSWORD`      | yes¹     | app password stored by import; mint with the app-password helper        |
+| `E2E_GROUP_IMPORTER_APP_PASSWORD_NAME` | no       | label for the app password the helper mints on the importer account     |
+| `E2E_GROUP_OWNER_IDENTIFIER`           | yes      | pre-provisioned RBAC owner; commonly == importer                        |
+| `E2E_GROUP_OWNER_PASSWORD`             | yes¹     | the owner's account password (owner-signed features)                    |
+| `E2E_GROUP_ADMIN_IDENTIFIER`           | no²      | pre-provisioned account seeded as **admin** for RBAC tests              |
+| `E2E_GROUP_ADMIN_PASSWORD`             | no²      | the admin's account password (so it can sign as itself)                 |
+| `E2E_GROUP_MEMBER_IDENTIFIER`          | no²      | pre-provisioned account seeded as **member** for RBAC tests             |
+| `E2E_GROUP_MEMBER_PASSWORD`            | no²      | the member's account password (so it can sign as itself)                |
+| `E2E_GROUP_OUTSIDER_IDENTIFIER`        | no²      | pre-provisioned account that is **not** a member (negative tests)       |
+| `E2E_GROUP_OUTSIDER_PASSWORD`          | no²      | the outsider's account password                                         |
+| `CGS_ADMIN_PASSWORD`                   | no³      | the **service** admin password (HTTP Basic for `admin.*`); see below    |
 
 ¹ Required for everything except the `/health` feature. The PDS accounts are
 provisioned up front; the suite assumes they already exist (it does **not**
-create them — that is a non-goal). Only `CGS_URL` is needed to run
+create them — that is a non-goal). Only `E2E_CGS_URL` is needed to run
 `--tags @health` alone.
 
 ² The RBAC feature needs **distinct pre-provisioned accounts for each role**
@@ -390,6 +416,11 @@ as itself and we can assert both what each role **can** do and what it is
 **denied**. These accounts are also provisioned up front. The RBAC feature is
 gated `@needs-rbac-accounts` and excluded when any of the six vars is unset, so
 the rest of the suite runs without them.
+
+³ The admin-set-owner feature (`@needs-cgs-admin`) needs the **service** admin
+password — the value set as `CGS_ADMIN_PASSWORD` on the CGS deployment under
+test — for HTTP Basic auth on `app.certified.group.admin.*`. The feature is
+excluded when it (or the RBAC accounts) is unset.
 
 ### package.json + repo wiring
 

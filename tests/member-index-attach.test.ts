@@ -153,4 +153,84 @@ describe('MemberIndex (ATTACH DATABASE)', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].member_did).toBe(memberDid)
   })
+
+  const roleIn = async (
+    db: Kysely<GroupDatabase> | Kysely<GlobalDatabase>,
+    table: 'group_members' | 'member_index',
+    did: string,
+  ) =>
+    (
+      await (table === 'member_index'
+        ? // member_index spans all groups, so scope to the target group or the
+          // assertion could read an unrelated row for the same DID.
+          (db as Kysely<GlobalDatabase>)
+            .selectFrom('member_index')
+            .select('role')
+            .where('member_did', '=', did)
+            .where('group_did', '=', groupDid)
+            .executeTakeFirst()
+        : (db as Kysely<GroupDatabase>)
+            .selectFrom('group_members')
+            .select('role')
+            .where('member_did', '=', did)
+            .executeTakeFirst())
+    )?.role
+
+  it('transferOwner() demotes the old owner and promotes the new one in both DBs', async () => {
+    const oldOwner = 'did:plc:oldowner'
+    const newOwner = 'did:plc:newowner'
+    memberIndex.add(groupRaw, groupDid, oldOwner, 'owner', addedBy)
+    memberIndex.add(groupRaw, groupDid, newOwner, 'admin', addedBy)
+
+    memberIndex.transferOwner(groupRaw, groupDid, newOwner, oldOwner)
+
+    expect(await roleIn(groupDb, 'group_members', newOwner)).toBe('owner')
+    expect(await roleIn(groupDb, 'group_members', oldOwner)).toBe('admin')
+    expect(await roleIn(globalDb, 'member_index', newOwner)).toBe('owner')
+    expect(await roleIn(globalDb, 'member_index', oldOwner)).toBe('admin')
+  })
+
+  it('transferOwner() inserts a non-member new owner and demotes the old owner', async () => {
+    const oldOwner = 'did:plc:oldowner'
+    const newcomer = 'did:plc:newcomer'
+    memberIndex.add(groupRaw, groupDid, oldOwner, 'owner', addedBy)
+    // newcomer is NOT a member yet (operator break-glass).
+
+    memberIndex.transferOwner(groupRaw, groupDid, newcomer, oldOwner)
+
+    expect(await roleIn(groupDb, 'group_members', newcomer)).toBe('owner')
+    expect(await roleIn(globalDb, 'member_index', newcomer)).toBe('owner')
+    expect(await roleIn(groupDb, 'group_members', oldOwner)).toBe('admin')
+    expect(await roleIn(globalDb, 'member_index', oldOwner)).toBe('admin')
+    // The inserted row exists in both tables (group_members.added_at was read
+    // back and reused for the index, mirroring add()).
+    const idxRow = await globalDb
+      .selectFrom('member_index')
+      .select(['added_by', 'added_at'])
+      .where('member_did', '=', newcomer)
+      .where('group_did', '=', groupDid)
+      .executeTakeFirstOrThrow()
+    expect(idxRow.added_by).toBe('admin:setOwner')
+    expect(idxRow.added_at).toBeTruthy()
+  })
+
+  it('transferOwner() with no previous owner just promotes the new owner', async () => {
+    const newOwner = 'did:plc:newowner'
+    memberIndex.add(groupRaw, groupDid, newOwner, 'member', addedBy)
+
+    memberIndex.transferOwner(groupRaw, groupDid, newOwner, null)
+
+    expect(await roleIn(groupDb, 'group_members', newOwner)).toBe('owner')
+    expect(await roleIn(globalDb, 'member_index', newOwner)).toBe('owner')
+  })
+
+  it('transferOwner() leaves the owner as owner when previous === new', async () => {
+    const owner = 'did:plc:owner'
+    memberIndex.add(groupRaw, groupDid, owner, 'owner', addedBy)
+
+    memberIndex.transferOwner(groupRaw, groupDid, owner, owner)
+
+    expect(await roleIn(groupDb, 'group_members', owner)).toBe('owner')
+    expect(await roleIn(globalDb, 'member_index', owner)).toBe('owner')
+  })
 })

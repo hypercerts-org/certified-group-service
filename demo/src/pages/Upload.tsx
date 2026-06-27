@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { useGroup } from '../App'
 import { uploadBlob, proxyPost } from '../api'
+import { HandleId } from '../components/HandleId'
 
 const inputStyle: React.CSSProperties = {
   padding: '8px 12px',
@@ -95,7 +96,10 @@ export function Upload() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 16 }}>Upload Blob</h2>
+      <h2 style={{ marginBottom: 4 }}>Upload Blob</h2>
+      <div style={{ marginBottom: 16 }}>
+        <HandleId did={group.did} handle={group.handle} layout="stacked" style={{ fontSize: 16 }} />
+      </div>
 
       {/* Drop zone */}
       <div

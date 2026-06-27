@@ -27,10 +27,14 @@ export default function (server: Server, ctx: AppContext) {
       const isAuthor = await ctx.rbac.isAuthor(groupDb, recordUri, callerDid)
       const operation: Operation = isAuthor ? 'deleteOwnRecord' : 'deleteAnyRecord'
 
-      await assertCanWithAudit(ctx, groupDb, callerDid, operation, {
-        collection: input.collection,
-        rkey: input.rkey,
-      })
+      await assertCanWithAudit(
+        ctx,
+        groupDb,
+        callerDid,
+        operation,
+        { collection: input.collection, rkey: input.rkey },
+        auth.credentials,
+      )
 
       // Send the resolved group DID as `repo` — the caller may have supplied a
       // handle, which the PDS won't accept.

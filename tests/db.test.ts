@@ -151,6 +151,31 @@ describe('migrations', () => {
     await db.destroy()
   })
 
+  it('group migrations create group_api_keys with defaults and nullable soft-delete', async () => {
+    const { db } = await createTestGroupDb()
+
+    await db
+      .insertInto('group_api_keys')
+      .values({
+        key_ref: 'ref1',
+        key_hash: 'deadbeef',
+        name: 'platform backend',
+        scopes: JSON.stringify(['rpc:app.certified.group.member.list']),
+        created_by: 'did:plc:owner',
+      })
+      .execute()
+
+    const [row] = await db.selectFrom('group_api_keys').selectAll().execute()
+    expect(row.key_ref).toBe('ref1')
+    expect(row.key_hash).toBe('deadbeef')
+    expect(JSON.parse(row.scopes)).toEqual(['rpc:app.certified.group.member.list'])
+    expect(row.created_at).toBeTruthy() // datetime('now') default applied
+    expect(row.last_used_at).toBeNull()
+    expect(row.revoked_at).toBeNull()
+
+    await db.destroy()
+  })
+
   it('migrations are idempotent', async () => {
     const { db } = await createTestGlobalDb()
     await runGlobalMigrations(db)

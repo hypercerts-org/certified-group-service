@@ -47,10 +47,14 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       // RBAC check with audit on denial
-      await assertCanWithAudit(ctx, groupDb, callerDid, operation, {
-        collection: input.collection,
-        rkey: input.rkey,
-      })
+      await assertCanWithAudit(
+        ctx,
+        groupDb,
+        callerDid,
+        operation,
+        { collection: input.collection, rkey: input.rkey },
+        auth.credentials,
+      )
 
       // Forward to group's PDS. Send the resolved group DID as `repo` — the
       // caller may have supplied a handle, which the PDS won't accept.

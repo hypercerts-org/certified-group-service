@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { Agent } from '@atproto/api'
-import { oauthClient } from '../oauth/client.js'
+import { getOauthClient } from '../oauth/client.js'
 
 const router = Router()
 
@@ -15,7 +15,7 @@ router.post('/login', async (req, res) => {
   try {
     // Accept a handle/DID, or fall back to the ePDS URL for email-based auth
     const input = req.body.handle || EPDS_URL
-    const url = await oauthClient.authorize(input, {
+    const url = await getOauthClient().authorize(input, {
       scope: 'atproto transition:generic',
     })
     res.json({ redirectUrl: url.toString() })
@@ -32,7 +32,7 @@ router.post('/login', async (req, res) => {
 router.get('/oauth/callback', async (req, res) => {
   try {
     const params = new URLSearchParams(req.url.split('?')[1])
-    const { session: oauthSession } = await oauthClient.callback(params)
+    const { session: oauthSession } = await getOauthClient().callback(params)
 
     // Resolve handle
     let handle: string = oauthSession.did

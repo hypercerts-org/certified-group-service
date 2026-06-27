@@ -18,6 +18,9 @@ describe('canPerform', () => {
     'deleteOwnRecord',
     'putOwnRecord',
     'member.list',
+    'keys.create',
+    'keys.list',
+    'keys.delete',
   ]
   const adminOps: Operation[] = [
     'putAnyRecord',
@@ -27,7 +30,7 @@ describe('canPerform', () => {
     'member.remove',
     'audit.query',
   ]
-  const ownerOps: Operation[] = ['role.set']
+  const ownerOps: Operation[] = ['role.set', 'group.destroy']
 
   it('member can perform member-level ops', () => {
     for (const op of memberOps) expect(canPerform('member', op)).toBe(true)
@@ -128,13 +131,16 @@ describe('RBAC constants', () => {
     expect(ROLE_HIERARCHY.admin).toBeLessThan(ROLE_HIERARCHY.owner)
   })
 
-  it('canPerform covers all 12 operations', () => {
+  it('canPerform covers all operations', () => {
     const allOps: Operation[] = [
       'createRecord',
       'uploadBlob',
       'deleteOwnRecord',
       'putOwnRecord',
       'member.list',
+      'keys.create',
+      'keys.list',
+      'keys.delete',
       'putAnyRecord',
       'deleteAnyRecord',
       'putRecord:profile',
@@ -142,15 +148,16 @@ describe('RBAC constants', () => {
       'member.remove',
       'audit.query',
       'role.set',
+      'group.destroy',
     ]
-    // member: 5 ops
+    // member: 8 ops
     const memberOps = allOps.filter((op) => canPerform('member', op))
-    expect(memberOps).toHaveLength(5)
-    // admin: 11 ops
+    expect(memberOps).toHaveLength(8)
+    // admin: 14 ops
     const adminOps = allOps.filter((op) => canPerform('admin', op))
-    expect(adminOps).toHaveLength(11)
-    // owner: all 12
+    expect(adminOps).toHaveLength(14)
+    // owner: all 16
     const ownerOps = allOps.filter((op) => canPerform('owner', op))
-    expect(ownerOps).toHaveLength(12)
+    expect(ownerOps).toHaveLength(16)
   })
 })

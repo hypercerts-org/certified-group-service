@@ -38,10 +38,10 @@ Given('the CGS environment is running', async function (this: CgsWorld) {
 /** Resolve the group/owner (always) and the RBAC role DIDs (when configured). */
 Given('the test accounts are resolved', async function (this: CgsWorld) {
   // These are optional at module load so a `--tags @health` run works with only
-  // CGS_URL; every non-health feature reaches this Given, so validate here.
+  // E2E_CGS_URL; every non-health feature reaches this Given, so validate here.
   for (const [name, value] of [
-    ['IMPORTER_IDENTIFIER', this.env.importerIdentifier],
-    ['GROUP_OWNER_IDENTIFIER', this.env.ownerIdentifier],
+    ['E2E_GROUP_IMPORTER_IDENTIFIER', this.env.importerIdentifier],
+    ['E2E_GROUP_OWNER_IDENTIFIER', this.env.ownerIdentifier],
   ] as const) {
     if (!value) {
       throw new Error(

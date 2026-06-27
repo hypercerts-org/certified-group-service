@@ -86,10 +86,80 @@ function xrpcUrl(cgsUrl: string, nsid: string, repo?: string): string {
  * the sink. JSON Content-Type is set only when a JSON body is present.
  */
 export async function callXrpc(sink: HttpSink, opts: CallOpts): Promise<void> {
+  resetSink(sink)
   const headers: Record<string, string> = { Authorization: `Bearer ${opts.token}` }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
 
   const res = await fetch(xrpcUrl(opts.cgsUrl, opts.nsid, opts.repo), {
+    method: opts.method ?? 'POST',
+    headers,
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  })
+
+  await recordResponse(sink, res)
+}
+
+/**
+ * Call an XRPC method with an API key in the `X-API-Key` header (no JWT). The
+ * group is named by `repo` on the **querystring**: API-key auth resolves the
+ * group before the JSON body is parsed, so (unlike a JWT procedure call) it
+ * cannot read a body `repo`. All key-accessible ops in iteration 1 are queries,
+ * so this is sufficient. The long-lived-credential path a backend uses (#26).
+ */
+export async function callXrpcWithApiKey(
+  sink: HttpSink,
+  opts: {
+    cgsUrl: string
+    nsid: string
+    apiKey: string
+    body?: unknown
+    method?: 'GET' | 'POST'
+    repo?: string
+  },
+): Promise<void> {
+  resetSink(sink)
+  const headers: Record<string, string> = { 'X-API-Key': opts.apiKey }
+  if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
+
+  const res = await fetch(xrpcUrl(opts.cgsUrl, opts.nsid, opts.repo), {
+    method: opts.method ?? 'POST',
+    headers,
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  })
+
+  await recordResponse(sink, res)
+}
+
+/**
+ * Call an admin XRPC method with HTTP Basic auth (username `admin`, password the
+ * service's CGS_ADMIN_PASSWORD) instead of a service-auth JWT. The admin
+ * namespace (`app.certified.group.admin.*`) is operator-gated, not member-gated;
+ * see src/auth/verifier.ts#verifyAdmin. Pass an empty/wrong password to exercise
+ * the rejection paths.
+ */
+export async function callXrpcWithBasicAuth(
+  sink: HttpSink,
+  opts: {
+    cgsUrl: string
+    nsid: string
+    password: string
+    body?: unknown
+    /** Username; defaults to `admin`. Override to test a wrong username. */
+    username?: string
+    /** Omit the Authorization header entirely (no-credentials case). */
+    noAuth?: boolean
+    method?: 'GET' | 'POST'
+  },
+): Promise<void> {
+  resetSink(sink)
+  const headers: Record<string, string> = {}
+  if (!opts.noAuth) {
+    const creds = Buffer.from(`${opts.username ?? 'admin'}:${opts.password}`).toString('base64')
+    headers.Authorization = `Basic ${creds}`
+  }
+  if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
+
+  const res = await fetch(xrpcUrl(opts.cgsUrl, opts.nsid), {
     method: opts.method ?? 'POST',
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
@@ -114,6 +184,7 @@ export async function uploadBlobXrpc(
     repo?: string
   },
 ): Promise<void> {
+  resetSink(sink)
   // Wrap the raw bytes in a Blob so the body is a BodyInit the fetch typings
   // accept across lib configs (a bare Uint8Array is rejected by some). An
   // ArrayBuffer is an unambiguous BlobPart in every lib config.
@@ -127,6 +198,19 @@ export async function uploadBlobXrpc(
   })
 
   await recordResponse(sink, res)
+}
+
+/**
+ * Clear any previously-recorded response. Call this before each fetch() so that
+ * if the request itself rejects (network error) — and recordResponse never runs
+ * — the failure hook reports an empty state for this step rather than stale
+ * details left over from the previous request.
+ */
+function resetSink(sink: HttpSink): void {
+  sink.lastHttpStatus = undefined
+  sink.lastHttpJson = undefined
+  sink.lastHttpBody = undefined
+  sink.lastHttpHeaders = undefined
 }
 
 async function recordResponse(sink: HttpSink, res: Response): Promise<void> {

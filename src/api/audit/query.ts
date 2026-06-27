@@ -28,8 +28,9 @@ export default function (server: Server, ctx: AppContext) {
       }
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      // RBAC: admin+ can query audit log
-      await assertCanWithAudit(ctx, groupDb, callerDid, 'audit.query')
+      // RBAC: admin+ can query audit log. Pass the credentials so an API-key
+      // caller also has its scopes enforced.
+      await assertCanWithAudit(ctx, groupDb, callerDid, 'audit.query', undefined, auth.credentials)
 
       const limit = (params.limit as number) ?? 50
       const cursor = params.cursor as string | undefined

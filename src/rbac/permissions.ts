@@ -14,6 +14,9 @@ export type Operation =
   | 'role.set'
   | 'audit.query'
   | 'group.destroy'
+  | 'keys.create'
+  | 'keys.list'
+  | 'keys.delete'
 
 export const ROLE_HIERARCHY: Record<Role, number> = {
   member: 0,
@@ -37,6 +40,12 @@ const MIN_ROLE_FOR_OPERATION: Record<Operation, Role> = {
   'audit.query': 'admin',
   'role.set': 'owner',
   'group.destroy': 'owner',
+  // API-key management is member-level but JWT-authenticated. These ops have no
+  // entry in the scope→lxm map (src/auth/scopes.ts), so an apiKey caller can
+  // never reach them — a key cannot mint, list, or revoke keys.
+  'keys.create': 'member',
+  'keys.list': 'member',
+  'keys.delete': 'member',
 }
 
 export function canPerform(userRole: Role, operation: Operation): boolean {

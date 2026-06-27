@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { Agent } from '@atproto/api'
-import { oauthClient } from '../oauth/client.js'
+import { getOauthClient } from '../oauth/client.js'
 
 const router = Router()
 const GROUP_SERVICE_URL = process.env.GROUP_SERVICE_URL || 'http://localhost:3000'
@@ -26,7 +26,7 @@ router.post('/', async (req, res) => {
     const ownerDid = req.session.user.did
 
     // Restore the OAuth session to get an authenticated agent
-    const oauthSession = await oauthClient.restore(ownerDid)
+    const oauthSession = await getOauthClient().restore(ownerDid)
     const agent = new Agent(oauthSession)
 
     // Fetch the user's email from their PDS session (optional)
