@@ -60,7 +60,14 @@ jobs:
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: 22
+          # Pinned to 22.22.3: Node 22.23.0 (and 24.17.0) regressed http.Agent
+          # keep-alive socket reuse (nodejs/node#63989), which makes node-fetch@2
+          # — used by @changesets/get-github-info for the GitHub GraphQL call in
+          # the release step below — throw ERR_STREAM_PREMATURE_CLOSE. The
+          # ubuntu-latest image 20260622 bumped cached Node 22.22.3 -> 22.23.0,
+          # which is exactly when releases started failing. Unpin once a fixed
+          # 22.23.x ships.
+          node-version: 22.22.3
           cache: 'pnpm'
 
       - run: pnpm install --frozen-lockfile

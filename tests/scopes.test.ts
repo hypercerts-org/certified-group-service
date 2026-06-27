@@ -12,8 +12,12 @@ import {
   repoActionForOperation,
   repoScopesCover,
   blobScopesCover,
+  validateScopesAllowedForRole,
 } from '../src/auth/scopes.js'
-import type { PermissionSetResolver } from '../src/auth/permission-set-resolver.js'
+import {
+  PermissionSetResolutionError,
+  type PermissionSetResolver,
+} from '../src/auth/permission-set-resolver.js'
 
 const SERVICE_DID = 'did:web:groups.example.com'
 
@@ -42,6 +46,7 @@ const HYPERCERTS_SET = {
 // The package URL-encodes `#` as `%23` in the emitted scope string; use its own
 // output as the canonical form rather than hand-writing the encoding.
 const MEMBER_LIST_SCOPE = scopeNeededFor('member.list', SERVICE_DID)!
+const AUDIT_QUERY_SCOPE = scopeNeededFor('audit.query', SERVICE_DID)!
 
 describe('serviceScopeAud', () => {
   it('appends the service-id fragment to the bare DID', () => {
@@ -102,6 +107,51 @@ describe('scopesCoverOperation', () => {
   it('denies when the scope aud is for a different service', () => {
     const otherAud = scopeNeededFor('member.list', 'did:web:evil.example.com')!
     expect(scopesCoverOperation([otherAud], 'member.list', SERVICE_DID)).toBe(false)
+  })
+})
+
+describe('validateScopesAllowedForRole', () => {
+  it('allows member-level rpc scopes for members', () => {
+    expect(validateScopesAllowedForRole([MEMBER_LIST_SCOPE], 'member')).toEqual({ ok: true })
+  })
+
+  it('rejects admin-level rpc scopes for members', () => {
+    const result = validateScopesAllowedForRole([AUDIT_QUERY_SCOPE], 'member')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain("role 'member' cannot use scope")
+  })
+
+  it('allows admin-level rpc scopes for admins', () => {
+    expect(validateScopesAllowedForRole([AUDIT_QUERY_SCOPE], 'admin')).toEqual({ ok: true })
+  })
+
+  it('validates wildcard rpc scopes against every key-accessible rpc operation', () => {
+    const wild = `rpc:*?aud=${serviceScopeAud(SERVICE_DID)}`
+    const memberResult = validateScopesAllowedForRole([wild], 'member')
+    expect(memberResult.ok).toBe(false)
+    if (!memberResult.ok) expect(memberResult.reason).toContain('audit.query')
+    expect(validateScopesAllowedForRole([wild], 'admin')).toEqual({ ok: true })
+  })
+
+  it('allows blob scopes for members', () => {
+    expect(validateScopesAllowedForRole(['blob:image/*'], 'member')).toEqual({ ok: true })
+  })
+
+  it('rejects unsupported scope kinds', () => {
+    const result = validateScopesAllowedForRole(['account:email?action=read'], 'owner')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('unsupported scope kind')
+  })
+
+  it('rejects unknown rpc methods because no key-accessible operation uses them', () => {
+    const scope = `rpc:app.certified.group.noop?aud=${serviceScopeAud(SERVICE_DID)}`
+    const result = validateScopesAllowedForRole([scope], 'owner')
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toContain('not key-accessible')
+  })
+
+  it('allows repo scopes for members because own-vs-any is enforced at request time', () => {
+    expect(validateScopesAllowedForRole([REPO_CREATE], 'member')).toEqual({ ok: true })
   })
 })
 
@@ -314,6 +364,28 @@ describe('expandIncludes', () => {
     if (res.ok) return
     expect(res.scope).toBe('include:org.unknown.authWrite')
     expect(res.reason).toMatch(/unknown set/)
+  })
+
+  it('preserves PermissionSetResolutionError reasons', async () => {
+    const errorResolver = {
+      resolve: async () => {
+        throw new PermissionSetResolutionError('org.bad.authWrite', 'bad TXT record')
+      },
+    } as unknown as PermissionSetResolver
+    const res = await expandIncludes(['include:org.bad.authWrite'], SERVICE_DID, errorResolver)
+    expect(res).toEqual({ ok: false, scope: 'include:org.bad.authWrite', reason: 'bad TXT record' })
+  })
+
+  it('rejects permission sets that expand to no scopes', async () => {
+    const emptyResolver = fakeResolver({
+      'org.empty.authWrite': { type: 'permission-set', permissions: [] },
+    })
+    const res = await expandIncludes(['include:org.empty.authWrite'], SERVICE_DID, emptyResolver)
+    expect(res).toEqual({
+      ok: false,
+      scope: 'include:org.empty.authWrite',
+      reason: 'permission set expanded to no scopes',
+    })
   })
 
   it('the expanded scopes pass canonicalizeScopes', async () => {

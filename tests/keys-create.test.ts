@@ -11,6 +11,7 @@ import type { GroupDatabase } from '../src/db/schema.js'
 
 const SERVICE_DID = 'did:web:test.example.com'
 const MEMBER_LIST_SCOPE = scopeNeededFor('member.list', SERVICE_DID)!
+const AUDIT_QUERY_SCOPE = scopeNeededFor('audit.query', SERVICE_DID)!
 
 function buildApp(ctx: AppContext) {
   return createTestApp(ctx, (server, appCtx) => keysCreateHandler(server, appCtx))
@@ -32,7 +33,7 @@ describe('keys.create', () => {
     await groupDb.destroy()
   })
 
-  it('owner mints a key; returns plaintext once and stores only the hash', async () => {
+  it('member mints a key; returns plaintext once and stores only the hash', async () => {
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
     const res = await request(app)
       .post('/xrpc/app.certified.group.keys.create')
@@ -73,8 +74,8 @@ describe('keys.create', () => {
       .selectFrom('group_api_keys')
       .select('scopes')
       .where('key_ref', '=', res.body.keyRef)
-      .executeTakeFirst()
-    expect(JSON.parse(row!.scopes)).toEqual([MEMBER_LIST_SCOPE])
+      .executeTakeFirstOrThrow()
+    expect(row.scopes).toBe(JSON.stringify([MEMBER_LIST_SCOPE]))
   })
 
   it('rejects a scope whose aud names a different service with InvalidScope', async () => {
@@ -87,12 +88,49 @@ describe('keys.create', () => {
     expect(res.body.error).toBe('InvalidScope')
   })
 
-  it('rejects a non-owner (admin) with Forbidden', async () => {
+  it('allows a non-owner member to mint their own key', async () => {
+    await seedMember(groupDb, 'did:plc:testuser', 'member')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.keys.create')
+      .send({ name: 'member backend', scopes: [MEMBER_LIST_SCOPE] })
+    expect(res.status).toBe(200)
+
+    const row = await groupDb
+      .selectFrom('group_api_keys')
+      .select(['created_by', 'name'])
+      .where('key_ref', '=', res.body.keyRef)
+      .executeTakeFirst()
+    expect(row).toMatchObject({ created_by: 'did:plc:testuser', name: 'member backend' })
+  })
+
+  it('rejects a member-created key with an admin-only audit.query scope', async () => {
+    await seedMember(groupDb, 'did:plc:testuser', 'member')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.keys.create')
+      .send({ name: 'too broad', scopes: [AUDIT_QUERY_SCOPE] })
+    expect(res.status).toBe(403)
+
+    const count = await groupDb
+      .selectFrom('group_api_keys')
+      .select(groupDb.fn.countAll().as('n'))
+      .executeTakeFirstOrThrow()
+    expect(Number(count.n)).toBe(0)
+  })
+
+  it('allows an admin-created key with an audit.query scope', async () => {
     await seedMember(groupDb, 'did:plc:testuser', 'admin')
     const res = await request(app)
       .post('/xrpc/app.certified.group.keys.create')
-      .send({ name: 'nope', scopes: [MEMBER_LIST_SCOPE] })
-    expect(res.status).toBe(403)
+      .send({ name: 'admin reporting', scopes: [AUDIT_QUERY_SCOPE] })
+    expect(res.status).toBe(200)
+
+    const row = await groupDb
+      .selectFrom('group_api_keys')
+      .select(['created_by', 'scopes'])
+      .where('key_ref', '=', res.body.keyRef)
+      .executeTakeFirstOrThrow()
+    expect(row.created_by).toBe('did:plc:testuser')
+    expect(row.scopes).toBe(JSON.stringify([AUDIT_QUERY_SCOPE]))
   })
 
   it('rejects an invalid scope string with InvalidScope', async () => {
@@ -138,6 +176,39 @@ describe('keys.create', () => {
     expect(res.status).toBe(403)
   })
 
+  it('rejects API-key callers before resolving include: permission sets', async () => {
+    await seedMember(groupDb, 'did:plc:owner', 'owner')
+    let resolverCalled = false
+    ctx.permissionSets = {
+      resolve: async () => {
+        resolverCalled = true
+        throw new Error('resolver should not be called')
+      },
+    } as unknown as AppContext['permissionSets']
+    ctx.authVerifier = {
+      ...mockAuth('did:plc:owner'),
+      xrpcAuth() {
+        return async () => ({
+          credentials: {
+            callerDid: 'did:plc:owner',
+            groupDid: 'did:plc:testgroup',
+            legacyAud: false,
+            authKind: 'apiKey',
+            scopes: [`rpc:*?aud=${SERVICE_DID}%23certified_group_service`],
+            apiKeyRef: 'ref1',
+          },
+        })
+      },
+    }
+
+    const res = await request(buildApp(ctx))
+      .post('/xrpc/app.certified.group.keys.create')
+      .send({ name: 'self-mint', scopes: ['include:org.hypercerts.authWrite'] })
+
+    expect(res.status).toBe(403)
+    expect(resolverCalled).toBe(false)
+  })
+
   it('expands an include:<nsid> permission set into the concrete stored scopes', async () => {
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
     // Override the resolver to return a known permission set for the include:.
@@ -172,8 +243,8 @@ describe('keys.create', () => {
       .selectFrom('group_api_keys')
       .select('scopes')
       .where('key_ref', '=', res.body.keyRef)
-      .executeTakeFirst()
-    expect(row!.scopes).not.toContain('include:')
+      .executeTakeFirstOrThrow()
+    expect(row.scopes).not.toContain('include:')
   })
 
   it('returns 400 InvalidScope when an include: set cannot be resolved', async () => {
@@ -194,7 +265,7 @@ describe('keys.create', () => {
     const count = await groupDb
       .selectFrom('group_api_keys')
       .select(groupDb.fn.countAll().as('n'))
-      .executeTakeFirst()
-    expect(Number(count!.n)).toBe(0)
+      .executeTakeFirstOrThrow()
+    expect(Number(count.n)).toBe(0)
   })
 })

@@ -1,7 +1,7 @@
 /**
  * Steps for api-keys.feature — the platform backend-sync flow (#26):
- * owner mints a scoped key (JWT-authed keys.create), a backend uses it via the
- * X-API-Key header (no JWT), and the owner revokes it. Group targeting is the
+ * a member mints a scoped key (JWT-authed keys.create), a backend uses it via the
+ * X-API-Key header (no JWT), and the creator or owner revokes it. Group targeting is the
  * same request-level `repo` the JWT new path uses.
  */
 import { When, Then, Given } from '@cucumber/cucumber'
@@ -16,8 +16,13 @@ const KEYS_DELETE = 'app.certified.group.keys.delete'
 const MEMBER_LIST = 'app.certified.group.member.list'
 const AUDIT_QUERY = 'app.certified.group.audit.query'
 
-function ownerCreds(world: CgsWorld) {
-  return { identifier: world.env.ownerIdentifier, password: world.env.ownerPassword }
+type KeyActor = 'owner' | 'member'
+
+function credsFor(world: CgsWorld, actor: KeyActor) {
+  if (actor === 'owner') {
+    return { identifier: world.env.ownerIdentifier, password: world.env.ownerPassword }
+  }
+  return { identifier: world.env.memberIdentifier, password: world.env.memberPassword }
 }
 
 const FEED_POST = 'app.bsky.feed.post'
@@ -29,10 +34,14 @@ function memberListScope(world: CgsWorld): string {
   return scope
 }
 
-/** Mint an API key with the given scopes (owner-authed keys.create). */
-async function createKey(world: CgsWorld, scopes: string[]): Promise<void> {
+/** Mint an API key with the given scopes (JWT-authed keys.create). */
+async function createKey(
+  world: CgsWorld,
+  scopes: string[],
+  actor: KeyActor = 'owner',
+): Promise<void> {
   const token = await mintServiceAuth({
-    ...ownerCreds(world),
+    ...credsFor(world, actor),
     aud: world.serviceDid,
     lxm: KEYS_CREATE,
   })
@@ -40,11 +49,16 @@ async function createKey(world: CgsWorld, scopes: string[]): Promise<void> {
     cgsUrl: world.env.cgsUrl,
     nsid: KEYS_CREATE,
     token,
-    body: { repo: world.groupDid, name: 'platform backend e2e key', scopes },
+    body: { repo: world.groupDid, name: `${actor} platform backend e2e key`, scopes },
   })
   if (world.lastHttpStatus === 200 && world.lastHttpJson) {
     world.apiKey = world.lastHttpJson.key as string
     world.apiKeyRef = world.lastHttpJson.keyRef as string
+    if (actor === 'owner') {
+      world.ownerApiKeyRef = world.apiKeyRef
+    } else {
+      world.memberApiKeyRef = world.apiKeyRef
+    }
   }
 }
 
@@ -52,8 +66,18 @@ When('the owner creates an API key scoped to member.list', async function (this:
   await createKey(this, [memberListScope(this)])
 })
 
+When('the member creates an API key scoped to member.list', async function (this: CgsWorld) {
+  await createKey(this, [memberListScope(this)], 'member')
+})
+
 Given('the owner has created an API key scoped to member.list', async function (this: CgsWorld) {
   await createKey(this, [memberListScope(this)])
+  assert.equal(this.lastHttpStatus, 200, 'key creation should succeed in setup')
+  assert.ok(this.apiKey, 'an API key should have been returned')
+})
+
+Given('the member has created an API key scoped to member.list', async function (this: CgsWorld) {
+  await createKey(this, [memberListScope(this)], 'member')
   assert.equal(this.lastHttpStatus, 200, 'key creation should succeed in setup')
   assert.ok(this.apiKey, 'an API key should have been returned')
 })
@@ -86,35 +110,57 @@ When('a backend queries the audit log using the API key', async function (this: 
   })
 })
 
-When('the owner revokes the API key', async function (this: CgsWorld) {
-  assert.ok(this.apiKeyRef, 'no keyRef available to revoke')
+async function revokeKey(world: CgsWorld, actor: KeyActor): Promise<void> {
+  assert.ok(world.apiKeyRef, 'no keyRef available to revoke')
   const token = await mintServiceAuth({
-    ...ownerCreds(this),
-    aud: this.serviceDid,
+    ...credsFor(world, actor),
+    aud: world.serviceDid,
     lxm: KEYS_DELETE,
   })
-  await callXrpc(this, {
-    cgsUrl: this.env.cgsUrl,
+  await callXrpc(world, {
+    cgsUrl: world.env.cgsUrl,
     nsid: KEYS_DELETE,
     token,
-    body: { repo: this.groupDid, keyRef: this.apiKeyRef },
+    body: { repo: world.groupDid, keyRef: world.apiKeyRef },
   })
+}
+
+When('the owner revokes the API key', async function (this: CgsWorld) {
+  await revokeKey(this, 'owner')
 })
 
-When('the owner lists the group API keys', async function (this: CgsWorld) {
+When('the member revokes the API key', async function (this: CgsWorld) {
+  await revokeKey(this, 'member')
+})
+
+async function listKeys(world: CgsWorld, actor: KeyActor): Promise<void> {
   const token = await mintServiceAuth({
-    ...ownerCreds(this),
-    aud: this.serviceDid,
+    ...credsFor(world, actor),
+    aud: world.serviceDid,
     lxm: KEYS_LIST,
   })
-  await callXrpc(this, {
-    cgsUrl: this.env.cgsUrl,
+  await callXrpc(world, {
+    cgsUrl: world.env.cgsUrl,
     nsid: KEYS_LIST,
     token,
     method: 'GET',
-    repo: this.groupDid,
+    repo: world.groupDid,
   })
+}
+
+When('the owner lists the group API keys', async function (this: CgsWorld) {
+  await listKeys(this, 'owner')
 })
+
+When('the member lists the group API keys', async function (this: CgsWorld) {
+  await listKeys(this, 'member')
+})
+
+function listedKeyRefs(world: CgsWorld): string[] {
+  const json = world.lastHttpJson as { keys?: Array<{ keyRef?: string }> } | undefined
+  assert.ok(Array.isArray(json?.keys), `expected keys array, got ${world.lastHttpBody}`)
+  return json.keys.map((key) => key.keyRef).filter((keyRef): keyRef is string => Boolean(keyRef))
+}
 
 Then('the API key list does not contain any secret material', function (this: CgsWorld) {
   const body = this.lastHttpBody ?? ''
@@ -124,6 +170,25 @@ Then('the API key list does not contain any secret material', function (this: Cg
     assert.ok(!('key' in key), 'key entry must not include the plaintext')
     assert.ok(!('key_hash' in key) && !('keyHash' in key), 'key entry must not include the hash')
   }
+})
+
+Then('the API key list contains the member key but not the owner key', function (this: CgsWorld) {
+  assert.ok(this.memberApiKeyRef, 'expected a member-created keyRef')
+  assert.ok(this.ownerApiKeyRef, 'expected an owner-created keyRef')
+  const refs = listedKeyRefs(this)
+  assert.ok(refs.includes(this.memberApiKeyRef), `missing member key ${this.memberApiKeyRef}`)
+  assert.ok(
+    !refs.includes(this.ownerApiKeyRef),
+    `member list leaked owner key ${this.ownerApiKeyRef}`,
+  )
+})
+
+Then('the API key list contains both the member and owner keys', function (this: CgsWorld) {
+  assert.ok(this.memberApiKeyRef, 'expected a member-created keyRef')
+  assert.ok(this.ownerApiKeyRef, 'expected an owner-created keyRef')
+  const refs = listedKeyRefs(this)
+  assert.ok(refs.includes(this.memberApiKeyRef), `missing member key ${this.memberApiKeyRef}`)
+  assert.ok(refs.includes(this.ownerApiKeyRef), `missing owner key ${this.ownerApiKeyRef}`)
 })
 
 Given(

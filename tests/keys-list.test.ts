@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import express from 'express'
 import request from 'supertest'
-import { createTestContext, seedMember, createTestApp } from './helpers/mock-server.js'
+import { createTestContext, seedMember, createTestApp, mockAuth } from './helpers/mock-server.js'
 import keysListHandler from '../src/api/keys/list.js'
 import { generateApiKey } from '../src/auth/api-key.js'
 import { scopeNeededFor } from '../src/auth/scopes.js'
@@ -19,7 +19,7 @@ function buildApp(ctx: AppContext) {
 async function seedKey(
   groupDb: Kysely<GroupDatabase>,
   name: string,
-  opts: { revoked?: boolean } = {},
+  opts: { createdBy?: string; revoked?: boolean } = {},
 ) {
   const key = generateApiKey()
   await groupDb
@@ -29,7 +29,7 @@ async function seedKey(
       key_hash: key.hash,
       name,
       scopes: JSON.stringify([SCOPE]),
-      created_by: 'did:plc:owner',
+      created_by: opts.createdBy ?? 'did:plc:owner',
       revoked_at: opts.revoked ? '2020-01-01 00:00:00' : null,
     })
     .execute()
@@ -104,13 +104,45 @@ describe('keys.list', () => {
     expect(refs.size).toBe(3)
   })
 
-  it('rejects a non-owner (admin) with Forbidden', async () => {
+  it('non-owner members list only their own keys', async () => {
     const test = await createTestContext()
-    const adminGroupDb = test.groupDb
-    await seedMember(adminGroupDb, 'did:plc:testuser', 'admin')
-    const adminApp = buildApp(test.ctx)
-    const res = await request(adminApp).get('/xrpc/app.certified.group.keys.list')
+    const memberGroupDb = test.groupDb
+    await seedMember(memberGroupDb, 'did:plc:testuser', 'member')
+    await seedKey(memberGroupDb, 'mine-a', { createdBy: 'did:plc:testuser' })
+    await seedKey(memberGroupDb, 'mine-revoked', { createdBy: 'did:plc:testuser', revoked: true })
+    await seedKey(memberGroupDb, 'someone-else', { createdBy: 'did:plc:owner' })
+    const memberApp = buildApp(test.ctx)
+
+    const active = await request(memberApp).get('/xrpc/app.certified.group.keys.list')
+    expect(active.status).toBe(200)
+    expect(active.body.keys.map((k: { name: string }) => k.name)).toEqual(['mine-a'])
+
+    const all = await request(memberApp).get(
+      '/xrpc/app.certified.group.keys.list?includeRevoked=true',
+    )
+    const names = all.body.keys.map((k: { name: string }) => k.name).sort()
+    expect(names).toEqual(['mine-a', 'mine-revoked'])
+    await memberGroupDb.destroy()
+  })
+
+  it('an API-key caller cannot list keys', async () => {
+    await seedKey(groupDb, 'mine', { createdBy: 'did:plc:testuser' })
+    ctx.authVerifier = {
+      ...mockAuth('did:plc:testuser'),
+      xrpcAuth() {
+        return async () => ({
+          credentials: {
+            callerDid: 'did:plc:testuser',
+            groupDid: 'did:plc:testgroup',
+            legacyAud: false,
+            authKind: 'apiKey',
+            scopes: [`rpc:*?aud=${SERVICE_DID}%23certified_group_service`],
+            apiKeyRef: 'ref1',
+          },
+        })
+      },
+    }
+    const res = await request(buildApp(ctx)).get('/xrpc/app.certified.group.keys.list')
     expect(res.status).toBe(403)
-    await adminGroupDb.destroy()
   })
 })

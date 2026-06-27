@@ -26,22 +26,25 @@ See [`docs/design/e2e-tests.md`](../docs/design/e2e-tests.md) for the full desig
 cp e2e/.env.example e2e/.env
 ```
 
-Fill in `e2e/.env`. In the common case the importer and owner are the same
-account. To produce `IMPORTER_APP_PASSWORD`:
+Fill in `e2e/.env`. Every variable that exists only for the e2e suite is
+prefixed `E2E_` (`E2E_GROUP_` for the per-test-group accounts), so it can't be
+confused with a real service-deployment variable. In the common case the
+importer and owner are the same account. To produce
+`E2E_GROUP_IMPORTER_APP_PASSWORD`:
 
 ```bash
 pnpm e2e:app-password
 ```
 
-(Copy the printed value into `IMPORTER_APP_PASSWORD`.)
+(Copy the printed value into `E2E_GROUP_IMPORTER_APP_PASSWORD`.)
 
 ## Running
 
 ```bash
-# Full suite against the configured CGS_URL
+# Full suite against the configured E2E_CGS_URL
 pnpm test:e2e
 
-# Liveness only — no credentials needed beyond CGS_URL
+# Liveness only — no credentials needed beyond E2E_CGS_URL
 pnpm test:e2e --tags @health
 
 # A single feature
@@ -56,17 +59,22 @@ Reports are written to `reports/` (HTML at `reports/e2e.html`, JUnit XML, and a
 The suite tests CGS, not PDS-account creation, so every account is provisioned
 up front and supplied via env:
 
-| Role     | Vars                                                  | Used for                                       |
-| -------- | ----------------------------------------------------- | ---------------------------------------------- |
-| importer | `IMPORTER_IDENTIFIER` / `_PASSWORD` / `_APP_PASSWORD` | the account promoted to a group (= groupDid)   |
-| owner    | `GROUP_OWNER_IDENTIFIER` / `_PASSWORD`                | the RBAC owner (commonly == importer)          |
-| admin    | `ADMIN_IDENTIFIER` / `_PASSWORD`                      | seeded as admin for the RBAC feature           |
-| member   | `MEMBER_IDENTIFIER` / `_PASSWORD`                     | seeded as member for the RBAC feature          |
-| outsider | `OUTSIDER_IDENTIFIER` / `_PASSWORD`                   | a non-member, for negative authorization tests |
+| Role     | Vars                                                            | Used for                                       |
+| -------- | --------------------------------------------------------------- | ---------------------------------------------- |
+| importer | `E2E_GROUP_IMPORTER_IDENTIFIER` / `_PASSWORD` / `_APP_PASSWORD` | the account promoted to a group (= groupDid)   |
+| owner    | `E2E_GROUP_OWNER_IDENTIFIER` / `_PASSWORD`                      | the RBAC owner (commonly == importer)          |
+| admin    | `E2E_GROUP_ADMIN_IDENTIFIER` / `_PASSWORD`                      | seeded as admin for the RBAC feature           |
+| member   | `E2E_GROUP_MEMBER_IDENTIFIER` / `_PASSWORD`                     | seeded as member for the RBAC feature          |
+| outsider | `E2E_GROUP_OUTSIDER_IDENTIFIER` / `_PASSWORD`                   | a non-member, for negative authorization tests |
 
-Only `CGS_URL` is needed to run `--tags @health`. The RBAC feature
+Only `E2E_CGS_URL` is needed to run `--tags @health`. The RBAC feature
 (`@needs-rbac-accounts`) is skipped unless the full admin/member/outsider set is
 configured.
+
+The admin-set-owner feature (`@needs-cgs-admin`) additionally needs
+`CGS_ADMIN_PASSWORD` — the **service** admin password set on the CGS deployment
+under test (a real deployment credential, hence no `E2E_` prefix), used for the
+HTTP Basic auth on `app.certified.group.admin.*`.
 
 ## The auth model
 
@@ -89,8 +97,9 @@ re-runnable indefinitely against the same account.
 
 | Tag                    | Meaning                                                                                                       |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `@health`              | Unauthenticated liveness — runs with only `CGS_URL`.                                                          |
+| `@health`              | Unauthenticated liveness — runs with only `E2E_CGS_URL`.                                                      |
 | `@needs-rbac-accounts` | RBAC feature — skipped unless the admin/member/outsider set is set.                                           |
+| `@needs-cgs-admin`     | admin-set-owner feature — skipped unless `CGS_ADMIN_PASSWORD` (+ RBAC accounts) is set.                       |
 | `@manual`              | Excluded from the default run (e.g. `register`, which creates a PDS account that can't be cleanly torn down). |
 | `@pending`             | Excluded from the default run.                                                                                |
 
@@ -102,6 +111,7 @@ workflow: a `gate` job skips the run unless relevant paths changed; the run job
 finds the PR's Railway preview deployment, derives the CGS URL from the env name,
 health-checks `/health`, then runs the suite. The account **passwords** come from
 repository **secrets**; the account **identifiers** (public handles/DIDs) and
-`CGS_SERVICE_DID` come from repository **variables** (`vars.*`). Populate both
-from a filled `e2e/.env` with `scripts/set-e2e-secrets.sh`. `workflow_dispatch`
-takes an `env_name` input for re-running against a known Railway env.
+`E2E_CGS_SERVICE_DID` come from repository **variables** (`vars.*`), under their
+`E2E_`-prefixed names. Populate both from a filled `e2e/.env` with
+`scripts/set-e2e-secrets.sh`. `workflow_dispatch` takes an `env_name` input for
+re-running against a known Railway env.

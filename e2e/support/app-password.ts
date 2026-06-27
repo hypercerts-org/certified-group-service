@@ -1,14 +1,14 @@
 /**
  * Mints an app password on the importer account, producing the value for
- * IMPORTER_APP_PASSWORD in e2e/.env. This is NOT a CGS feature under test — it
+ * E2E_GROUP_IMPORTER_APP_PASSWORD in e2e/.env. This is NOT a CGS feature under test — it
  * is a PDS-side operation (com.atproto.server.createAppPassword) that yields a
  * config value, so it lives in support/ as a helper rather than a scenario.
  *
  * Run it directly:  pnpm e2e:app-password
- * Then copy the printed password into IMPORTER_APP_PASSWORD.
+ * Then copy the printed password into E2E_GROUP_IMPORTER_APP_PASSWORD.
  *
  * Creating an app password requires a FULL session (the account's real
- * password), so IMPORTER_PASSWORD must be set.
+ * password), so E2E_GROUP_IMPORTER_PASSWORD must be set.
  */
 import { AtpAgent } from '@atproto/api'
 import { idResolver, resolveAccount } from './cgs.js'
@@ -28,7 +28,9 @@ export async function mintAppPassword(opts: {
 
 async function main(): Promise<void> {
   if (!testEnv.importerPassword) {
-    console.error('IMPORTER_PASSWORD is not set in e2e/.env — required to mint an app password.')
+    console.error(
+      'E2E_GROUP_IMPORTER_PASSWORD is not set in e2e/.env — required to mint an app password.',
+    )
     process.exit(2)
   }
   console.log('Importer:', testEnv.importerIdentifier)
@@ -38,7 +40,7 @@ async function main(): Promise<void> {
     password: testEnv.importerPassword,
     name: testEnv.appPasswordName,
   })
-  console.log('\n✅ App password created. Copy this into IMPORTER_APP_PASSWORD:\n')
+  console.log('\n✅ App password created. Copy this into E2E_GROUP_IMPORTER_APP_PASSWORD:\n')
   console.log('   ' + password)
   console.log('\n(Shown once; the PDS will not display it again.)')
 }

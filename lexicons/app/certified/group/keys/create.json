@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Mint a long-lived, scope-limited API key for the group. Owner-only. The plaintext key is returned exactly once and never retrievable again.",
+      "description": "Mint a long-lived, scope-limited API key for the caller's group membership. Member-authenticated JWT only; API keys cannot mint more keys. The plaintext key is returned exactly once and never retrievable again.",
       "input": {
         "encoding": "application/json",
         "schema": {

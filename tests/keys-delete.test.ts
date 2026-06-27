@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import express from 'express'
 import request from 'supertest'
-import { createTestContext, seedMember, createTestApp } from './helpers/mock-server.js'
+import { createTestContext, seedMember, createTestApp, mockAuth } from './helpers/mock-server.js'
 import keysDeleteHandler from '../src/api/keys/delete.js'
 import { generateApiKey } from '../src/auth/api-key.js'
 import { scopeNeededFor } from '../src/auth/scopes.js'
@@ -9,13 +9,14 @@ import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
 import type { GroupDatabase } from '../src/db/schema.js'
 
-const SCOPE = scopeNeededFor('member.list', 'did:web:test.example.com')!
+const SERVICE_DID = 'did:web:test.example.com'
+const SCOPE = scopeNeededFor('member.list', SERVICE_DID)!
 
 function buildApp(ctx: AppContext) {
   return createTestApp(ctx, (server, appCtx) => keysDeleteHandler(server, appCtx))
 }
 
-async function seedKey(groupDb: Kysely<GroupDatabase>, name = 'k') {
+async function seedKey(groupDb: Kysely<GroupDatabase>, name = 'k', createdBy = 'did:plc:owner') {
   const key = generateApiKey()
   await groupDb
     .insertInto('group_api_keys')
@@ -24,7 +25,7 @@ async function seedKey(groupDb: Kysely<GroupDatabase>, name = 'k') {
       key_hash: key.hash,
       name,
       scopes: JSON.stringify([SCOPE]),
-      created_by: 'did:plc:owner',
+      created_by: createdBy,
     })
     .execute()
   return key
@@ -84,17 +85,61 @@ describe('keys.delete', () => {
     expect(second.body.revokedAt).toBe(first.body.revokedAt)
   })
 
-  it('rejects a non-owner (admin) with Forbidden', async () => {
+  it('allows a non-owner member to revoke their own key', async () => {
     const test = await createTestContext()
-    const adminDb = test.groupDb
-    await seedMember(adminDb, 'did:plc:testuser', 'admin')
-    const key = await seedKey(adminDb)
-    const adminApp = buildApp(test.ctx)
-    const res = await request(adminApp)
+    const memberDb = test.groupDb
+    await seedMember(memberDb, 'did:plc:testuser', 'member')
+    const key = await seedKey(memberDb, 'mine', 'did:plc:testuser')
+    const memberApp = buildApp(test.ctx)
+    const res = await request(memberApp)
+      .post('/xrpc/app.certified.group.keys.delete')
+      .send({ keyRef: key.keyRef })
+    expect(res.status).toBe(200)
+    await memberDb.destroy()
+  })
+
+  it('rejects a non-owner member revoking someone else’s key', async () => {
+    const test = await createTestContext()
+    const memberDb = test.groupDb
+    await seedMember(memberDb, 'did:plc:testuser', 'admin')
+    const key = await seedKey(memberDb, 'not-mine', 'did:plc:owner')
+    const memberApp = buildApp(test.ctx)
+    const res = await request(memberApp)
       .post('/xrpc/app.certified.group.keys.delete')
       .send({ keyRef: key.keyRef })
     expect(res.status).toBe(403)
-    await adminDb.destroy()
+    await memberDb.destroy()
+  })
+
+  it('owner can revoke another member’s key', async () => {
+    const key = await seedKey(groupDb, 'member-key', 'did:plc:member')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.keys.delete')
+      .send({ keyRef: key.keyRef })
+    expect(res.status).toBe(200)
+  })
+
+  it('an API-key caller cannot revoke keys', async () => {
+    const key = await seedKey(groupDb, 'mine', 'did:plc:testuser')
+    ctx.authVerifier = {
+      ...mockAuth('did:plc:testuser'),
+      xrpcAuth() {
+        return async () => ({
+          credentials: {
+            callerDid: 'did:plc:testuser',
+            groupDid: 'did:plc:testgroup',
+            legacyAud: false,
+            authKind: 'apiKey',
+            scopes: [`rpc:*?aud=${SERVICE_DID}%23certified_group_service`],
+            apiKeyRef: 'ref1',
+          },
+        })
+      },
+    }
+    const res = await request(buildApp(ctx))
+      .post('/xrpc/app.certified.group.keys.delete')
+      .send({ keyRef: key.keyRef })
+    expect(res.status).toBe(403)
   })
 
   it('an empty/missing body is a 400, not a 500', async () => {

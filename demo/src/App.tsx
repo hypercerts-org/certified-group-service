@@ -51,28 +51,12 @@ export function App() {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Restore active group from localStorage
-  const [group, setGroupState] = useState<ActiveGroup | null>(() => {
-    const stored = localStorage.getItem('activeGroup')
-    if (stored) {
-      try { return JSON.parse(stored) } catch { /* ignore */ }
-    }
-    // Migrate from old groupDid-only storage
-    const legacyDid = localStorage.getItem('groupDid')
-    if (legacyDid) return { did: legacyDid, handle: '' }
-    return null
-  })
-
-  const setGroup = (g: ActiveGroup | null) => {
-    setGroupState(g)
-    if (g) {
-      localStorage.setItem('activeGroup', JSON.stringify(g))
-      localStorage.setItem('groupDid', g.did) // keep legacy key in sync
-    } else {
-      localStorage.removeItem('activeGroup')
-      localStorage.removeItem('groupDid')
-    }
-  }
+  // The active group is session-only: not persisted. It is derived each load
+  // from the user's memberships (auto-selected when there is exactly one,
+  // chosen via the picker otherwise — see Layout). Persisting it in
+  // localStorage was origin-scoped, not per-user, so it leaked one user's
+  // selection to the next user on a shared browser.
+  const [group, setGroup] = useState<ActiveGroup | null>(null)
 
   useEffect(() => {
     // When any API call gets a 401, clear auth state so the user is redirected to login
@@ -84,9 +68,9 @@ export function App() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Backfill the active group's handle when it is missing — e.g. the group was
-  // entered as a raw DID, or restored from legacy DID-only storage. Reverse-
-  // resolving here means every consumer (banner, page headers) gets the
+  // Backfill the active group's handle when it is missing — e.g. a group
+  // auto-selected (or picked) before its handle had finished resolving.
+  // Reverse-resolving here means every consumer (banner, page headers) gets the
   // human-readable handle without each having to resolve it. Best-effort: on
   // failure the DID simply remains the display value.
   useEffect(() => {

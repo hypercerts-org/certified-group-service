@@ -2,9 +2,9 @@ import type { Server, MethodHandler, RouteOptions } from '@atproto/xrpc-server'
 import type { Response as ExpressResponse } from 'express'
 import type { Kysely } from 'kysely'
 import type { AppContext } from '../context.js'
-import type { GroupAuthResult, ServiceAuthResult } from '../auth/verifier.js'
+import type { GroupAuthResult, ServiceAuthResult, AdminAuthResult } from '../auth/verifier.js'
 import type { AuditEventDetail } from '../audit.js'
-import type { Operation } from '../rbac/permissions.js'
+import type { Operation, Role } from '../rbac/permissions.js'
 import type { GroupDatabase } from '../db/schema.js'
 import { XRPCError as ClientXRPCError } from '@atproto/xrpc'
 import { XRPCError, UpstreamFailureError, ForbiddenError } from '@atproto/xrpc-server'
@@ -35,6 +35,11 @@ export interface AuthedMethodConfig {
 export interface ServiceAuthMethodConfig {
   opts?: RouteOptions
   handler: MethodHandler<ServiceAuthResult>
+}
+
+export interface AdminMethodConfig {
+  opts?: RouteOptions
+  handler: MethodHandler<AdminAuthResult>
 }
 
 export function jsonResponse<T>(body: T) {
@@ -107,10 +112,10 @@ export function decodeCursor(cursor: string): string {
  * For an `apiKey` principal two checks must BOTH pass (design: scopes ∩
  * role-perms): first the scope check (does the key's granted scope set cover
  * this operation, delegated to `@atproto/oauth-scopes`), then the existing role
- * check (the key acts as its issuing owner, so the role check naturally caps the
+ * check (the key acts as its issuing member, so the role check naturally caps the
  * key at its issuer's role). A JWT principal is scope-unlimited — only the role
  * check applies. The specific key (`apiKeyRef`) is attached to the audit detail
- * so key-driven actions are attributable beyond the owner DID.
+ * so key-driven actions are attributable beyond the issuing member DID.
  */
 export async function assertCanWithAudit(
   ctx: AppContext,
@@ -119,7 +124,7 @@ export async function assertCanWithAudit(
   operation: Operation,
   detail?: Omit<AuditEventDetail, 'reason'>,
   principal?: GatePrincipal,
-): Promise<void> {
+): Promise<Role> {
   const auditDetail: Omit<AuditEventDetail, 'reason'> | undefined =
     principal?.authKind === 'apiKey' && principal.apiKeyRef
       ? { ...detail, apiKeyRef: principal.apiKeyRef }
@@ -155,7 +160,7 @@ export async function assertCanWithAudit(
   }
 
   try {
-    await ctx.rbac.assertCan(groupDb, callerDid, operation)
+    return await ctx.rbac.assertCan(groupDb, callerDid, operation)
   } catch (err) {
     await ctx.audit.log(groupDb, callerDid, operation, 'denied', {
       ...auditDetail,
@@ -303,6 +308,27 @@ export function registerServiceAuthMethod(
 ): void {
   server.method(nsid, {
     auth: ctx.authVerifier.xrpcServiceAuth(),
+    opts: config.opts,
+    handler: config.handler,
+  })
+}
+
+/**
+ * Register an operator-authenticated admin XRPC method (the `*.admin.*`
+ * namespace), gated by HTTP Basic auth against `CGS_ADMIN_PASSWORD` rather than any
+ * group membership or DID — the same model as `com.atproto.admin.*` on a PDS.
+ * The endpoint is disabled when no admin password is configured. The handler
+ * receives no caller identity (the credential is just `{ type: 'admin' }`); it
+ * is fully trusted and must validate its own inputs.
+ */
+export function registerAdminMethod(
+  server: Server,
+  nsid: string,
+  ctx: AppContext,
+  config: AdminMethodConfig,
+): void {
+  server.method(nsid, {
+    auth: ctx.authVerifier.xrpcAdminAuth(),
     opts: config.opts,
     handler: config.handler,
   })

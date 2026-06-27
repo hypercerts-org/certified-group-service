@@ -70,6 +70,7 @@ async function main() {
     undefined,
     undefined,
     logger,
+    config.adminPassword,
   )
   const rbac = new RbacChecker()
   const permissionSets = new PermissionSetResolver(idResolver, { logger })

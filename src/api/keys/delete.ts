@@ -1,6 +1,7 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import { sql } from 'kysely'
+import { ForbiddenError } from '../../errors.js'
 import type { AppContext } from '../../context.js'
 import {
   registerAuthedMethod,
@@ -26,20 +27,36 @@ export default function (server: Server, ctx: AppContext) {
       const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      // Owner-only. An apiKey caller is denied (keys.delete has no scope mapping).
-      await assertCanWithAudit(ctx, groupDb, callerDid, 'keys.delete', undefined, {
-        authKind,
-        scopes,
-        apiKeyRef,
-      })
+      // Any group member may revoke their own keys; owners can revoke every key
+      // in the group. API-key callers are denied (keys.delete has no scope
+      // mapping), so long-lived keys cannot revoke keys.
+      const callerRole = await assertCanWithAudit(
+        ctx,
+        groupDb,
+        callerDid,
+        'keys.delete',
+        undefined,
+        {
+          authKind,
+          scopes,
+          apiKeyRef,
+        },
+      )
 
       const existing = await groupDb
         .selectFrom('group_api_keys')
-        .select(['revoked_at'])
+        .select(['created_by', 'revoked_at'])
         .where('key_ref', '=', keyRef)
         .executeTakeFirst()
       if (!existing) {
         throw new XRPCError(404, 'API key not found', 'KeyNotFound')
+      }
+      if (callerRole !== 'owner' && existing.created_by !== callerDid) {
+        await ctx.audit.log(groupDb, callerDid, 'keys.delete', 'denied', {
+          revokedKeyRef: keyRef,
+          reason: "Cannot revoke another member's API key",
+        })
+        throw new ForbiddenError("Cannot revoke another member's API key")
       }
 
       // Idempotent: a revoked key keeps its original revocation time. Only set it

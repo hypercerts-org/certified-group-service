@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Revoke an API key by its keyRef. Owner-only. Soft-delete: the key is rejected on its next use.",
+      "description": "Revoke an API key by its keyRef. Members can revoke their own keys; owners can revoke any key in the group. JWT only; API keys cannot revoke keys. Soft-delete: the key is rejected on its next use.",
       "input": {
         "encoding": "application/json",
         "schema": {

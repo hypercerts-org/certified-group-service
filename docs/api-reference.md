@@ -65,7 +65,7 @@ For the full migration walkthrough (per-method `repo` placement, direct vs proxi
 
 ## Authenticating with an API key
 
-As an alternative to a per-request service-auth JWT, an owner can issue a long-lived **API key** (see [API key management](#api-key-management)). A backend authenticates by sending the key in the `X-API-Key` header instead of `Authorization: Bearer`:
+As an alternative to a per-request service-auth JWT, any group member can issue a long-lived **API key** for themselves (see [API key management](#api-key-management)). A backend authenticates by sending the key in the `X-API-Key` header instead of `Authorization: Bearer`:
 
 ```text
 X-API-Key: cgsk_<keyRef>.<secret>
@@ -665,11 +665,11 @@ curl -X POST https://group-service.example.com/xrpc/app.certified.group.role.set
 
 ## API key management
 
-Owner-only methods for issuing and revoking [API keys](#authenticating-with-an-api-key). All three are authenticated with a normal owner **JWT** (not a key — a key can never manage keys). They target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
+JWT-authenticated methods for issuing and revoking [API keys](#authenticating-with-an-api-key). Any group member can create, list, and revoke their own keys; owners can list and revoke all keys in the group. A member can only create keys with scopes their current role can use; for example, `audit.query` requires admin. A key can never manage keys. These methods target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
 
 ### `POST /xrpc/app.certified.group.keys.create`
 
-Mint a key. Owner-only.
+Mint a key for the authenticated group member.
 
 Request body:
 
@@ -704,11 +704,11 @@ Response — the plaintext `key` is returned **only here**:
 }
 ```
 
-Errors: `Forbidden` (not the owner), `InvalidScope` (a scope that is unparseable, names a non-RPC method, or carries an `aud` for a different service).
+Errors: `Forbidden` (not a group member, using API-key auth, or requesting a scope above the caller's role), `InvalidScope` (a scope that is unparseable, names a non-RPC method, or carries an `aud` for a different service).
 
 ### `GET /xrpc/app.certified.group.keys.list`
 
-List the group's keys. Owner-only. Never returns the secret or its hash. Params: `repo`, `limit`, `cursor`, `includeRevoked` (default `false`).
+List keys. Members see only keys they created; owners see all keys in the group. Never returns the secret or its hash. Params: `repo`, `limit`, `cursor`, `includeRevoked` (default `false`).
 
 ```json
 {
@@ -729,7 +729,7 @@ List the group's keys. Owner-only. Never returns the secret or its hash. Params:
 
 ### `POST /xrpc/app.certified.group.keys.delete`
 
-Revoke a key (soft-delete; rejected on next use). Owner-only. Idempotent.
+Revoke a key (soft-delete; rejected on next use). Members can revoke their own keys; owners can revoke any key in the group. Idempotent.
 
 Request body: `{ "repo": "did:plc:group123", "keyRef": "ab12cd34" }`. Response: `{ "keyRef": "ab12cd34", "revokedAt": "2026-06-06T13:00:00.000Z" }`. Errors: `Forbidden`, `KeyNotFound`.
 
@@ -866,20 +866,21 @@ Entries are ordered newest first (`id DESC`). The `detail` field is a JSON objec
 
 Every audited operation produces one of the following `action` strings. Denied operations use the same action value with `"result": "denied"` and an additional `reason` field in `detail`.
 
-| Action              | Trigger                                                           | `detail` fields                        |
-| ------------------- | ----------------------------------------------------------------- | -------------------------------------- |
-| `group.register`    | Group created via `app.certified.group.register`                  | `{ handle }`                           |
-| `group.import`      | Existing account imported via `app.certified.group.import`        | `{ handle }`                           |
-| `member.add`        | Member added via `member.add`                                     | `{ memberDid, role }`                  |
-| `member.remove`     | Member removed via `member.remove`                                | `{ memberDid }`                        |
-| `role.set`          | Role changed via `role.set`                                       | `{ memberDid, previousRole, newRole }` |
-| `createRecord`      | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                 |
-| `putOwnRecord`      | Caller updated a record they authored                             | `{ collection, rkey }`                 |
-| `putAnyRecord`      | Caller updated another member's record                            | `{ collection, rkey }`                 |
-| `putRecord:profile` | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                 |
-| `deleteOwnRecord`   | Caller deleted a record they authored                             | `{ collection, rkey }`                 |
-| `deleteAnyRecord`   | Caller deleted another member's record                            | `{ collection, rkey }`                 |
-| `uploadBlob`        | Blob uploaded via `uploadBlob`                                    | _(none)_                               |
+| Action              | Trigger                                                           | `detail` fields                                     |
+| ------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
+| `group.register`    | Group created via `app.certified.group.register`                  | `{ handle }`                                        |
+| `group.import`      | Existing account imported via `app.certified.group.import`        | `{ handle }`                                        |
+| `member.add`        | Member added via `member.add`                                     | `{ memberDid, role }`                               |
+| `member.remove`     | Member removed via `member.remove`                                | `{ memberDid }`                                     |
+| `role.set`          | Role changed via `role.set`                                       | `{ memberDid, previousRole, newRole }`              |
+| `admin.setOwner`    | Owner reassigned via the admin `setOwner` endpoint                | `{ newOwner, previousOwner, addedAsMember, noop? }` |
+| `createRecord`      | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
+| `putOwnRecord`      | Caller updated a record they authored                             | `{ collection, rkey }`                              |
+| `putAnyRecord`      | Caller updated another member's record                            | `{ collection, rkey }`                              |
+| `putRecord:profile` | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                              |
+| `deleteOwnRecord`   | Caller deleted a record they authored                             | `{ collection, rkey }`                              |
+| `deleteAnyRecord`   | Caller deleted another member's record                            | `{ collection, rkey }`                              |
+| `uploadBlob`        | Blob uploaded via `uploadBlob`                                    | _(none)_                                            |
 
 **Denied entries** include the same `detail` fields as permitted entries, plus a `reason` string explaining why the operation was denied:
 
@@ -910,3 +911,96 @@ curl "https://group-service.example.com/xrpc/app.certified.group.audit.query?rep
 curl "https://group-service.example.com/xrpc/app.certified.group.audit.query?repo=did:plc:group123&action=member.add" \
   -H "Authorization: Bearer $JWT"
 ```
+
+---
+
+## Admin operations
+
+These are **operator-only** endpoints, under the `app.certified.group.admin.*`
+namespace. They are not part of the member-facing API and are not reachable
+with a service-auth JWT or an API key.
+
+### Authentication and trust model
+
+Admin endpoints use **HTTP Basic auth** — username `admin`, password the
+service's configured `CGS_ADMIN_PASSWORD` — rather than group membership or a
+signed JWT. This is the same mechanism the upstream AT Protocol **reference PDS
+implementation** uses for its `com.atproto.admin.*` endpoints, deliberately
+adopted here.
+
+The trust model follows directly from that precedent. A PDS operator can
+already read and modify much of the data and accounts they host; the
+expectation is simply that they exercise that power only in ways their users
+have agreed to and that benefit those users. The group service hosts groups on
+behalf of its users in exactly the same way, so it adopts the same trust model:
+the CGS operator holds an administrative credential that can act on hosted
+groups, and is expected to use it only with the consent of, and for the benefit
+of, the groups it hosts. Crucially, this power is **accountable**: every admin
+action is recorded in the target group's audit log, attributed to actor `admin`,
+so its use is transparent and reviewable by the group. An ownership change via
+`setOwner`, for example, is logged as an `admin.setOwner` entry capturing the
+new owner, the previous owner, and whether the new owner was added as a member —
+see [`setOwner`](#post-xrpcappcertifiedgroupadminsetowner) and the
+[audit-log action values](#action-values).
+
+If `CGS_ADMIN_PASSWORD` is not configured, **all** admin endpoints are disabled and
+every request to them is rejected with `401`. There is no insecure default. The
+password must be at least 16 non-whitespace characters.
+
+### `POST /xrpc/app.certified.group.admin.setOwner`
+
+Reassign a group's owner. The previous owner (if any) is demoted to `admin`.
+The new owner is promoted in place if they are already a member, or **added as a
+new owner member if they are not** — this supports operator recovery when the
+incumbent owner is unavailable (e.g. lost keys, incapacitated, left the
+organisation), which is the primary reason this endpoint exists. The owner role
+is otherwise immutable: `role.set` cannot create or change an owner, so this is
+the only way to change it.
+
+**Authentication:** HTTP Basic (`admin` / `CGS_ADMIN_PASSWORD`).
+
+**Request body:**
+
+| Field      | Type   | Description                   |
+| ---------- | ------ | ----------------------------- |
+| `repo`     | string | Target group (handle or DID)  |
+| `newOwner` | string | The new owner (handle or DID) |
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "owner": "did:plc:newowner",
+  "previousOwner": "did:plc:oldowner",
+  "addedAsMember": false,
+  "noop": false,
+  "updatedAt": "2026-06-25T12:00:00.000Z"
+}
+```
+
+- `previousOwner` is omitted if the group had no owner.
+- `addedAsMember` is `true` when `newOwner` was not previously a member and was
+  added as a new owner member.
+- `noop` is `true` (and nothing changes) when `newOwner` is already the owner.
+
+**Errors:**
+
+| Code | Name                   | Description                                                                              |
+| ---- | ---------------------- | ---------------------------------------------------------------------------------------- |
+| 400  | InvalidRequest         | `newOwner` is malformed or cannot be resolved to a DID                                   |
+| 401  | AuthenticationRequired | Missing/invalid Basic credentials, or admin endpoints disabled (no `CGS_ADMIN_PASSWORD`) |
+| 404  | UnknownGroup           | `repo` does not resolve to a managed group                                               |
+
+**Example:**
+
+```bash
+curl -X POST https://group-service.example.com/xrpc/app.certified.group.admin.setOwner \
+  -u "admin:$CGS_ADMIN_PASSWORD" \
+  -H "Content-Type: application/json" \
+  -d '{"repo":"did:plc:group123","newOwner":"did:plc:newowner"}'
+```
+
+> Because the change is applied in-process (through the same database connection
+> the read paths use), it takes effect immediately — no service restart is
+> needed.

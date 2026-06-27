@@ -6,7 +6,7 @@ import {
   IncludeScope,
 } from '@atproto/oauth-scopes'
 import type { RepoAction } from '@atproto/oauth-scopes'
-import type { Operation } from '../rbac/permissions.js'
+import { canPerform, type Operation, type Role } from '../rbac/permissions.js'
 import { SERVICE_ID_FRAGMENT } from '../did-document.js'
 import type { PermissionSetResolver } from './permission-set-resolver.js'
 import { PermissionSetResolutionError } from './permission-set-resolver.js'
@@ -40,7 +40,7 @@ export function serviceScopeAud(serviceDid: string): string {
  * Map an internal RBAC `Operation` to the XRPC method NSID (lxm) a key scope is
  * declared against. Only operations reachable by an API key need an entry; an
  * operation with no mapping is **not** key-accessible (the gate denies it for
- * key callers). Iteration 1 grants only `member.list`.
+ * key callers). Key-management operations intentionally have no mapping.
  */
 const OPERATION_LXM: Partial<Record<Operation, string>> = {
   'member.list': 'app.certified.group.member.list',
@@ -50,6 +50,15 @@ const OPERATION_LXM: Partial<Record<Operation, string>> = {
 /** The lxm an operation maps to, or undefined if it is not key-accessible. */
 export function lxmForOperation(operation: Operation): string | undefined {
   return OPERATION_LXM[operation]
+}
+
+function operationForLxm(lxm: string): Operation | undefined {
+  for (const [operation, mappedLxm] of Object.entries(OPERATION_LXM) as Array<
+    [Operation, string]
+  >) {
+    if (mappedLxm === lxm) return operation
+  }
+  return undefined
 }
 
 /**
@@ -132,6 +141,49 @@ export function repoScopesCover(
 export function blobScopesCover(grantedScopes: string[], mime: string): boolean {
   const granted = ScopesSet.fromString(grantedScopes.join(' '))
   return granted.matches('blob', { mime })
+}
+
+export type ScopeRoleValidation = { ok: true } | { ok: false; scope: string; reason: string }
+
+/**
+ * Validate that a caller's current role can ever use the requested scopes.
+ *
+ * Runtime authorization still re-checks the issuer's current role on every API
+ * key request, so demotions/removals immediately cap or disable existing keys.
+ * This create-time check avoids minting obviously dead/escalating grants such as
+ * a member-issued `audit.query` RPC scope. `repo:` scopes are allowed for any
+ * member because the scope language has no own-vs-any axis; the request-time
+ * RBAC check still decides whether a concrete write is own-only or admin-any.
+ */
+export function validateScopesAllowedForRole(scopes: string[], role: Role): ScopeRoleValidation {
+  for (const scope of scopes) {
+    const rpc = RpcPermission.fromString(scope)
+    if (rpc !== null) {
+      const operations = rpc.lxm.includes('*')
+        ? (Object.keys(OPERATION_LXM) as Operation[])
+        : rpc.lxm.map((lxm) => operationForLxm(lxm))
+
+      if (operations.includes(undefined)) {
+        return { ok: false, scope, reason: 'scope names an operation that is not key-accessible' }
+      }
+      const concreteOperations = operations as Operation[]
+      if (concreteOperations.length === 0) {
+        return { ok: false, scope, reason: 'scope does not grant any key-accessible operation' }
+      }
+      const denied = concreteOperations.find((operation) => !canPerform(role, operation))
+      if (denied !== undefined) {
+        return { ok: false, scope, reason: `role '${role}' cannot use scope for '${denied}'` }
+      }
+      continue
+    }
+
+    if (RepoPermission.fromString(scope) !== null || BlobPermission.fromString(scope) !== null) {
+      continue
+    }
+
+    return { ok: false, scope, reason: 'unsupported scope kind (expected rpc:, repo: or blob:)' }
+  }
+  return { ok: true }
 }
 
 /**
@@ -274,31 +326,31 @@ export async function expandIncludes(
   const out: string[] = []
   for (const scope of scopes) {
     const inc = IncludeScope.fromString(scope)
-    if (inc === null) {
+    if (inc !== null) {
+      let set
+      try {
+        set = await resolver.resolve(inc.nsid)
+      } catch (err) {
+        const reason =
+          err instanceof PermissionSetResolutionError
+            ? err.reason
+            : err instanceof Error
+              ? err.message
+              : String(err)
+        return { ok: false, scope, reason }
+      }
+      // Re-stamp with our aud so `inheritAud` rpc: permissions inherit it on
+      // expansion (no-op for aud-less repo: permissions).
+      const bound = IncludeScope.fromString(`include:${inc.nsid}?aud=${encodeURIComponent(aud)}`)
+      const expanded = (bound ?? inc).toScopes(set)
+      if (expanded.length === 0) {
+        return { ok: false, scope, reason: 'permission set expanded to no scopes' }
+      }
+      out.push(...expanded)
+    } else {
       // Not an `include:` — pass through for canonicalizeScopes to validate.
       out.push(scope)
-      continue
     }
-    let set
-    try {
-      set = await resolver.resolve(inc.nsid)
-    } catch (err) {
-      const reason =
-        err instanceof PermissionSetResolutionError
-          ? err.reason
-          : err instanceof Error
-            ? err.message
-            : String(err)
-      return { ok: false, scope, reason }
-    }
-    // Re-stamp with our aud so `inheritAud` rpc: permissions inherit it on
-    // expansion (no-op for aud-less repo: permissions).
-    const bound = IncludeScope.fromString(`include:${inc.nsid}?aud=${encodeURIComponent(aud)}`)
-    const expanded = (bound ?? inc).toScopes(set)
-    if (expanded.length === 0) {
-      return { ok: false, scope, reason: 'permission set expanded to no scopes' }
-    }
-    out.push(...expanded)
   }
   return { ok: true, scopes: out }
 }

@@ -1,0 +1,62 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.admin.setOwner",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Reassign a group's owner. Operator-only: authenticated with HTTP Basic auth (username \"admin\") against the service CGS_ADMIN_PASSWORD, not group membership. The previous owner is demoted to admin. The new owner is promoted in place if already a member, or added as a new owner member if not — supporting operator recovery when the incumbent owner is unavailable.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repo", "newOwner"],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the target group."
+            },
+            "newOwner": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the member to make owner."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid", "owner", "updatedAt"],
+          "properties": {
+            "groupDid": { "type": "string", "format": "did" },
+            "owner": { "type": "string", "format": "did" },
+            "previousOwner": {
+              "type": "string",
+              "format": "did",
+              "description": "The DID demoted from owner to admin, if there was one."
+            },
+            "noop": {
+              "type": "boolean",
+              "description": "True when newOwner was already the owner and nothing changed."
+            },
+            "addedAsMember": {
+              "type": "boolean",
+              "description": "True when newOwner was not previously a member and was added as a new owner member."
+            },
+            "updatedAt": { "type": "string", "format": "datetime" }
+          }
+        }
+      },
+      "errors": [
+        { "name": "Unauthorized" },
+        {
+          "name": "InvalidRequest",
+          "description": "newOwner is a malformed DID or an unresolvable handle."
+        },
+        { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." }
+      ]
+    }
+  }
+}

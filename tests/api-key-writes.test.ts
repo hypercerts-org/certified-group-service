@@ -1,7 +1,7 @@
 /**
  * Handler-level tests: an API key with the right repo:/blob: scope can perform
  * PDS-repo writes; an under-scoped key is denied; and the RBAC role check still
- * applies underneath (own-vs-any follows the issuing owner's role, since repo:
+ * applies underneath (own-vs-any follows the issuing member's role, since repo:
  * scopes have no ownership axis).
  */
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -131,6 +131,17 @@ describe('API-key writes — role still enforced under the scope (own vs any)', 
       .post(`/xrpc/com.atproto.repo.deleteRecord?repo=${GROUP}`)
       .send(delBody('other1'))
     expect(res.status).toBe(403)
+  })
+
+  it("an admin-issued key can delete another member's record when scope covers delete", async () => {
+    await seedMember(groupDb, 'did:plc:admin', 'admin')
+    const uri = `at://${GROUP}/${POST}/other2`
+    await seedAuthorship(groupDb, uri, 'did:plc:someoneelse', POST)
+    ctx.authVerifier = apiKeyAuth([`repo:${POST}?action=delete`], 'did:plc:admin')
+    const res = await request(app())
+      .post(`/xrpc/com.atproto.repo.deleteRecord?repo=${GROUP}`)
+      .send(delBody('other2'))
+    expect(res.status).toBe(200)
   })
 })
 

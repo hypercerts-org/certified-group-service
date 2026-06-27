@@ -64,10 +64,16 @@ function requireServiceDid(): string {
  * service-entry PLC op. A direct call resolves the group from the `repo`
  * param (querystring for queries, body for procedures) and never touches PDS
  * DID-document caching.
+ *
+ * `groupDid` is optional: service-level methods (e.g. groups.membership.list,
+ * which lists the caller's own groups) name no target group. When it is
+ * undefined, no `repo` is sent — the service resolves the caller from the JWT
+ * `iss` alone. When present, `repo` is forced LAST so caller-supplied
+ * params/body can never override the routing target.
  */
 export async function callGroupService(
   userDid: string,
-  groupDid: string,
+  groupDid: string | undefined,
   nsid: string,
   opts: { method: 'GET' | 'POST'; params?: Record<string, string>; body?: Record<string, unknown> },
 ): Promise<GroupServiceResult> {
@@ -78,12 +84,13 @@ export async function callGroupService(
   // Prove the caller controls userDid; aud = service DID, lxm = the method.
   const serviceAuth = await agent.com.atproto.server.getServiceAuth({ aud, lxm: nsid })
 
-  // The group is always identified by `repo`: querystring for queries, body for
+  // The group is identified by `repo`: querystring for queries, body for
   // procedures (matches the group service's verifier, which reads repo before
-  // the body is parsed for queries). Force repo = groupDid LAST so a caller's
-  // params/body can never override the routing target.
-  const query = new URLSearchParams({ ...(opts.params ?? {}), repo: groupDid }).toString()
-  const url = `${GROUP_SERVICE_URL.replace(/\/$/, '')}/xrpc/${nsid}?${query}`
+  // the body is parsed for queries). Omitted for service-level methods.
+  const params = new URLSearchParams(opts.params ?? {})
+  if (groupDid) params.set('repo', groupDid) // forced last — wins over caller params
+  const query = params.toString()
+  const url = `${GROUP_SERVICE_URL.replace(/\/$/, '')}/xrpc/${nsid}${query ? `?${query}` : ''}`
 
   const headers: Record<string, string> = { Authorization: `Bearer ${serviceAuth.data.token}` }
   let requestBody: string | undefined
@@ -92,7 +99,7 @@ export async function callGroupService(
     // Include repo in the body too so procedure handlers that read input.body.repo
     // resolve the same group (the confused-deputy guard requires body == querystring).
     // repo is forced last so a caller-supplied repo cannot override groupDid.
-    requestBody = JSON.stringify({ ...(opts.body ?? {}), repo: groupDid })
+    requestBody = JSON.stringify(groupDid ? { ...(opts.body ?? {}), repo: groupDid } : (opts.body ?? {}))
   }
 
   return fetchUpstream(url, { method: opts.method, headers, body: requestBody })

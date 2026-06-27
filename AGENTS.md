@@ -27,7 +27,7 @@ contributor-facing.
 - **PDS agent auto-retry**: `PdsAgentPool.withAgent()` silently re-authenticates on 401/expired token and retries once. Don't add your own retry around it.
 - **Nonce TTL is 2 minutes**, hardcoded. JWTs with longer expiry can be replayed after the nonce window closes.
 - **Blob uploads** read the raw request stream into memory (not streamed to PDS). Route registration order matters: `registerRawRoutes` (uploadBlob) is mounted before `express.json()`, `registerJsonRoutes` after. New raw-stream routes go in `registerRawRoutes`.
-- **Owner is created only** via `group.register` (seeds DB) and is immutable thereafter: `role.set` rejects both promoting to owner and modifying an existing owner, and `member.remove` rejects removing an owner. `member.add` caps at admin. Ownership transfer is a separate, not-yet-implemented operation.
+- **Owner is created only** at group bootstrap — `group.register` and `group.import` both seed it via the shared `finalizeGroup` (`memberIndex.add(..., 'owner', ...)`) — and is immutable through the member-facing API: `role.set` rejects both promoting to owner and modifying an existing owner, `member.remove` rejects removing an owner, and `member.add` caps at admin. The **one** exception is the operator-only `app.certified.group.admin.setOwner` (HTTP Basic auth, `CGS_ADMIN_PASSWORD`), which reassigns ownership in-process via `MemberIndex.transferOwner` (demotes the old owner to admin; promotes the new owner in place, or adds them as a new owner member if they aren't a member yet — the break-glass case where the incumbent owner is unavailable). A member-initiated, accept-to-confirm ownership transfer is still not implemented.
 - **Record authorship is immutable**: `onConflict(...).doNothing()` preserves original author on putRecord. Used to gate cross-author mutations — only admins can `putAnyRecord` or `deleteAnyRecord`; members can only edit/delete records they authored.
 - **Profile edits** (`app.bsky.actor.profile` + rkey `self`) use a special operation `putRecord:profile` requiring admin, regardless of authorship.
 - **`datetime('now')` is step-stable, not transaction-stable**: each `prepare().run()` maps to a separate `sqlite3_step()`, so two INSERTs in the same transaction can produce different timestamps. When the same timestamp must appear in multiple tables, read it back from the first INSERT and reuse it.
@@ -80,14 +80,14 @@ feature), add tests for other code to compensate.
 
 ## Coverage Summary
 
-Baseline as of this document (421 tests across 36 files):
+Baseline as of this document (473 tests across 37 files):
 
 | Metric     | Coverage | Threshold |
 | ---------- | -------- | --------- |
-| Statements | 94.38%   | 94        |
-| Branches   | 91%      | 91        |
-| Functions  | 92.54%   | 92        |
-| Lines      | 94.38%   | 94        |
+| Statements | 94.83%   | 94        |
+| Branches   | 91.73%   | 91        |
+| Functions  | 93.06%   | 93        |
+| Lines      | 94.83%   | 94        |
 
 ### Known gaps (highest impact first)
 

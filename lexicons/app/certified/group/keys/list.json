@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "List API keys issued for the group. Owner-only. Never returns the secret or its hash.",
+      "description": "List API keys issued for the group. Members see only their own keys; owners see all keys. JWT only; API keys cannot list keys. Never returns the secret or its hash.",
       "parameters": {
         "type": "params",
         "properties": {

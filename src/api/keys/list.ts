@@ -19,8 +19,10 @@ export default function (server: Server, ctx: AppContext) {
       }
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      // Owner-only. An apiKey caller is denied (keys.list has no scope mapping).
-      await assertCanWithAudit(ctx, groupDb, callerDid, 'keys.list', undefined, {
+      // Any group member may list their own keys; owners can list every key in
+      // the group. API-key callers are denied (keys.list has no scope mapping),
+      // so long-lived keys cannot enumerate keys.
+      const callerRole = await assertCanWithAudit(ctx, groupDb, callerDid, 'keys.list', undefined, {
         authKind,
         scopes,
         apiKeyRef,
@@ -47,6 +49,9 @@ export default function (server: Server, ctx: AppContext) {
 
       if (!includeRevoked) {
         query = query.where('revoked_at', 'is', null)
+      }
+      if (callerRole !== 'owner') {
+        query = query.where('created_by', '=', callerDid)
       }
 
       // Cursor: base64 of "created_at::key_ref" (matches the sort).

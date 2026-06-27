@@ -10,7 +10,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('name', 'text', (col) => col.notNull())
     // JSON array of @atproto/oauth-scopes scope strings.
     .addColumn('scopes', 'text', (col) => col.notNull())
-    // Owner DID that minted the key.
+    // Member DID that minted the key.
     .addColumn('created_by', 'text', (col) => col.notNull())
     .addColumn('created_at', 'text', (col) => col.defaultTo(sql`(datetime('now'))`).notNull())
     // Best-effort last-use timestamp; null until first use.

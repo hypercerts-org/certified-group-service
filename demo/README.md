@@ -36,7 +36,7 @@ key's scopes can actually authorize:
 - `repo.createRecord` / `repo.putRecord` / `repo.deleteRecord` — `repo:`-scoped
   writes, proxied to the group's PDS.
 
-Owner-only methods (`keys.*`, `role.set`, `member.add`/`remove`, `group.register`)
+JWT-only management methods (`keys.*`, `role.set`, `member.add`/`remove`, `group.register`)
 carry no key scope and so are omitted; `uploadBlob` is omitted too, as it takes a
 raw binary stream rather than a JSON body (use the **Upload** page for blobs).
 

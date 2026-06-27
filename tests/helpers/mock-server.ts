@@ -242,7 +242,37 @@ export function mockAuth(iss: string, aud: string = 'did:plc:testgroup') {
         return { credentials: { callerDid: iss } }
       }
     },
+    xrpcAdminAuth() {
+      return mockAdminVerifier()
+    },
   } as any
+}
+
+/** Password the mock admin verifier accepts (Basic admin:TEST_ADMIN_PASSWORD). */
+export const TEST_ADMIN_PASSWORD = 'test-admin-pass'
+
+/**
+ * Admin-auth verifier for tests: HTTP Basic, user `admin`, password
+ * TEST_ADMIN_PASSWORD. Mirrors the real verifier's accept/reject behaviour so
+ * admin-endpoint tests can exercise the unauthenticated and bad-credential
+ * paths without standing up a full AuthVerifier.
+ */
+export function mockAdminVerifier() {
+  return async ({ req }: { req: any }) => {
+    const { AuthRequiredError } = await import('@atproto/xrpc-server')
+    const header: string | undefined = req.headers?.authorization
+    if (!header?.startsWith('Basic ')) {
+      throw new AuthRequiredError('Missing admin credentials')
+    }
+    const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8')
+    const sep = decoded.indexOf(':')
+    const username = sep === -1 ? decoded : decoded.slice(0, sep)
+    const password = sep === -1 ? '' : decoded.slice(sep + 1)
+    if (username !== 'admin' || password !== TEST_ADMIN_PASSWORD) {
+      throw new AuthRequiredError('Invalid admin credentials')
+    }
+    return { credentials: { type: 'admin' } }
+  }
 }
 
 /**
@@ -277,6 +307,9 @@ export function mockAuthNewPath(iss: string, group: string = 'did:plc:testgroup'
         const { iss: callerDid } = await this.verifyServiceAuth(req)
         return { credentials: { callerDid } }
       }
+    },
+    xrpcAdminAuth() {
+      return mockAdminVerifier()
     },
   } as any
 }

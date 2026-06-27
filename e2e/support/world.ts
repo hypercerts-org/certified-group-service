@@ -33,6 +33,8 @@ export class CgsWorld extends World implements HttpSink {
   /** API key plaintext + ref carried between create → use → revoke steps (#26). */
   apiKey?: string
   apiKeyRef?: string
+  ownerApiKeyRef?: string
+  memberApiKeyRef?: string
 
   get env() {
     return testEnv

@@ -82,6 +82,36 @@ export const proxyGet = (nsid: string, params: Record<string, string>) => {
   return request(`/proxy/${nsid}?${qs}`)
 }
 
+// --- My groups ---
+// The groups the logged-in user belongs to. This is the one group-service call
+// that names no target group: the service scopes it to the caller's own DID
+// (from the service-auth JWT `iss`), so no `groupDid` is sent.
+
+export interface MyGroup {
+  groupDid: string
+  role: string
+  joinedAt: string
+}
+
+/**
+ * List the caller's group memberships, following the cursor to return every
+ * page. The demo's group counts are small, so eager pagination keeps callers
+ * simple; revisit if a user can belong to hundreds of groups.
+ */
+export const listMyGroups = async (): Promise<MyGroup[]> => {
+  const out: MyGroup[] = []
+  let cursor: string | undefined
+  do {
+    const res: { groups: MyGroup[]; cursor?: string } = await proxyGet(
+      'app.certified.groups.membership.list',
+      cursor ? { cursor } : {},
+    )
+    out.push(...(res.groups ?? []))
+    cursor = res.cursor
+  } while (cursor)
+  return out
+}
+
 // --- API keys ---
 // Management (create / list / delete) is owner-authed, so it goes through the
 // normal atproto-proxy BFF route like any other group XRPC method.

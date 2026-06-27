@@ -170,11 +170,11 @@ that surface is exactly: `member.list`, `audit.query` (rpc), the `repo:` write
 actions, and `uploadBlob` (blob).
 
 Consequently **no scope or set** can grant key administration (`keys.create`,
-`keys.delete`) or membership administration (`member.add`, `member.remove`,
-`role.set`) — deliberately not key-accessible (iteration-1 design; see the
-`keys.create` handler comment "a key cannot mint keys"). An `include:`-minted key
-is bounded by this just like an explicitly-scoped one: it cannot escalate by
-minting more keys nor alter the member roster.
+`keys.list`, `keys.delete`) or membership administration (`member.add`,
+`member.remove`, `role.set`) — deliberately not key-accessible (see the
+`keys.create` handler comment "a long-lived key cannot mint more keys"). An
+`include:`-minted key is bounded by this just like an explicitly-scoped one: it
+cannot escalate by minting more keys nor alter the member roster.
 
 Also CGS-specific: a key is bound to **one group** by storage (minted against the
 request's `repo`, stored in that group's per-group DB, only resolved under that

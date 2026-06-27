@@ -21,7 +21,7 @@ describe('assertCanWithAudit — API-key scope gate', () => {
     const test = await createTestContext()
     ctx = test.ctx
     groupDb = test.groupDb
-    // The key acts as its issuing owner; seed that owner as a member.
+    // The key acts as its issuing member; seed that issuer as a member.
     await seedMember(groupDb, 'did:plc:owner', 'owner')
   })
 
@@ -41,7 +41,7 @@ describe('assertCanWithAudit — API-key scope gate', () => {
         undefined,
         apiKeyPrincipal([MEMBER_LIST_SCOPE]),
       ),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('owner')
   })
 
   it('denies (and audits) when the key lacks the required scope', async () => {
@@ -122,13 +122,13 @@ describe('assertCanWithAudit — API-key scope gate', () => {
       assertCanWithAudit(ctx, groupDb, 'did:plc:owner', 'member.list', undefined, {
         authKind: 'jwt',
       }),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('owner')
   })
 
   it('omitting the principal behaves like a JWT caller (back-compat)', async () => {
-    await expect(
-      assertCanWithAudit(ctx, groupDb, 'did:plc:owner', 'member.list'),
-    ).resolves.toBeUndefined()
+    await expect(assertCanWithAudit(ctx, groupDb, 'did:plc:owner', 'member.list')).resolves.toBe(
+      'owner',
+    )
   })
 
   // --- PDS-repo write ops gated by repo: scopes (collection+action) ---
@@ -146,7 +146,7 @@ describe('assertCanWithAudit — API-key scope gate', () => {
         detailFor(POST),
         apiKeyPrincipal([`repo:${POST}?action=create`]),
       ),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('owner')
   })
 
   it('denies createRecord on a collection the repo: scope does not cover', async () => {
@@ -205,9 +205,9 @@ describe('assertCanWithAudit — API-key scope gate', () => {
     const del = apiKeyPrincipal([`repo:${POST}?action=delete`])
     await expect(
       assertCanWithAudit(ctx, groupDb, 'did:plc:owner', 'deleteOwnRecord', detailFor(POST), del),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('owner')
     await expect(
       assertCanWithAudit(ctx, groupDb, 'did:plc:owner', 'deleteAnyRecord', detailFor(POST), del),
-    ).resolves.toBeUndefined()
+    ).resolves.toBe('owner')
   })
 })

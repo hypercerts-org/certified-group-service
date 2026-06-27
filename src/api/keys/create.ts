@@ -1,5 +1,6 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
+import { ForbiddenError } from '../../errors.js'
 import type { AppContext } from '../../context.js'
 import {
   registerAuthedMethod,
@@ -9,7 +10,11 @@ import {
   sqliteToIso,
 } from '../util.js'
 import { generateApiKey } from '../../auth/api-key.js'
-import { canonicalizeScopes, expandIncludes } from '../../auth/scopes.js'
+import {
+  canonicalizeScopes,
+  expandIncludes,
+  validateScopesAllowedForRole,
+} from '../../auth/scopes.js'
 
 export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.keys.create', ctx, {
@@ -30,11 +35,32 @@ export default function (server: Server, ctx: AppContext) {
         throw new XRPCError(400, 'At least one scope is required', 'InvalidRequest')
       }
 
+      const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
+      const groupDb = ctx.groupDbs.get(groupDid)
+
+      // Any group member may mint their own API keys. Passing the principal
+      // means an apiKey caller is still rejected here: keys.create has no scope
+      // mapping, so a long-lived key cannot mint more keys.
+      const callerRole = await assertCanWithAudit(
+        ctx,
+        groupDb,
+        callerDid,
+        'keys.create',
+        undefined,
+        {
+          authKind,
+          scopes: callerScopes,
+          apiKeyRef,
+        },
+      )
+
       // Expand any `include:<nsid>` permission-set scopes to the concrete
       // `rpc:`/`repo:` scopes they bundle (resolved via Lexicon resolution), then
-      // canonicalize. A key stores only concrete scopes — the `include:` is a
-      // create-time convenience and is never persisted. Non-`include:` scopes
-      // pass through untouched.
+      // canonicalize. This intentionally happens after authorization so API-key
+      // callers and non-members are rejected before any external DNS/PDS work.
+      // A key stores only concrete scopes — the `include:` is a create-time
+      // convenience and is never persisted. Non-`include:` scopes pass through
+      // untouched.
       const expanded = await expandIncludes(scopes, ctx.config.serviceDid, ctx.permissionSets)
       if (!expanded.ok) {
         throw new XRPCError(
@@ -55,17 +81,16 @@ export default function (server: Server, ctx: AppContext) {
       }
       const storedScopes = canon.scopes
 
-      const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
-      const groupDb = ctx.groupDbs.get(groupDid)
-
-      // Owner-only. Passing the principal means an apiKey caller is rejected here
-      // too: keys.create has no scope mapping, so the scope check denies it — a
-      // key cannot mint keys in iteration 1.
-      await assertCanWithAudit(ctx, groupDb, callerDid, 'keys.create', undefined, {
-        authKind,
-        scopes: callerScopes,
-        apiKeyRef,
-      })
+      const roleValidation = validateScopesAllowedForRole(storedScopes, callerRole)
+      if (!roleValidation.ok) {
+        await ctx.audit.log(groupDb, callerDid, 'keys.create', 'denied', {
+          name,
+          scopes: storedScopes,
+          rejectedScope: roleValidation.scope,
+          reason: roleValidation.reason,
+        })
+        throw new ForbiddenError(roleValidation.reason)
+      }
 
       const key = generateApiKey()
 

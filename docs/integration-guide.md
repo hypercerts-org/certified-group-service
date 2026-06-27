@@ -671,18 +671,18 @@ rationale (unsigned `repo`, the resolution round-trip, security), see
 
 A service-auth JWT is short-lived (≤ 2 minutes) and single-use — correct for
 interactive, per-request access, but a poor fit for a **backend daemon** that wants
-to poll group data indefinitely without holding the owner's signing key. For that,
-an owner can issue a long-lived, scope-limited **API key**.
+to poll group data indefinitely without holding a member's signing key. For that,
+any group member can issue their own long-lived, scope-limited **API key**.
 
 The flow (the platform backend-sync example):
 
-1. **Owner mints a key** (one-time, with a normal owner JWT). The plaintext is
+1. **Member mints a key** (one-time, with that member's normal JWT). The plaintext is
    returned exactly once — store it in your backend secret store.
 
    ```typescript
    const { data } = await fetch(`${GROUP_SERVICE}/xrpc/app.certified.group.keys.create`, {
      method: 'POST',
-     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ownerJwt}` },
+     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${memberJwt}` },
      body: JSON.stringify({
        repo: groupDid,
        name: 'platform backend',
@@ -709,8 +709,8 @@ The flow (the platform backend-sync example):
 3. **Revoke if leaked** — `app.certified.group.keys.delete { repo, keyRef }`. The
    key is rejected on its next use.
 
-A key is constrained by **both** its scopes and the role of the owner that issued it,
-and can only reach operations it is scoped for. A key can never manage keys.
+A key is constrained by **both** its scopes and the current role of the member who issued it,
+and can only reach operations it is scoped for. `keys.create` rejects scopes the caller's current role cannot use (for example, a plain member cannot mint an `audit.query` key). Demoting or removing that member automatically caps or disables their existing keys. A key can never manage keys.
 
 **Writes, too.** Keys aren't read-only: scope a key with `repo:<collection>?action=create|update|delete` to create/update/delete records, or `blob:<accept>` (e.g. `blob:image/*`) to upload blobs. Write calls are procedures, so put `repo` on the **querystring** as well as in the body (API-key auth resolves the group before the body is parsed):
 
@@ -728,7 +728,7 @@ await fetch(`${GROUP_SERVICE}/xrpc/app.certified.group.repo.createRecord?repo=${
 })
 ```
 
-A `repo:` scope picks the collection + action; the issuing owner's **role** still decides whose records may be touched — a member-issued key can only mutate records that member authored (`repo:` scopes have no own-vs-any axis). Storing a narrowly-scoped key is far less sensitive than holding the owner's signing key. See `docs/design/api-keys.md`.
+A `repo:` scope picks the collection + action; the issuing member's **role** still decides whose records may be touched — a member-issued key can only mutate records that member authored (`repo:` scopes have no own-vs-any axis). Storing a narrowly-scoped key is far less sensitive than holding a member's signing key. See `docs/design/api-keys.md`.
 
 ### Permission sets: granting whole namespaces at once
 
