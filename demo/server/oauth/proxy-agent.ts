@@ -86,9 +86,13 @@ export async function callGroupService(
 
   // The group is identified by `repo`: querystring for queries, body for
   // procedures (matches the group service's verifier, which reads repo before
-  // the body is parsed for queries). Omitted for service-level methods.
+  // the body is parsed for queries). `repo` is always owned by this function:
+  // strip any caller-supplied value, then set it from groupDid. For a groupless
+  // (service-level) method that leaves no repo at all, so the caller cannot
+  // smuggle a target group back into a JWT-`iss`-only request.
   const params = new URLSearchParams(opts.params ?? {})
-  if (groupDid) params.set('repo', groupDid) // forced last — wins over caller params
+  params.delete('repo')
+  if (groupDid) params.set('repo', groupDid)
   const query = params.toString()
   const url = `${GROUP_SERVICE_URL.replace(/\/$/, '')}/xrpc/${nsid}${query ? `?${query}` : ''}`
 
@@ -98,8 +102,10 @@ export async function callGroupService(
     headers['Content-Type'] = 'application/json'
     // Include repo in the body too so procedure handlers that read input.body.repo
     // resolve the same group (the confused-deputy guard requires body == querystring).
-    // repo is forced last so a caller-supplied repo cannot override groupDid.
-    requestBody = JSON.stringify(groupDid ? { ...(opts.body ?? {}), repo: groupDid } : (opts.body ?? {}))
+    const body: Record<string, unknown> = { ...(opts.body ?? {}) }
+    delete body.repo
+    if (groupDid) body.repo = groupDid
+    requestBody = JSON.stringify(body)
   }
 
   return fetchUpstream(url, { method: opts.method, headers, body: requestBody })
