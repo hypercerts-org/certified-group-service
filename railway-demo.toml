@@ -20,6 +20,11 @@
 [build]
 builder = "dockerfile"
 dockerfilePath = "demo/Dockerfile"
+# Only redeploy when something the demo image actually builds from changes.
+# The Dockerfile copies only demo/* (repo root is the build context), so a
+# change elsewhere in the repo — e.g. the group service under src/ — must not
+# rebuild the demo. Include this config file so deploy-config edits redeploy.
+watchPatterns = ["demo/**", "railway-demo.toml"]
 
 [deploy]
 healthcheckPath = "/api/health"
