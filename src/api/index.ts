@@ -18,6 +18,7 @@ import keysCreate from './keys/create.js'
 import keysList from './keys/list.js'
 import keysDelete from './keys/delete.js'
 import adminSetOwner from './admin/setOwner.js'
+import adminBackfillAuthorship from './admin/backfillAuthorship.js'
 
 export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   createRecord(server, ctx)
@@ -37,4 +38,5 @@ export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   keysList(server, ctx)
   keysDelete(server, ctx)
   adminSetOwner(server, ctx)
+  adminBackfillAuthorship(server, ctx)
 }

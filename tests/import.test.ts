@@ -95,6 +95,96 @@ describe('group.import', () => {
     expect(owner!.role).toBe('owner')
   })
 
+  it('rehydrates the authorship index from repo sidecar records', async () => {
+    // A group migrating from another CGS instance arrives with
+    // app.certified.group.authorship sidecars already in its repo — the repo
+    // is the source of truth, and import rebuilds the internal index from it.
+    const listRecords = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: {
+          records: [
+            {
+              uri: 'at://did:plc:existingaccount/app.certified.group.authorship/app.bsky.feed.post:aaa',
+              value: {
+                $type: 'app.certified.group.authorship',
+                subject: 'at://did:plc:existingaccount/app.bsky.feed.post/aaa',
+                author: 'did:plc:alice',
+                createdAt: '2025-06-01T12:00:00.000Z',
+              },
+            },
+            {
+              // malformed — skipped without failing the import
+              uri: 'at://did:plc:existingaccount/app.certified.group.authorship/junk',
+              value: { note: 'not an authorship record' },
+            },
+          ],
+          cursor: 'page2',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          records: [
+            {
+              uri: 'at://did:plc:existingaccount/app.certified.group.authorship/app.bsky.feed.post:bbb',
+              value: {
+                subject: 'at://did:plc:existingaccount/app.bsky.feed.post/bbb',
+                author: 'did:plc:bob',
+              },
+            },
+          ],
+        },
+      })
+    vi.mocked(AtpAgent).mockImplementationOnce(
+      () =>
+        ({
+          login: vi.fn().mockResolvedValue(undefined),
+          com: { atproto: { repo: { listRecords } } },
+        }) as any,
+    )
+
+    const res = await request(app).post(ENDPOINT).send(validBody)
+    expect(res.status).toBe(200)
+
+    const rows = await groupDb
+      .selectFrom('group_record_authors')
+      .selectAll()
+      .orderBy('record_uri', 'asc')
+      .execute()
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({
+      record_uri: 'at://did:plc:existingaccount/app.bsky.feed.post/aaa',
+      author_did: 'did:plc:alice',
+      collection: 'app.bsky.feed.post',
+      // Original creation time preserved from the sidecar (SQLite format)
+      created_at: '2025-06-01 12:00:00',
+    })
+    expect(rows[1]).toMatchObject({
+      record_uri: 'at://did:plc:existingaccount/app.bsky.feed.post/bbb',
+      author_did: 'did:plc:bob',
+      collection: 'app.bsky.feed.post',
+    })
+    expect(listRecords).toHaveBeenCalledTimes(2)
+  })
+
+  it('import succeeds even when sidecar rehydration fails', async () => {
+    vi.mocked(AtpAgent).mockImplementationOnce(
+      () =>
+        ({
+          login: vi.fn().mockResolvedValue(undefined),
+          com: {
+            atproto: {
+              repo: { listRecords: vi.fn().mockRejectedValue(new Error('boom')) },
+            },
+          },
+        }) as any,
+    )
+
+    const res = await request(app).post(ENDPOINT).send(validBody)
+    expect(res.status).toBe(200)
+    expect(res.body.groupDid).toBe('did:plc:existingaccount')
+  })
+
   it('stores the resolved PDS url, not the configured group PDS', async () => {
     // Resolve the account to a different PDS than config.groupPdsUrl
     const test = await createTestContext({

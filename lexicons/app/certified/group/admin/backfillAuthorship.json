@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.admin.backfillAuthorship",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Write app.certified.group.authorship sidecar records into the group's repo for every internally-tracked record author that does not yet have one. Operator-only: authenticated with HTTP Basic auth (username \"admin\") against the service CGS_ADMIN_PASSWORD, not group membership. Idempotent — sidecars already present in the repo are skipped.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repo"],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the group to backfill."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid", "created", "alreadyPresent", "total"],
+          "properties": {
+            "groupDid": { "type": "string", "format": "did" },
+            "created": {
+              "type": "integer",
+              "description": "Number of sidecar records written by this call."
+            },
+            "alreadyPresent": {
+              "type": "integer",
+              "description": "Number of sidecar records that already existed in the repo."
+            },
+            "total": {
+              "type": "integer",
+              "description": "Total internally-tracked authorship rows considered."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "Unauthorized" },
+        { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." }
+      ]
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.authorship",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Attribution sidecar written by a group service: records which group member authored a record in the group's repository. Written in the same commit as the subject record, with rkey '<subject-collection>:<subject-rkey>' (or the sha256 hex of that string when it would exceed 512 characters), so attribution for a known record is a direct getRecord away. This collection is service-managed — direct writes through the group service's record endpoints are rejected.",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["subject", "author", "createdAt"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The record this attribution describes."
+          },
+          "author": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the group member who created the subject record."
+          },
+          "via": {
+            "type": "string",
+            "description": "Reference of the API key that performed the write, when the record was created by a key-authenticated daemon rather than an interactive member session."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When the subject record was created."
+          }
+        }
+      }
+    }
+  }
+}

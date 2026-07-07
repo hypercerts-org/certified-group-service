@@ -223,13 +223,48 @@ These endpoints proxy requests to the group's backing PDS after authentication a
 
 Each record operation accepts both the standard AT Protocol NSID and a custom alias. For example, `com.atproto.repo.createRecord` and `app.certified.group.repo.createRecord` are interchangeable. The custom NSIDs are useful when the client's PDS needs an explicit lexicon to route via `atproto-proxy`.
 
+### Record authorship (public attribution)
+
+Every record created through the service is publicly attributed to the member
+who wrote it: an `app.certified.group.authorship` sidecar record is written
+into the group's repo in the **same commit** as the record itself, containing
+the subject's at-uri, the author's DID, an optional `via` (API-key ref, for
+daemon-written records), and a timestamp.
+
+Attribution is read straight from the group's repo — no group-service API is
+involved, so any atproto client, AppView, or firehose consumer can use it:
+
+```bash
+# Who authored at://<group>/app.bsky.feed.post/3abc123 ?
+curl "https://pds.example.com/xrpc/com.atproto.repo.getRecord?repo=did:plc:group123&collection=app.certified.group.authorship&rkey=app.bsky.feed.post:3abc123"
+```
+
+The sidecar rkey is deterministic: `<subject-collection>:<subject-rkey>` (or
+the sha256 hex of that string in the rare case it exceeds 512 characters).
+Attribution records the original creator and is never rewritten by later
+edits. Records created before this feature have no sidecar until the operator
+runs [`admin.backfillAuthorship`](#post-xrpcappcertifiedgroupadminbackfillauthorship).
+
+The `app.certified.group.authorship` collection is **service-managed**:
+`createRecord`, `putRecord`, and `deleteRecord` reject it with `400
+InvalidRequest` (a direct write could forge attribution; a direct delete could
+erase it). Sidecars are cleaned up automatically when their subject record is
+deleted.
+
+See [docs/design/record-authorship.md](design/record-authorship.md) for the full design.
+
 ### `POST /xrpc/com.atproto.repo.createRecord`
 
 Alias: `POST /xrpc/app.certified.group.repo.createRecord`
 
-Create a new record in the group's repository.
+Create a new record in the group's repository, together with its
+[authorship sidecar](#record-authorship-public-attribution) (same commit).
 
 **Required role:** member
+
+> `validate: false` is passed through to the PDS; `validate: true` degrades to
+> the default (validate known lexicons), because the commit-wide flag would
+> reject the authorship sidecar's lexicon, which the PDS does not know.
 
 The target group is named by the `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
@@ -259,11 +294,12 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 
 **Errors:**
 
-| Code | Name                   | Description                                            |
-| ---- | ---------------------- | ------------------------------------------------------ |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                 |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
-| 403  | Forbidden              | Caller lacks member role                               |
+| Code | Name                   | Description                                                          |
+| ---- | ---------------------- | -------------------------------------------------------------------- |
+| 400  | InvalidRequest         | `collection` is the service-managed `app.certified.group.authorship` |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                               |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)               |
+| 403  | Forbidden              | Caller lacks member role                                             |
 
 **Example:**
 
@@ -288,7 +324,9 @@ curl -X POST https://group-service.example.com/xrpc/com.atproto.repo.createRecor
 
 Alias: `POST /xrpc/app.certified.group.repo.putRecord`
 
-Update an existing record or create one at a specific key.
+Update an existing record or create one at a specific key. Creating a new
+record also writes its [authorship sidecar](#record-authorship-public-attribution)
+(same commit); updating an existing record leaves its attribution untouched.
 
 **Required role:** Depends on context:
 
@@ -327,11 +365,12 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 
 **Errors:**
 
-| Code | Name                   | Description                                            |
-| ---- | ---------------------- | ------------------------------------------------------ |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                 |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
-| 403  | Forbidden              | Caller lacks required role for this operation          |
+| Code | Name                   | Description                                                          |
+| ---- | ---------------------- | -------------------------------------------------------------------- |
+| 400  | InvalidRequest         | `collection` is the service-managed `app.certified.group.authorship` |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                               |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)               |
+| 403  | Forbidden              | Caller lacks required role for this operation                        |
 
 **Example:**
 
@@ -357,7 +396,9 @@ curl -X POST https://group-service.example.com/xrpc/com.atproto.repo.putRecord \
 
 Alias: `POST /xrpc/app.certified.group.repo.deleteRecord`
 
-Delete a record from the group's repository.
+Delete a record from the group's repository. Its
+[authorship sidecar](#record-authorship-public-attribution), if any, is
+deleted as well.
 
 **Required role:**
 
@@ -386,11 +427,12 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 
 **Errors:**
 
-| Code | Name                   | Description                                            |
-| ---- | ---------------------- | ------------------------------------------------------ |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                 |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
-| 403  | Forbidden              | Caller lacks required role                             |
+| Code | Name                   | Description                                                          |
+| ---- | ---------------------- | -------------------------------------------------------------------- |
+| 400  | InvalidRequest         | `collection` is the service-managed `app.certified.group.authorship` |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                               |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)               |
+| 403  | Forbidden              | Caller lacks required role                                           |
 
 **Example:**
 
@@ -866,21 +908,22 @@ Entries are ordered newest first (`id DESC`). The `detail` field is a JSON objec
 
 Every audited operation produces one of the following `action` strings. Denied operations use the same action value with `"result": "denied"` and an additional `reason` field in `detail`.
 
-| Action              | Trigger                                                           | `detail` fields                                     |
-| ------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
-| `group.register`    | Group created via `app.certified.group.register`                  | `{ handle }`                                        |
-| `group.import`      | Existing account imported via `app.certified.group.import`        | `{ handle }`                                        |
-| `member.add`        | Member added via `member.add`                                     | `{ memberDid, role }`                               |
-| `member.remove`     | Member removed via `member.remove`                                | `{ memberDid }`                                     |
-| `role.set`          | Role changed via `role.set`                                       | `{ memberDid, previousRole, newRole }`              |
-| `admin.setOwner`    | Owner reassigned via the admin `setOwner` endpoint                | `{ newOwner, previousOwner, addedAsMember, noop? }` |
-| `createRecord`      | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
-| `putOwnRecord`      | Caller updated a record they authored                             | `{ collection, rkey }`                              |
-| `putAnyRecord`      | Caller updated another member's record                            | `{ collection, rkey }`                              |
-| `putRecord:profile` | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                              |
-| `deleteOwnRecord`   | Caller deleted a record they authored                             | `{ collection, rkey }`                              |
-| `deleteAnyRecord`   | Caller deleted another member's record                            | `{ collection, rkey }`                              |
-| `uploadBlob`        | Blob uploaded via `uploadBlob`                                    | _(none)_                                            |
+| Action                     | Trigger                                                           | `detail` fields                                     |
+| -------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
+| `group.register`           | Group created via `app.certified.group.register`                  | `{ handle }`                                        |
+| `group.import`             | Existing account imported via `app.certified.group.import`        | `{ handle }`                                        |
+| `member.add`               | Member added via `member.add`                                     | `{ memberDid, role }`                               |
+| `member.remove`            | Member removed via `member.remove`                                | `{ memberDid }`                                     |
+| `role.set`                 | Role changed via `role.set`                                       | `{ memberDid, previousRole, newRole }`              |
+| `admin.setOwner`           | Owner reassigned via the admin `setOwner` endpoint                | `{ newOwner, previousOwner, addedAsMember, noop? }` |
+| `admin.backfillAuthorship` | Authorship sidecars backfilled via the admin endpoint             | `{ created, alreadyPresent }`                       |
+| `createRecord`             | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
+| `putOwnRecord`             | Caller updated a record they authored                             | `{ collection, rkey }`                              |
+| `putAnyRecord`             | Caller updated another member's record                            | `{ collection, rkey }`                              |
+| `putRecord:profile`        | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                              |
+| `deleteOwnRecord`          | Caller deleted a record they authored                             | `{ collection, rkey }`                              |
+| `deleteAnyRecord`          | Caller deleted another member's record                            | `{ collection, rkey }`                              |
+| `uploadBlob`               | Blob uploaded via `uploadBlob`                                    | _(none)_                                            |
 
 **Denied entries** include the same `detail` fields as permitted entries, plus a `reason` string explaining why the operation was denied:
 
@@ -1004,3 +1047,55 @@ curl -X POST https://group-service.example.com/xrpc/app.certified.group.admin.se
 > Because the change is applied in-process (through the same database connection
 > the read paths use), it takes effect immediately — no service restart is
 > needed.
+
+### `POST /xrpc/app.certified.group.admin.backfillAuthorship`
+
+Publish [authorship sidecars](#record-authorship-public-attribution) for
+records created before authorship sidecars existed. For every internally
+tracked record author whose sidecar is missing from the group's repo, an
+`app.certified.group.authorship` record is written (batched, 200 writes per
+commit), preserving the original author DID and creation timestamp.
+
+The operation is **idempotent**: sidecars already present in the repo are
+skipped, so re-running is safe. Backfilled sidecars have no `via` field (the
+API-key ref was not tracked historically).
+
+**Authentication:** HTTP Basic (`admin` / `CGS_ADMIN_PASSWORD`).
+
+**Request body:**
+
+| Field  | Type   | Description                  |
+| ------ | ------ | ---------------------------- |
+| `repo` | string | Target group (handle or DID) |
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "created": 42,
+  "alreadyPresent": 7,
+  "total": 49
+}
+```
+
+- `created` — sidecar records written by this call.
+- `alreadyPresent` — sidecar records that already existed in the repo.
+- `total` — internally tracked authorship rows considered.
+
+**Errors:**
+
+| Code | Name                   | Description                                                                              |
+| ---- | ---------------------- | ---------------------------------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing/invalid Basic credentials, or admin endpoints disabled (no `CGS_ADMIN_PASSWORD`) |
+| 404  | UnknownGroup           | `repo` does not resolve to a managed group                                               |
+| 502  | UpstreamFailure        | The group's PDS rejected the listing or one of the write batches                         |
+
+**Example:**
+
+```bash
+curl -X POST https://group-service.example.com/xrpc/app.certified.group.admin.backfillAuthorship \
+  -u "admin:$CGS_ADMIN_PASSWORD" \
+  -H "Content-Type: application/json" \
+  -d '{"repo":"did:plc:group123"}'
+```

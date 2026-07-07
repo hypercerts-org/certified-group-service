@@ -70,6 +70,33 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
                   cid: 'bafytest',
                 },
               }),
+              // Default: no record exists (putRecord's existence probe treats
+              // RecordNotFound as "new record"). Tests exercising the
+              // legacy-record path override this to resolve.
+              getRecord: async (_params: unknown) => {
+                const { XRPCError } = await import('@atproto/xrpc')
+                throw new XRPCError(400, 'RecordNotFound', 'Could not locate record')
+              },
+              listRecords: async (_params: unknown) => ({
+                data: { records: [] as unknown[] },
+              }),
+              // Echo each write back as a result, the way the real PDS does.
+              applyWrites: async (input: {
+                writes: Array<{ $type: string; collection: string; rkey?: string }>
+              }) => ({
+                data: {
+                  commit: { cid: 'bafycommit', rev: '3testrev' },
+                  results: input.writes.map((w) =>
+                    w.$type === 'com.atproto.repo.applyWrites#delete'
+                      ? { $type: 'com.atproto.repo.applyWrites#deleteResult' }
+                      : {
+                          $type: `${w.$type}Result`,
+                          uri: `at://did:plc:testgroup/${w.collection}/${w.rkey ?? 'generated'}`,
+                          cid: 'bafytest',
+                        },
+                  ),
+                },
+              }),
               uploadBlob: async () => ({
                 data: {
                   blob: {

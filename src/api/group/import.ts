@@ -3,8 +3,9 @@ import { AtpAgent } from '@atproto/api'
 import { ensureValidDid } from '@atproto/syntax'
 import { AuthRequiredError, InvalidRequestError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerServiceAuthMethod, jsonResponse } from '../util.js'
+import { registerServiceAuthMethod, jsonResponse, isoToSqlite } from '../util.js'
 import { finalizeGroup } from './finalize.js'
+import { AUTHORSHIP_COLLECTION } from '../../authorship.js'
 
 /**
  * Require the PDS endpoint resolved from an imported account's DID document to
@@ -134,7 +135,71 @@ export default function (server: Server, ctx: AppContext) {
         handle,
       })
 
+      // Rehydrate the authorship index from any app.certified.group.authorship
+      // sidecar records already present in the repo (e.g. a group migrating
+      // from another CGS instance). The repo is the source of truth for
+      // attribution; group_record_authors is a derived index. Best-effort: a
+      // failure leaves records unattributed (same as pre-sidecar imports) and
+      // must not fail the import.
+      await rehydrateAuthorship(ctx, agent, groupDid)
+
       return jsonResponse({ groupDid, handle })
     },
   })
+}
+
+/**
+ * Scan the imported repo for authorship sidecars and seed the internal
+ * `group_record_authors` index from them, preserving original author and
+ * creation time. Malformed sidecar values are skipped; any failure is logged
+ * and swallowed (the import itself has already succeeded).
+ */
+async function rehydrateAuthorship(
+  ctx: AppContext,
+  agent: AtpAgent,
+  groupDid: string,
+): Promise<void> {
+  try {
+    const groupDb = ctx.groupDbs.get(groupDid)
+    let cursor: string | undefined
+    let rehydrated = 0
+    do {
+      const res = await agent.com.atproto.repo.listRecords({
+        repo: groupDid,
+        collection: AUTHORSHIP_COLLECTION,
+        limit: 100,
+        cursor,
+      })
+      for (const record of res.data.records) {
+        const value = record.value as { subject?: unknown; author?: unknown; createdAt?: unknown }
+        if (typeof value.subject !== 'string' || typeof value.author !== 'string') continue
+        // at://did/collection/rkey → segments [at:, '', did, collection, rkey]
+        const segments = value.subject.split('/')
+        const collection = segments[3]
+        if (segments.length !== 5 || !collection) continue
+        await groupDb
+          .insertInto('group_record_authors')
+          .values({
+            record_uri: value.subject,
+            author_did: value.author,
+            collection,
+            ...(typeof value.createdAt === 'string' && !Number.isNaN(Date.parse(value.createdAt))
+              ? { created_at: isoToSqlite(value.createdAt) }
+              : {}),
+          })
+          .onConflict((oc) => oc.column('record_uri').doNothing())
+          .execute()
+        rehydrated++
+      }
+      cursor = res.data.cursor
+    } while (cursor !== undefined)
+    if (rehydrated > 0) {
+      ctx.logger.info({ groupDid, rehydrated }, 'Rehydrated record authorship from repo sidecars')
+    }
+  } catch (err) {
+    ctx.logger.warn(
+      { err, groupDid },
+      'Could not rehydrate authorship index from repo sidecars; continuing without',
+    )
+  }
 }

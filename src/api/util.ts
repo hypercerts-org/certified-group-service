@@ -98,6 +98,11 @@ export function sqliteToIso(timestamp: string): string {
   return new Date(timestamp + 'Z').toISOString()
 }
 
+/** Convert an ISO 8601 timestamp to SQLite DATETIME format (UTC, no timezone). */
+export function isoToSqlite(iso: string): string {
+  return new Date(iso).toISOString().replace('T', ' ').slice(0, 19)
+}
+
 export function encodeCursor(payload: string): string {
   return Buffer.from(payload).toString('base64')
 }
