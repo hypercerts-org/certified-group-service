@@ -131,8 +131,25 @@ async function importGroup(
 **How import differs from register:**
 
 - The account is **not** created — it already exists, and its DID/handle/repo are reused.
-- The group service holds **no recovery key** for an imported account (unlike registered groups, where it generates one). The owner's own pre-existing account credentials are their credible exit; the service is not a custodian of the account's keys.
+- The group service holds **no recovery key** for an imported account (unlike registered groups, where it generates and retains one). The existing account holder's pre-existing credentials are their credible exit; the service is not a custodian of the account's keys.
 - Import does **not** modify the account's DID document. (Service proxying is not currently relied upon; and an app password cannot perform the PLC operation required to add a service entry. See `docs/design/group-import.md`.)
+
+### Who ultimately controls the account?
+
+The `owner` role controls membership and permissions **inside CGS**. It is not
+necessarily the same as control of the underlying PDS account:
+
+| Control point                     | Created through `group.register`                                                                                                                                                                                        | Existing account brought in through `group.import`                                                                                                                                                                         |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account email                     | A non-deliverable placeholder is used by default. A real recovery email is used only if supplied during registration.                                                                                                   | The existing account's email and recovery arrangements remain under the account holder's control.                                                                                                                          |
+| Primary account password          | CGS generates one internally to create the account, but does **not** return it to the owner.                                                                                                                            | The existing account holder retains the full password.                                                                                                                                                                     |
+| Credential held by CGS            | CGS creates and stores an app password.                                                                                                                                                                                 | The account holder supplies CGS with an app password and can revoke it at any time.                                                                                                                                        |
+| Recovery/rotation key held by CGS | CGS generates and retains the recovery key; it is not delivered to the owner.                                                                                                                                           | None. CGS never receives the existing account's recovery or rotation keys.                                                                                                                                                 |
+| Effective account-level control   | Without a real recovery email, CGS is the only party holding usable account credentials. CGS therefore controls the account-level access path, while the CGS owner and admins govern membership through its RBAC rules. | The holder of the account's email/full password remains the ultimate controller, even if a different DID is assigned the CGS `owner` role. They can recover the account or revoke CGS's app password independently of CGS. |
+
+This distinction should be made explicit in user interfaces: importing delegates
+limited, revocable access to CGS, whereas registration normally makes CGS the
+account custodian unless a deliverable recovery email was supplied.
 
 ## Step 2: Create a proxy agent with custom lexicons
 
