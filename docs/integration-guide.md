@@ -50,7 +50,26 @@ The group service uses **custom NSIDs** for record operations instead of the sta
 
 The custom lexicons are JSON files shipped with the group service under `lexicons/app/certified/`. You must load them into your proxy agent so the `@atproto/api` client recognizes them. See Step 2 below.
 
-## Step 1: Register a group
+## Step 1: Choose how to establish the group account
+
+There are two equal alternatives: have CGS create a new account with `group.register`, or create the account separately and bring it under CGS management with `group.import`. Choose between them based primarily on who should control the underlying PDS account.
+
+The CGS `owner` role controls membership and permissions **inside CGS**. It does not necessarily identify the person who controls the underlying account:
+
+| Control point                     | 1a: CGS creates the account with `group.register`                                                                                                                                                               | 1b: An existing account is added with `group.import`                                                                                                                                                                       |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Starting point                    | CGS provisions a new DID, handle, and repo on the group's PDS.                                                                                                                                                  | The account holder has already created the DID, handle, and repo.                                                                                                                                                          |
+| Account email                     | A non-deliverable placeholder is used by default. A real recovery email is used only if supplied during registration.                                                                                           | The existing account's email and recovery arrangements remain under the account holder's control.                                                                                                                          |
+| Primary account password          | CGS generates one internally to create the account, but does **not** currently return it to the owner.                                                                                                          | The existing account holder retains the full password.                                                                                                                                                                     |
+| Credential held by CGS            | CGS creates and stores an app password.                                                                                                                                                                         | The account holder supplies CGS with an app password and can revoke it at any time.                                                                                                                                        |
+| Recovery/rotation key held by CGS | CGS generates and retains the recovery key; it is not currently delivered to the owner.                                                                                                                         | None. CGS never receives the existing account's recovery or rotation keys.                                                                                                                                                 |
+| Effective account-level control   | Without a real recovery email, CGS is the only party among the group participants holding usable account credentials. CGS controls the account-level access path, while its owner and admins govern membership. | The holder of the account's email/full password remains the ultimate controller, even if a different DID is assigned the CGS `owner` role. They can recover the account or revoke CGS's app password independently of CGS. |
+
+The intended end state is to support transferring **full control of an account created through `group.register`** to the group's CGS owner. This is distinct from merely assigning the CGS `owner` role: the handoff must give that person control of the underlying account's recovery and primary credentials. After such a transfer, the result may be effectively the same as if the owner had created the account themselves and then imported it: the owner ultimately controls the account, while CGS operates through delegated, revocable credentials. This full account-control transfer is not yet supported, so clients must not present the CGS `owner` role as proof of underlying account ownership today.
+
+Both alternatives are **service-scoped** calls: they target the service itself (`aud` = the service DID), not an existing group. This guide invokes them **non-proxied** (the client calls the group service directly), which is the simplest approach. The per-group calls in later steps go through the proxy agent instead.
+
+### Step 1a: Register a new account through CGS
 
 Registration requires a **service auth JWT** proving the caller controls the `ownerDid`. Your BFF obtains this from the user's PDS via `com.atproto.server.getServiceAuth`, then forwards it to the group service.
 
@@ -83,14 +102,12 @@ async function registerGroup(agent: AtpAgent, handle: string, ownerDid: string, 
 
 - `agent` — an `AtpAgent` authenticated to the user's PDS (with their OAuth session).
 - `handle` — alphanumeric with hyphens (e.g. `"my-team"`). Gets suffixed with the PDS hostname automatically.
-- `ownerDid` — the DID of the user who will own this group. Must match the JWT's `iss` claim. They're immediately seeded as the owner.
-- `email` — optional recovery email for the group account. If omitted, a placeholder is generated. Providing a real email enables the forgot-password flow for credible exit.
+- `ownerDid` — the DID of the user who will own this group within CGS. Must match the JWT's `iss` claim. They're immediately seeded with the CGS `owner` role.
+- `email` — optional recovery email for the group account. If omitted, a placeholder is generated. Providing a real email enables the forgot-password flow, but does not yet constitute the full account-control transfer described above.
 
-Registration (and import, below) are **service-scoped** calls — they target the service itself (`aud` = the service DID), not an existing group. This guide invokes them **non-proxied** (the client calls the group service directly), which is the simplest way; the per-group calls in later steps go through the proxy agent instead.
+### Step 1b: Import an existing account
 
-## Step 1b (alternative): Import an existing account
-
-If the account already exists — e.g. a Bluesky/atproto account you want to "promote" to a group rather than creating a fresh one — use `app.certified.group.import` instead of `register`. It reuses the existing DID, handle, and repo.
+If the account already exists — e.g. a Bluesky/atproto account you want to "promote" to a group rather than creating a fresh one — use `app.certified.group.import`. It reuses the existing DID, handle, and repo.
 
 The JWT must be signed by **the account being imported** (`groupDid`), not by the prospective owner: the service authenticates the account granting itself to the group (the grantor), and an app password alone cannot produce that signature. So `agent` below is an authenticated session for the `groupDid` account.
 
@@ -125,31 +142,10 @@ async function importGroup(
 ```
 
 - `groupDid` — the DID of the existing account to import. The group service resolves its PDS and handle from the DID document.
-- `appPassword` — an [app password](https://bsky.app/settings/app-passwords) for that account, so the service can act on its behalf. Stored encrypted; **the owner manages its lifecycle and can revoke it at any time** to sever the service's access.
-- `ownerDid` — the DID seeded as the group's owner. Unlike the JWT issuer (which must be `groupDid`), `ownerDid` is **not** separately authenticated and may differ from `groupDid`: the imported account can hand ownership to a different DID. The recipient is not asked to opt in, so validate it client-side before importing.
+- `appPassword` — an [app password](https://bsky.app/settings/app-passwords) for that account, so the service can act on its behalf. Stored encrypted; the account holder manages its lifecycle and can revoke it at any time to sever the service's access.
+- `ownerDid` — the DID seeded with the CGS `owner` role. Unlike the JWT issuer (which must be `groupDid`), `ownerDid` is **not** separately authenticated and may differ from `groupDid`: the imported account can hand CGS governance to a different DID without transferring the underlying account credentials. The recipient is not asked to opt in, so validate it client-side before importing.
 
-**How import differs from register:**
-
-- The account is **not** created — it already exists, and its DID/handle/repo are reused.
-- The group service holds **no recovery key** for an imported account (unlike registered groups, where it generates and retains one). The existing account holder's pre-existing credentials are their credible exit; the service is not a custodian of the account's keys.
-- Import does **not** modify the account's DID document. (Service proxying is not currently relied upon; and an app password cannot perform the PLC operation required to add a service entry. See `docs/design/group-import.md`.)
-
-### Who ultimately controls the account?
-
-The `owner` role controls membership and permissions **inside CGS**. It is not
-necessarily the same as control of the underlying PDS account:
-
-| Control point                     | Created through `group.register`                                                                                                                                                                                        | Existing account brought in through `group.import`                                                                                                                                                                         |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Account email                     | A non-deliverable placeholder is used by default. A real recovery email is used only if supplied during registration.                                                                                                   | The existing account's email and recovery arrangements remain under the account holder's control.                                                                                                                          |
-| Primary account password          | CGS generates one internally to create the account, but does **not** return it to the owner.                                                                                                                            | The existing account holder retains the full password.                                                                                                                                                                     |
-| Credential held by CGS            | CGS creates and stores an app password.                                                                                                                                                                                 | The account holder supplies CGS with an app password and can revoke it at any time.                                                                                                                                        |
-| Recovery/rotation key held by CGS | CGS generates and retains the recovery key; it is not delivered to the owner.                                                                                                                                           | None. CGS never receives the existing account's recovery or rotation keys.                                                                                                                                                 |
-| Effective account-level control   | Without a real recovery email, CGS is the only party holding usable account credentials. CGS therefore controls the account-level access path, while the CGS owner and admins govern membership through its RBAC rules. | The holder of the account's email/full password remains the ultimate controller, even if a different DID is assigned the CGS `owner` role. They can recover the account or revoke CGS's app password independently of CGS. |
-
-This distinction should be made explicit in user interfaces: importing delegates
-limited, revocable access to CGS, whereas registration normally makes CGS the
-account custodian unless a deliverable recovery email was supplied.
+Import does **not** modify the account's DID document. Service proxying is not currently relied upon, and an app password cannot perform the PLC operation required to add a service entry. See `docs/design/group-import.md`.
 
 ## Step 2: Create a proxy agent with custom lexicons
 
