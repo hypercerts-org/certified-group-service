@@ -52,7 +52,7 @@ The custom lexicons are JSON files shipped with the group service under `lexicon
 
 ## Step 1: Choose how to establish the group account
 
-There are two equal alternatives: have CGS create a new account with `group.register`, or create the account separately and bring it under CGS management with `group.import`. Choose between them based primarily on who should control the underlying PDS account.
+There are two equal alternatives: have CGS create a new account with `group.register`, or create the account separately and bring it under CGS management with `group.import`. Choose between them based primarily on who should _initially_ control the underlying PDS account.
 
 The CGS `owner` role controls membership and permissions **inside CGS**. It does not necessarily identify the person who controls the underlying account:
 
