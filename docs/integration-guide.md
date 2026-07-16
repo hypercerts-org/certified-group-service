@@ -50,7 +50,7 @@ The group service uses **custom NSIDs** for record operations instead of the sta
 
 The custom lexicons are JSON files shipped with the group service under `lexicons/app/certified/`. You must load them into your proxy agent so the `@atproto/api` client recognizes them. See Step 2 below.
 
-## Step 1: Choose how to establish the group account
+## Step 1: Set up the group account
 
 There are two equal alternatives: have CGS create a new account with `group.register`, or create the account separately and bring it under CGS management with `group.import`. Choose between them based primarily on who should _initially_ control the underlying PDS account.
 
