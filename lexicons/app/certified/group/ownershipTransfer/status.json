@@ -35,7 +35,6 @@
       },
       "errors": [
         { "name": "Unauthorized" },
-        { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." },
         {
           "name": "NotPartyToTransfer",
           "description": "The caller is neither the current owner nor the proposed new owner."

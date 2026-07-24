@@ -92,6 +92,24 @@ describe('PendingTransferStore', () => {
     expect(await store.get(groupDb)).not.toBeNull()
   })
 
+  it('clearIfMatches removes the row and returns true on an exact pair match', async () => {
+    await store.propose(groupDb, PROPOSER, RECIPIENT)
+    const matched = await store.clearIfMatches(groupDb, PROPOSER, RECIPIENT)
+    expect(matched).toBe(true)
+    expect(await store.get(groupDb)).toBeNull()
+  })
+
+  it('clearIfMatches leaves a replaced proposal intact and returns false', async () => {
+    // Simulate a concurrent propose replacing the row after it was read: the
+    // original pair no longer matches, so the newer proposal must survive.
+    await store.propose(groupDb, PROPOSER, RECIPIENT)
+    await store.propose(groupDb, PROPOSER, 'did:plc:newrecipient')
+    const matched = await store.clearIfMatches(groupDb, PROPOSER, RECIPIENT)
+    expect(matched).toBe(false)
+    const surviving = await store.get(groupDb)
+    expect(surviving?.recipientDid).toBe('did:plc:newrecipient')
+  })
+
   it('rejects a second physical row (single-row CHECK invariant)', async () => {
     await store.propose(groupDb, PROPOSER, RECIPIENT)
     await expect(

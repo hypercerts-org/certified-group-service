@@ -10,7 +10,7 @@ A group's owner can now hand ownership to another member, who must accept before
 
 **Client app developers:**
 
-- Four new methods under `app.certified.group.ownershipTransfer.*`: `propose`, `accept`, `cancel` (procedures) and `status` (query). See [Ownership transfer](docs/api-reference.md#ownership-transfer) for the contract.
+- Four new methods under `app.certified.group.ownershipTransfer.*`: `propose`, `accept`, `cancel` (procedures) and `status` (query). See [Ownership transfer](../docs/api-reference.md#ownership-transfer) for the contract.
 - `propose` is owner-only; `accept` is callable only by the proposed member; `cancel` and `status` by either party. `status` is deliberately not exposed on `member.list` — a non-party gets `403 NotPartyToTransfer`.
 - All four accept a service-auth JWT or an API key with the matching `rpc:` scope, subject to the caller's role (so a key can only `propose` if issued by the owner).
 - A pending proposal is cleared automatically when ownership or a party's membership changes by another route (`admin.setOwner`, `member.remove`, `role.set`), so a stale proposal can never be accepted to revert those changes.

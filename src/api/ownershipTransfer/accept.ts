@@ -68,7 +68,22 @@ export default function (server: Server, ctx: AppContext) {
         callerDid,
         previousOwner,
       )
-      await ctx.pendingTransfers.clear(groupDb)
+      // Clear only the proposal we actually acted on. If a concurrent propose
+      // replaced the pinned row between reading `pending` above and here, an
+      // unconditional clear would silently wipe that new, unrelated proposal.
+      const stillMatched = await ctx.pendingTransfers.clearIfMatches(
+        groupDb,
+        pending.proposerDid,
+        pending.recipientDid,
+      )
+      if (!stillMatched) {
+        // The transfer above still completed correctly; log so a superseded
+        // proposal isn't lost without a trace.
+        ctx.logger.warn(
+          { groupDid },
+          'pending ownership transfer changed before accept could clear it',
+        )
+      }
 
       await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.accept', 'permitted', {
         newOwner: callerDid,

@@ -22,14 +22,14 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["groupDid", "owner", "previousOwner", "updatedAt"],
+          "required": ["groupDid", "owner", "updatedAt"],
           "properties": {
             "groupDid": { "type": "string", "format": "did" },
             "owner": { "type": "string", "format": "did" },
             "previousOwner": {
               "type": "string",
               "format": "did",
-              "description": "The DID demoted from owner to admin."
+              "description": "The DID demoted from owner to admin. Present whenever the group had an owner before the transfer, which is the normal case; omitted only in the degenerate case of a group with no prior owner."
             },
             "updatedAt": { "type": "string", "format": "datetime" }
           }

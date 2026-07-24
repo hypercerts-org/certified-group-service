@@ -83,9 +83,34 @@ export class PendingTransferStore {
     }
   }
 
-  /** Remove any pending transfer (used by accept, cancel, and on owner change). */
+  /** Remove any pending transfer (used by cancel, and on owner change). */
   async clear(groupDb: Kysely<GroupDatabase>): Promise<void> {
     await groupDb.deleteFrom('pending_ownership_transfer').execute()
+  }
+
+  /**
+   * Remove the pending transfer only if it still matches the exact
+   * `(proposerDid, recipientDid)` pair passed in. Returns true if a row was
+   * deleted, false if none matched — meaning the proposal was replaced or cleared
+   * by a concurrent propose/cancel/invalidation since the caller read it.
+   *
+   * Used by `accept`: an unconditional `clear()` there would delete whatever row
+   * exists at delete time, which — if a concurrent `propose` replaced the pinned
+   * row in the window between the accept handler reading it and clearing it —
+   * would silently wipe the *new*, unrelated proposal. Scoping the delete to the
+   * pair the accept actually acted on avoids that.
+   */
+  async clearIfMatches(
+    groupDb: Kysely<GroupDatabase>,
+    proposerDid: string,
+    recipientDid: string,
+  ): Promise<boolean> {
+    const result = await groupDb
+      .deleteFrom('pending_ownership_transfer')
+      .where('proposer_did', '=', proposerDid)
+      .where('recipient_did', '=', recipientDid)
+      .executeTakeFirst()
+    return Number(result.numDeletedRows ?? 0) > 0
   }
 
   /**

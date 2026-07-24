@@ -758,11 +758,12 @@ promoted to owner atomically; the pending proposal is cleared.
 
 **Errors:**
 
-| Code | Name              | Description                                                             |
-| ---- | ----------------- | ----------------------------------------------------------------------- |
-| 403  | NotProposedOwner  | Caller is not the DID named as the proposed new owner                   |
-| 404  | NoPendingTransfer | No live pending transfer (never proposed, already resolved, or expired) |
-| 404  | UnknownGroup      | `repo` does not resolve to a managed group                              |
+| Code | Name              | Description                                                                               |
+| ---- | ----------------- | ----------------------------------------------------------------------------------------- |
+| 403  | Forbidden         | Caller is not a member of the group (membership is checked before the recipient identity) |
+| 403  | NotProposedOwner  | Caller is a member but not the DID named as the proposed new owner                        |
+| 404  | NoPendingTransfer | No live pending transfer (never proposed, already resolved, or expired)                   |
+| 404  | UnknownGroup      | `repo` does not resolve to a managed group                                                |
 
 ### `POST /xrpc/app.certified.group.ownershipTransfer.cancel`
 
@@ -826,10 +827,10 @@ than shown the details. Returns `pending: false` when there is no live proposal.
 
 **Errors:**
 
-| Code | Name               | Description                                                   |
-| ---- | ------------------ | ------------------------------------------------------------- |
-| 403  | NotPartyToTransfer | A pending transfer exists but the caller is not a party to it |
-| 404  | UnknownGroup       | `repo` does not resolve to a managed group                    |
+| Code | Name               | Description                                                                                     |
+| ---- | ------------------ | ----------------------------------------------------------------------------------------------- |
+| 401  | —                  | `repo` is missing or does not resolve to a managed group (rejected at auth, like `member.list`) |
+| 403  | NotPartyToTransfer | A pending transfer exists but the caller is not a party to it                                   |
 
 ---
 
