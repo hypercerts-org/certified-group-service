@@ -626,7 +626,7 @@ The target group is named by the optional `repo` body field (a handle or DID), w
 }
 ```
 
-The `role` field can be `"member"` or `"admin"`. The owner role is immutable: a member cannot be promoted to owner, and an existing owner's role cannot be changed. Ownership transfer is a separate operation (not yet implemented).
+The `role` field can be `"member"` or `"admin"`. The owner role is immutable through `role.set`: a member cannot be promoted to owner, and an existing owner's role cannot be changed. Ownership transfer is a separate operation — see [Ownership transfer](#ownership-transfer).
 
 **Response (200):**
 
@@ -660,6 +660,173 @@ curl -X POST https://group-service.example.com/xrpc/app.certified.group.role.set
     "role": "admin"
   }'
 ```
+
+---
+
+## Ownership transfer
+
+A group has exactly one owner. Ownership moves through a **two-phase handshake**,
+not a unilateral role change: the current owner _proposes_ a new owner, and the
+proposed owner must _accept_. Requiring the proposed owner to accept proves they
+still control their DID — so a group can never be stranded by handing ownership
+to an account whose keys or recovery are lost. A group holds at most one pending
+proposal at a time, and a proposal lapses if it is not accepted within **7 days**.
+
+Only the two parties (the current owner and the proposed new owner) can see a
+pending transfer; it is deliberately **not** surfaced on `member.list`. All four
+methods are JWT-authenticated and also reachable with an [API key](#authenticating-with-an-api-key)
+carrying the corresponding `rpc:` scope (subject to the caller's role — `propose`
+is owner-only). The target group is named the usual way: `repo` in the body for
+the procedures, on the querystring for the `status` query (see
+[Targeting a group](#targeting-a-group)).
+
+This member-facing flow is distinct from the operator-only
+[`admin.setOwner`](#post-xrpcappcertifiedgroupadminsetowner) break-glass endpoint,
+which reassigns ownership unilaterally when the incumbent owner is unavailable.
+
+### `POST /xrpc/app.certified.group.ownershipTransfer.propose`
+
+Propose transferring ownership to another member. Ownership does not move yet.
+
+**Required role:** owner
+
+The proposed new owner must already be a member (bring in a stranger with
+`member.add` first). A new proposal replaces any existing one.
+
+**Request body:**
+
+```json
+{
+  "repo": "did:plc:group123",
+  "newOwner": "did:plc:newowner"
+}
+```
+
+`newOwner` is a handle or DID.
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "proposedOwner": "did:plc:newowner",
+  "proposedBy": "did:plc:currentowner",
+  "createdAt": "2026-07-24T12:00:00.000Z",
+  "expiresAt": "2026-07-31T12:00:00.000Z"
+}
+```
+
+**Errors:**
+
+| Code | Name           | Description                                             |
+| ---- | -------------- | ------------------------------------------------------- |
+| 400  | InvalidRequest | `newOwner` is a malformed DID or an unresolvable handle |
+| 400  | NotAMember     | The proposed new owner is not a member of the group     |
+| 400  | AlreadyOwner   | The proposed new owner is already the owner             |
+| 403  | Forbidden      | Caller is not the owner                                 |
+| 404  | UnknownGroup   | `repo` does not resolve to a managed group              |
+
+### `POST /xrpc/app.certified.group.ownershipTransfer.accept`
+
+Accept a pending transfer and become the group's owner. **Callable only by the
+proposed new owner.** The previous owner is demoted to admin and the caller
+promoted to owner atomically; the pending proposal is cleared.
+
+**Required role:** the caller must be the proposed new owner (any member role).
+
+**Request body:**
+
+```json
+{
+  "repo": "did:plc:group123"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "owner": "did:plc:newowner",
+  "previousOwner": "did:plc:currentowner",
+  "updatedAt": "2026-07-24T12:05:00.000Z"
+}
+```
+
+**Errors:**
+
+| Code | Name              | Description                                                             |
+| ---- | ----------------- | ----------------------------------------------------------------------- |
+| 403  | NotProposedOwner  | Caller is not the DID named as the proposed new owner                   |
+| 404  | NoPendingTransfer | No live pending transfer (never proposed, already resolved, or expired) |
+| 404  | UnknownGroup      | `repo` does not resolve to a managed group                              |
+
+### `POST /xrpc/app.certified.group.ownershipTransfer.cancel`
+
+Abandon a pending transfer without moving ownership. Callable by the current
+owner (revoking their proposal) or the proposed new owner (declining).
+
+**Request body:**
+
+```json
+{
+  "repo": "did:plc:group123"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "cancelled": true
+}
+```
+
+**Errors:**
+
+| Code | Name               | Description                                                      |
+| ---- | ------------------ | ---------------------------------------------------------------- |
+| 403  | NotPartyToTransfer | Caller is neither the proposing owner nor the proposed new owner |
+| 404  | NoPendingTransfer  | No live pending transfer to cancel                               |
+| 404  | UnknownGroup       | `repo` does not resolve to a managed group                       |
+
+### `GET /xrpc/app.certified.group.ownershipTransfer.status`
+
+Report the group's pending transfer, if any. Details are disclosed only to the
+current owner and the proposed new owner; any other member is refused rather
+than shown the details. Returns `pending: false` when there is no live proposal.
+
+**Query parameters:** `repo` (handle or DID of the target group).
+
+**Response (200) — a pending transfer visible to a party:**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "pending": true,
+  "proposedOwner": "did:plc:newowner",
+  "proposedBy": "did:plc:currentowner",
+  "createdAt": "2026-07-24T12:00:00.000Z",
+  "expiresAt": "2026-07-31T12:00:00.000Z"
+}
+```
+
+**Response (200) — nothing pending:**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "pending": false
+}
+```
+
+**Errors:**
+
+| Code | Name               | Description                                                   |
+| ---- | ------------------ | ------------------------------------------------------------- |
+| 403  | NotPartyToTransfer | A pending transfer exists but the caller is not a party to it |
+| 404  | UnknownGroup       | `repo` does not resolve to a managed group                    |
 
 ---
 
@@ -866,21 +1033,24 @@ Entries are ordered newest first (`id DESC`). The `detail` field is a JSON objec
 
 Every audited operation produces one of the following `action` strings. Denied operations use the same action value with `"result": "denied"` and an additional `reason` field in `detail`.
 
-| Action              | Trigger                                                           | `detail` fields                                     |
-| ------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
-| `group.register`    | Group created via `app.certified.group.register`                  | `{ handle }`                                        |
-| `group.import`      | Existing account imported via `app.certified.group.import`        | `{ handle }`                                        |
-| `member.add`        | Member added via `member.add`                                     | `{ memberDid, role }`                               |
-| `member.remove`     | Member removed via `member.remove`                                | `{ memberDid }`                                     |
-| `role.set`          | Role changed via `role.set`                                       | `{ memberDid, previousRole, newRole }`              |
-| `admin.setOwner`    | Owner reassigned via the admin `setOwner` endpoint                | `{ newOwner, previousOwner, addedAsMember, noop? }` |
-| `createRecord`      | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
-| `putOwnRecord`      | Caller updated a record they authored                             | `{ collection, rkey }`                              |
-| `putAnyRecord`      | Caller updated another member's record                            | `{ collection, rkey }`                              |
-| `putRecord:profile` | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                              |
-| `deleteOwnRecord`   | Caller deleted a record they authored                             | `{ collection, rkey }`                              |
-| `deleteAnyRecord`   | Caller deleted another member's record                            | `{ collection, rkey }`                              |
-| `uploadBlob`        | Blob uploaded via `uploadBlob`                                    | _(none)_                                            |
+| Action                      | Trigger                                                           | `detail` fields                                     |
+| --------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
+| `group.register`            | Group created via `app.certified.group.register`                  | `{ handle }`                                        |
+| `group.import`              | Existing account imported via `app.certified.group.import`        | `{ handle }`                                        |
+| `member.add`                | Member added via `member.add`                                     | `{ memberDid, role }`                               |
+| `member.remove`             | Member removed via `member.remove`                                | `{ memberDid }`                                     |
+| `role.set`                  | Role changed via `role.set`                                       | `{ memberDid, previousRole, newRole }`              |
+| `admin.setOwner`            | Owner reassigned via the admin `setOwner` endpoint                | `{ newOwner, previousOwner, addedAsMember, noop? }` |
+| `ownershipTransfer.propose` | Ownership transfer proposed via `ownershipTransfer.propose`       | `{ proposedOwner, expiresAt }`                      |
+| `ownershipTransfer.accept`  | Transfer accepted; ownership moved via `ownershipTransfer.accept` | `{ newOwner, previousOwner }`                       |
+| `ownershipTransfer.cancel`  | Pending transfer cancelled via `ownershipTransfer.cancel`         | `{ proposedOwner, proposedBy }`                     |
+| `createRecord`              | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
+| `putOwnRecord`              | Caller updated a record they authored                             | `{ collection, rkey }`                              |
+| `putAnyRecord`              | Caller updated another member's record                            | `{ collection, rkey }`                              |
+| `putRecord:profile`         | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                              |
+| `deleteOwnRecord`           | Caller deleted a record they authored                             | `{ collection, rkey }`                              |
+| `deleteAnyRecord`           | Caller deleted another member's record                            | `{ collection, rkey }`                              |
+| `uploadBlob`                | Blob uploaded via `uploadBlob`                                    | _(none)_                                            |
 
 **Denied entries** include the same `detail` fields as permitted entries, plus a `reason` string explaining why the operation was denied:
 

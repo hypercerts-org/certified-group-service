@@ -127,10 +127,18 @@ describe('validateScopesAllowedForRole', () => {
 
   it('validates wildcard rpc scopes against every key-accessible rpc operation', () => {
     const wild = `rpc:*?aud=${serviceScopeAud(SERVICE_DID)}`
+    // A member cannot cover the wildcard — it includes the admin-level
+    // audit.query among the key-accessible operations.
     const memberResult = validateScopesAllowedForRole([wild], 'member')
     expect(memberResult.ok).toBe(false)
     if (!memberResult.ok) expect(memberResult.reason).toContain('audit.query')
-    expect(validateScopesAllowedForRole([wild], 'admin')).toEqual({ ok: true })
+    // Nor can an admin: the wildcard now also spans the owner-only
+    // ownershipTransfer.propose operation.
+    const adminResult = validateScopesAllowedForRole([wild], 'admin')
+    expect(adminResult.ok).toBe(false)
+    if (!adminResult.ok) expect(adminResult.reason).toContain('ownershipTransfer.propose')
+    // Only an owner covers every key-accessible rpc operation.
+    expect(validateScopesAllowedForRole([wild], 'owner')).toEqual({ ok: true })
   })
 
   it('allows blob scopes for members', () => {

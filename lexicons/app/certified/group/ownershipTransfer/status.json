@@ -1,0 +1,46 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.ownershipTransfer.status",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Report the group's pending ownership transfer, if any. Visible only to the current owner and the proposed new owner — other members are not told a transfer is in flight. Returns pending=false when there is no live proposal (never proposed, already resolved, or expired).",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "at-identifier",
+            "description": "The handle or DID of the target group. Optional during the #27 deprecation window: omit it and the group is taken from the (deprecated) JWT aud claim instead."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid", "pending"],
+          "properties": {
+            "groupDid": { "type": "string", "format": "did" },
+            "pending": {
+              "type": "boolean",
+              "description": "True when a live pending transfer exists."
+            },
+            "proposedOwner": { "type": "string", "format": "did" },
+            "proposedBy": { "type": "string", "format": "did" },
+            "createdAt": { "type": "string", "format": "datetime" },
+            "expiresAt": { "type": "string", "format": "datetime" }
+          }
+        }
+      },
+      "errors": [
+        { "name": "Unauthorized" },
+        { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." },
+        {
+          "name": "NotPartyToTransfer",
+          "description": "The caller is neither the current owner nor the proposed new owner."
+        }
+      ]
+    }
+  }
+}

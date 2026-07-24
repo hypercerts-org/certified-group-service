@@ -45,6 +45,10 @@ export function serviceScopeAud(serviceDid: string): string {
 const OPERATION_LXM: Partial<Record<Operation, string>> = {
   'member.list': 'app.certified.group.member.list',
   'audit.query': 'app.certified.group.audit.query',
+  'ownershipTransfer.propose': 'app.certified.group.ownershipTransfer.propose',
+  'ownershipTransfer.accept': 'app.certified.group.ownershipTransfer.accept',
+  'ownershipTransfer.cancel': 'app.certified.group.ownershipTransfer.cancel',
+  'ownershipTransfer.status': 'app.certified.group.ownershipTransfer.status',
 }
 
 /** The lxm an operation maps to, or undefined if it is not key-accessible. */

@@ -74,6 +74,12 @@ export default function (server: Server, ctx: AppContext) {
         previousOwner,
       )
 
+      // Invalidate any member-initiated pending transfer: ownership just moved
+      // out of band. Without this, a stale proposal made by the now-demoted owner
+      // could be accepted within its TTL and silently revert this operator
+      // reassignment — the exact break-glass case setOwner exists for.
+      await ctx.pendingTransfers.clear(groupDb)
+
       await ctx.audit.log(groupDb, 'admin', 'admin.setOwner', 'permitted', {
         newOwner: newOwnerDid,
         previousOwner,

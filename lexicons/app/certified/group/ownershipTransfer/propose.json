@@ -1,0 +1,62 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.ownershipTransfer.propose",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Propose transferring ownership of a group to another member. Owner-only. The proposed new owner must already be a member; ownership does not move until they accept (app.certified.group.ownershipTransfer.accept), which proves they still control their DID. A group has at most one pending transfer at a time — a new proposal replaces any existing one. The proposal lapses if not accepted before it expires.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["newOwner"],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the target group. Omit when supplied via the querystring."
+            },
+            "newOwner": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the member proposed as the new owner. Must already be a member."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid", "proposedOwner", "proposedBy", "createdAt", "expiresAt"],
+          "properties": {
+            "groupDid": { "type": "string", "format": "did" },
+            "proposedOwner": { "type": "string", "format": "did" },
+            "proposedBy": { "type": "string", "format": "did" },
+            "createdAt": { "type": "string", "format": "datetime" },
+            "expiresAt": {
+              "type": "string",
+              "format": "datetime",
+              "description": "When the proposal lapses if not accepted."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "newOwner is a malformed DID or an unresolvable handle."
+        },
+        { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." },
+        {
+          "name": "NotAMember",
+          "description": "The proposed new owner is not a member of the group."
+        },
+        {
+          "name": "AlreadyOwner",
+          "description": "The proposed new owner is already the group's owner."
+        }
+      ]
+    }
+  }
+}

@@ -13,6 +13,7 @@ export interface GroupDatabase {
   group_record_authors: GroupRecordAuthorsTable
   group_audit_log: GroupAuditLogTable
   group_api_keys: GroupApiKeysTable
+  pending_ownership_transfer: PendingOwnershipTransferTable
 }
 
 interface GroupsTable {
@@ -71,4 +72,12 @@ interface GroupApiKeysTable {
   created_at: Generated<string>
   last_used_at: string | null
   revoked_at: string | null
+}
+
+interface PendingOwnershipTransferTable {
+  id: Generated<number> // always 1 — pinned single row (see migration 005)
+  proposer_did: string
+  recipient_did: string
+  created_at: Generated<string>
+  expires_at: string
 }

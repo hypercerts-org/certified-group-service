@@ -70,6 +70,11 @@ export default function (server: Server, ctx: AppContext) {
       const groupRaw = ctx.groupDbs.getRaw(groupDid)
       ctx.memberIndex.updateRole(groupRaw, groupDid, memberDid, newRole)
 
+      // A role change to a party of a pending ownership transfer invalidates it:
+      // the owner proposed a specific member in a specific role, and that has now
+      // changed underneath the proposal. Drop it rather than let it linger.
+      await ctx.pendingTransfers.clearIfParty(groupDb, memberDid)
+
       await ctx.audit.log(groupDb, callerDid, 'role.set', 'permitted', {
         memberDid,
         previousRole: target.role,

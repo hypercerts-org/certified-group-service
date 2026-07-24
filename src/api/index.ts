@@ -18,6 +18,10 @@ import keysCreate from './keys/create.js'
 import keysList from './keys/list.js'
 import keysDelete from './keys/delete.js'
 import adminSetOwner from './admin/setOwner.js'
+import ownershipTransferPropose from './ownershipTransfer/propose.js'
+import ownershipTransferAccept from './ownershipTransfer/accept.js'
+import ownershipTransferCancel from './ownershipTransfer/cancel.js'
+import ownershipTransferStatus from './ownershipTransfer/status.js'
 
 export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   createRecord(server, ctx)
@@ -37,4 +41,8 @@ export function registerXrpcMethods(server: Server, ctx: AppContext): void {
   keysList(server, ctx)
   keysDelete(server, ctx)
   adminSetOwner(server, ctx)
+  ownershipTransferPropose(server, ctx)
+  ownershipTransferAccept(server, ctx)
+  ownershipTransferCancel(server, ctx)
+  ownershipTransferStatus(server, ctx)
 }
