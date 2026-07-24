@@ -17,10 +17,16 @@ import {
  * proposed owner must accept. Requiring an explicit accept (which proves the
  * proposed owner still controls their DID) avoids bricking a group by handing
  * ownership to a DID whose keys/recovery are lost — the failure mode a unilateral
- * owner→newOwner change would risk. The proposed owner must already be a member
- * (member.add is the way to bring in a stranger first). Only the owner may
- * propose; a group holds at most one pending proposal, so this replaces any
- * existing one.
+ * owner→newOwner change would risk. That safeguard lives entirely in `accept`.
+ *
+ * Requiring the proposed owner to already be a member is a separate, deliberate
+ * policy choice — NOT part of that safeguard (membership is not proof of live
+ * DID control; `accept` is). It keeps outsider onboarding on a single path
+ * (`member.add`, or the operator-only `admin.setOwner` break-glass), and lets
+ * `propose` fail fast rather than mint a proposal no one could ever accept.
+ *
+ * Only the owner may propose; a group holds at most one pending proposal, so
+ * this replaces any existing one.
  */
 export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.ownershipTransfer.propose', ctx, {

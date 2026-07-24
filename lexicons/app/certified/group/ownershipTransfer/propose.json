@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Propose transferring ownership of a group to another member. Owner-only. The proposed new owner must already be a member; ownership does not move until they accept (app.certified.group.ownershipTransfer.accept), which proves they still control their DID. A group has at most one pending transfer at a time — a new proposal replaces any existing one. The proposal lapses if not accepted before it expires.",
+      "description": "Propose transferring ownership of a group to another member. Owner-only. Ownership does not move until the proposed owner accepts (app.certified.group.ownershipTransfer.accept), which proves they still control their DID — that acceptance is the safety check. The proposed owner must already be a member: a policy choice (keeping outsider onboarding on member.add) and a fail-fast, not part of that safety guarantee. A group has at most one pending transfer at a time — a new proposal replaces any existing one. The proposal lapses if not accepted before it expires.",
       "input": {
         "encoding": "application/json",
         "schema": {

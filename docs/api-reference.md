@@ -691,7 +691,10 @@ Propose transferring ownership to another member. Ownership does not move yet.
 **Required role:** owner
 
 The proposed new owner must already be a member (bring in a stranger with
-`member.add` first). A new proposal replaces any existing one.
+`member.add` first). This is a policy choice, not a safety check — the safety
+comes from the proposed owner having to accept; requiring membership keeps
+outsider onboarding on a single path and lets `propose` fail fast. A new
+proposal replaces any existing one.
 
 **Request body:**
 
