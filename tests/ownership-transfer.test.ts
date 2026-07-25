@@ -253,6 +253,25 @@ describe('ownershipTransfer', () => {
       expect(res.body.error).toBe('NoPendingTransfer')
     })
 
+    it('still succeeds (and warns) if the proposal was replaced before the post-accept clear', async () => {
+      // Simulate a concurrent propose swapping the pinned row in the window
+      // between accept reading it and clearing it: clearIfMatches finds no row
+      // for the original pair and returns false. The transfer must still succeed;
+      // the handler logs a warning rather than failing.
+      const warnings: unknown[] = []
+      ctx.logger.warn = ((obj: unknown) => {
+        warnings.push(obj)
+      }) as typeof ctx.logger.warn
+      ctx.pendingTransfers.clearIfMatches = async () => false
+
+      const res = await as(ADMIN).post(`/xrpc/${ACCEPT}`).send({ repo: GROUP })
+
+      expect(res.status).toBe(200)
+      expect(res.body.owner).toBe(ADMIN)
+      expect(await roleOf(ADMIN)).toBe('owner')
+      expect(warnings).toHaveLength(1)
+    })
+
     it('treats an expired proposal as no pending transfer (lazy expiry)', async () => {
       await expirePending()
       const res = await as(ADMIN).post(`/xrpc/${ACCEPT}`).send({ repo: GROUP })
