@@ -259,9 +259,9 @@ describe('ownershipTransfer', () => {
       // for the original pair and returns false. The transfer must still succeed;
       // the handler logs a warning rather than failing.
       const warnings: unknown[] = []
-      ctx.logger.warn = ((obj: unknown) => {
+      ctx.logger.warn = (obj: unknown) => {
         warnings.push(obj)
-      }) as typeof ctx.logger.warn
+      }
       ctx.pendingTransfers.clearIfMatches = async () => false
 
       const res = await as(ADMIN).post(`/xrpc/${ACCEPT}`).send({ repo: GROUP })
