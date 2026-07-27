@@ -190,7 +190,14 @@ Remove the group from the service.
 
 **Required role:** owner
 
-The service-level inverse of `register` / `import`: it removes the group's stored credentials, membership, and per-group data. It does **not** delete the underlying PDS account — the DID, handle, and repo continue to exist, so the account can be re-imported afterwards with `app.certified.group.import`.
+The service-level inverse of `register` / `import`: it removes the group's stored credentials, membership, and per-group data from the service. It does **not** delete the underlying PDS account — the DID, handle, records, and blobs all continue to exist and remain publicly readable on the group's PDS. Destroy is a **service-governance deletion, not account or data deletion**; if you also want to tear down the account, do that separately against its PDS.
+
+Destroy is **lossy and irreversible.** The per-group database — the member roster, the record-authorship table, and the entire audit log — is deleted outright. Read the caveats below before calling it.
+
+- **Re-import works, but loses history.** Because the account survives, you can `app.certified.group.import` it again afterwards — but the re-imported group starts with an empty authorship table. Records left on the PDS are then treated as unowned: the first member to `putRecord` a surviving `rkey` is recorded as its author and may overwrite it. Re-import resurrects the account, not the group's governance state.
+- **Export the audit log first.** The audit log is readable via `app.certified.group.audit.query` only while the group lives. Once destroyed it is gone, and the destroy itself is **not** written to it (the log is deleted in the same operation) — only to the service's operational log. If you need a durable governance record, export it before destroying.
+- **The DID document still advertises the service.** For groups created via `register`, the `certified_group` service entry added to the group's DID document is **not** removed by destroy. A client or PDS may still route requests to the service, which will answer that the group is unknown. Removing that entry is the DID controller's responsibility.
+- **The app password is not revoked.** Destroy deletes the service's encrypted copy of the group-service app password but does **not** revoke it at the PDS — the service intentionally lacks full account access and cannot. The credential stays valid until the account controller revokes it directly; do so if old copies or backups are a concern.
 
 **Request body:** none. The target group is named by the `repo` querystring parameter (`?repo=<handle-or-did>`), with JWT `aud` = service DID.
 
@@ -212,8 +219,6 @@ The service-level inverse of `register` / `import`: it removes the group's store
 | 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
 | 403  | Forbidden              | Caller lacks the owner role                            |
 | 404  | GroupNotFound          | The group is not registered on the service             |
-
-Because the per-group data (including the audit log) is deleted, the destroy is **not** written to the group's audit log — it is recorded only in the service's operational log.
 
 ---
 
