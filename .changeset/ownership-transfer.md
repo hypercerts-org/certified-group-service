@@ -6,7 +6,7 @@ A group's owner can now hand ownership to another member, who must accept before
 
 **Affects:** End users, Client app developers
 
-**End users:** if you own a group, you can transfer ownership to another member instead of asking an operator to do it. You propose them, and ownership only moves once they accept — so it can't be handed to someone who has lost access to their account. Either of you can cancel before then, and an un-accepted transfer expires after 7 days. Only the two of you can see a transfer in progress.
+**End users:** once the app you use adds support for it, owning a group lets you transfer ownership to another member yourself instead of asking an operator. You propose them, and ownership only moves once they accept — so it can't be handed to someone who has lost access to their account. Either of you can cancel before then, and an un-accepted transfer expires after 7 days. Only the two of you can see a transfer in progress.
 
 **Client app developers:**
 
