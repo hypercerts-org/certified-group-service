@@ -127,7 +127,7 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 - **Cannot modify equal or higher roles**: An admin cannot remove another admin; only owners can
 - **Cannot assign roles above assignable set**: `member.add` only allows assigning `member` or `admin` — not `owner`
 - **Self-removal always succeeds**: Any member can remove themselves regardless of role
-- **Owner role is immutable**: `role.set` rejects both promoting a member to owner (`CannotPromoteToOwner`) and changing an existing owner's role (`CannotModifyOwner`); `member.remove` rejects removing an owner (`CannotRemoveOwner`). Each group has exactly one owner (the registrant). Ownership transfer is a separate operation that is not yet implemented.
+- **Owner role is immutable**: `role.set` rejects both promoting a member to owner (`CannotPromoteToOwner`) and changing an existing owner's role (`CannotModifyOwner`); `member.remove` rejects removing an owner (`CannotRemoveOwner`). Each group has exactly one owner (initially the registrant). Ownership moves only through the dedicated two-phase [`ownershipTransfer.*`](api-reference.md#ownership-transfer) handshake (owner proposes, proposed member accepts) or the operator-only [`admin.setOwner`](api-reference.md#post-xrpcappcertifiedgroupadminsetowner) break-glass endpoint — never through `role.set`.
 - **Author-based record ownership**: `putRecord` and `deleteRecord` check the `group_record_authors` table to determine if the caller authored the record, then select the appropriate operation (`putOwnRecord` / `putAnyRecord` vs `putRecord:profile`, `deleteOwnRecord` vs `deleteAnyRecord`). Members can only edit or delete their own records; editing or deleting another member's record requires admin.
 
 ### RBAC enforcement
