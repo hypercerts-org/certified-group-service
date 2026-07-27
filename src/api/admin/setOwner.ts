@@ -86,6 +86,12 @@ export default function (server: Server, ctx: AppContext) {
       // owner) breaks; at worst a stale row lingers until the next op or its TTL.
       // Folding the clear into MemberIndex's cross-DB transaction would be a
       // larger refactor for no correctness gain here.
+      //
+      // Load-bearing assumption: better-sqlite3 is a SYNCHRONOUS driver, so the
+      // transferOwner transaction above cannot interleave with a concurrent
+      // accept's statements — only whole operations reorder across the `await`
+      // below, never individual statements within a transaction. If the driver
+      // ever becomes async, re-audit this gap. See `src/db/sqlite.ts`.
       await ctx.pendingTransfers.clear(groupDb)
 
       await ctx.audit.log(groupDb, 'admin', 'admin.setOwner', 'permitted', {

@@ -41,6 +41,7 @@ and apply it, don't write a changeset from memory.
 - **Record authorship is immutable**: `onConflict(...).doNothing()` preserves original author on putRecord. Used to gate cross-author mutations — only admins can `putAnyRecord` or `deleteAnyRecord`; members can only edit/delete records they authored.
 - **Profile edits** (`app.bsky.actor.profile` + rkey `self`) use a special operation `putRecord:profile` requiring admin, regardless of authorship.
 - **`datetime('now')` is step-stable, not transaction-stable**: each `prepare().run()` maps to a separate `sqlite3_step()`, so two INSERTs in the same transaction can produce different timestamps. When the same timestamp must appear in multiple tables, read it back from the first INSERT and reuse it.
+- **Synchronous SQLite is load-bearing for concurrency**: the driver is `better-sqlite3` (sync) on Node's single event loop, so a `raw.transaction(...)` runs to completion without yielding — handlers cannot interleave _within_ a transaction, only at `await` boundaries _between_ DB calls. Several read-modify-write flows depend on this (notably ownership transfer: `admin.setOwner` clears a pending proposal _after_ its `transferOwner` txn, and a racing `accept` stays safe only because `accept` re-reads the current owner and `transferOwner` is atomic). Don't switch to an async driver (`node:sqlite` worker, libsql, parallel pool) without re-auditing these flows for mid-transaction interleaving. See `src/db/sqlite.ts` and the Concurrency model in `docs/architecture.md`.
 
 ## Testing
 

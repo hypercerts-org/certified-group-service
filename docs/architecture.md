@@ -137,6 +137,30 @@ The `RbacChecker` class provides two key methods:
 - `assertCan(groupDb, memberDid, operation)` — looks up the member's role, compares against the operation's minimum role, and throws `UnauthorizedError` (not a member) or `ForbiddenError` (insufficient role) on failure. Returns the member's role on success.
 - `isAuthor(groupDb, recordUri, memberDid)` — checks if a specific member authored a record.
 
+### Concurrency model
+
+The service runs on Node's single-threaded event loop with a **synchronous**
+SQLite driver (`better-sqlite3`, configured in `src/db/sqlite.ts`). Every query
+and every `raw.transaction(...)` runs to completion within one event-loop turn —
+there is no `await` inside a transaction. **A request handler's database
+statements therefore cannot interleave with another handler's mid-transaction;
+the only points at which control passes between concurrent handlers are the
+`await` boundaries _between_ database calls.**
+
+This is load-bearing for several read-modify-write flows that are safe only
+because whole transactions are indivisible. The clearest example is ownership
+transfer: `admin.setOwner` invalidates a pending member-initiated proposal with
+a `clear()` issued _after_ its `transferOwner` transaction commits (not inside
+it), and a concurrent `ownershipTransfer.accept` in that gap still resolves
+consistently because `accept` re-reads the current owner and `transferOwner` is
+atomic. That argument holds only under a synchronous driver.
+
+**If this ever moves to an asynchronous driver** (e.g. `node:sqlite` worker
+threads, libsql, or a connection pool with genuine parallelism), every such
+flow must be re-audited: statements could then interleave mid-transaction, and
+the affected paths would need explicit locking or single-transaction
+invalidation.
+
 ## Data model
 
 ### Global database (`global.sqlite`)
