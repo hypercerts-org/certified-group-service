@@ -23,7 +23,9 @@ Every check is scoped to the group named by `repo`.
   `admin.setOwner` break-glass endpoint.
 - `member.add` / `role.set` assign only `member` or `admin`. Admins can't add at
   or above their own level.
-- Any member can **self-remove**; removing others needs admin.
+- Any **non-owner** member can **self-remove**; removing others needs admin.
+  The owner cannot self-remove — `member.remove` rejects removing an owner
+  (`CannotRemoveOwner`); transfer ownership away first.
 - **Authorship is immutable** — preserved across `putRecord`. A member edits/deletes
   only records they authored; touching another author's record needs admin
   (`putAnyRecord` / `deleteAnyRecord` in the RBAC layer).
