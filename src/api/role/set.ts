@@ -9,17 +9,24 @@ export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.role.set', ctx, {
     handler: async ({ auth, input }) => {
       const { callerDid } = auth.credentials
+      // Both fields are lexicon-required, so xrpc-server rejects a missing body
+      // with a 400 before this runs. Guard anyway rather than destructure a
+      // possibly-undefined body, so a lexicon edit can't turn this into a 500.
       const {
         repo,
         memberDid,
         role: newRole,
-      } = input?.body as {
+      } = (input?.body ?? {}) as {
         repo?: string
-        memberDid: string
-        role: string
+        memberDid?: string
+        role?: string
       }
 
-      if (!(newRole in ROLE_HIERARCHY)) {
+      if (typeof memberDid !== 'string' || memberDid.length === 0) {
+        throw new XRPCError(400, 'Missing memberDid', 'InvalidRequest')
+      }
+
+      if (newRole === undefined || !(newRole in ROLE_HIERARCHY)) {
         throw new XRPCError(
           400,
           `Role must be one of: ${Object.keys(ROLE_HIERARCHY).join(', ')}`,

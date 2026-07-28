@@ -32,7 +32,14 @@ export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.ownershipTransfer.propose', ctx, {
     handler: async ({ auth, input }) => {
       const { callerDid, authKind, scopes, apiKeyRef } = auth.credentials
-      const { repo, newOwner } = input?.body as { repo?: string; newOwner: string }
+      // The lexicon marks `newOwner` required, so xrpc-server rejects a missing
+      // body or field with a 400 before this runs. Guard anyway rather than
+      // destructure a possibly-undefined body: it keeps the shape identical to
+      // accept/cancel, and a lexicon edit can't turn this into a 500.
+      const { repo, newOwner } = (input?.body ?? {}) as { repo?: string; newOwner?: string }
+      if (typeof newOwner !== 'string' || newOwner.length === 0) {
+        throw new XRPCError(400, 'Missing newOwner', 'InvalidRequest')
+      }
 
       const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
       const newOwnerDid = await resolveNewOwner(ctx, newOwner)
