@@ -465,7 +465,8 @@ describe('ownershipTransfer', () => {
 
   // --- API-key access ------------------------------------------------------
   //
-  // The four methods must be reachable by API keys, not just service-auth JWTs.
+  // `propose`, `cancel` and `status` must be reachable by API keys, not just
+  // service-auth JWTs. `accept` deliberately is NOT — see the 403 test below.
   // This exercises the apiKey principal path end to end: the key's granted
   // scopes are checked against the operation (assertCanWithAudit), on top of the
   // issuing member's role. Mirrors tests/api-key-scope-enforcement.test.ts.
@@ -517,17 +518,50 @@ describe('ownershipTransfer', () => {
       expect(await pendingRow()).toBeUndefined()
     })
 
-    it('the proposed owner can accept via a key scoped to accept (200)', async () => {
+    // Accepting is the step that proves the incoming owner still controls their
+    // DID. An API key is a bearer secret with no tie to that DID's signing key,
+    // so it keeps working after control is lost — accepting by key could park
+    // ownership on an unrecoverable account. Hence: JWT only.
+    it('the proposed owner CANNOT accept via an API key, even with the accept scope (403)', async () => {
       // Owner proposes ADMIN via a JWT first.
       await as(OWNER).post(`/xrpc/${PROPOSE}`).send({ repo: GROUP, newOwner: ADMIN })
 
-      const res = await request(keyApp([scopeFor('ownershipTransfer.accept')], ADMIN))
+      // The scope is unmintable now (no lxm mapping), so forge the raw string a
+      // key would have carried and confirm it still buys nothing.
+      const forgedAcceptScope = `rpc:${ACCEPT}?aud=${SERVICE_DID}%23certified_group_service`
+      const res = await request(keyApp([forgedAcceptScope], ADMIN))
         .post(`/xrpc/${ACCEPT}?repo=${GROUP}`)
         .send({})
+
+      expect(res.status).toBe(403)
+      expect(res.body.error).toBe('ApiKeyNotPermitted')
+      // Ownership must be untouched.
+      expect(await roleOf(OWNER)).toBe('owner')
+      expect(await roleOf(ADMIN)).toBe('admin')
+      // The proposal survives, so the recipient can still accept via a JWT.
+      expect(await pendingRow()).toBeDefined()
+    })
+
+    it('the same proposal is still acceptable via a DID-authenticated JWT (200)', async () => {
+      await as(OWNER).post(`/xrpc/${PROPOSE}`).send({ repo: GROUP, newOwner: ADMIN })
+
+      const res = await as(ADMIN).post(`/xrpc/${ACCEPT}`).send({ repo: GROUP })
 
       expect(res.status).toBe(200)
       expect(await roleOf(ADMIN)).toBe('owner')
       expect(await roleOf(OWNER)).toBe('admin')
+    })
+
+    it('a key can still cancel — declining never moves ownership (200)', async () => {
+      await as(OWNER).post(`/xrpc/${PROPOSE}`).send({ repo: GROUP, newOwner: ADMIN })
+
+      const res = await request(keyApp([scopeFor('ownershipTransfer.cancel')], ADMIN))
+        .post(`/xrpc/${CANCEL}?repo=${GROUP}`)
+        .send({})
+
+      expect(res.status).toBe(200)
+      expect(await pendingRow()).toBeUndefined()
+      expect(await roleOf(OWNER)).toBe('owner')
     })
 
     it('a party can read status via a key scoped to status (200)', async () => {

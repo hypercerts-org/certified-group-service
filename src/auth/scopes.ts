@@ -41,12 +41,18 @@ export function serviceScopeAud(serviceDid: string): string {
  * declared against. Only operations reachable by an API key need an entry; an
  * operation with no mapping is **not** key-accessible (the gate denies it for
  * key callers). Key-management operations intentionally have no mapping.
+ *
+ * `ownershipTransfer.accept` is deliberately absent: accepting must prove *live*
+ * control of the recipient DID, and an API key long outlives that control (see
+ * the handler's own guard in `src/api/ownershipTransfer/accept.ts`). The other
+ * three transfer operations are safe for keys — `propose` is owner-gated and
+ * reversible via `cancel`, `cancel` is fail-safe (declining never moves
+ * ownership), and `status` is read-only.
  */
 const OPERATION_LXM: Partial<Record<Operation, string>> = {
   'member.list': 'app.certified.group.member.list',
   'audit.query': 'app.certified.group.audit.query',
   'ownershipTransfer.propose': 'app.certified.group.ownershipTransfer.propose',
-  'ownershipTransfer.accept': 'app.certified.group.ownershipTransfer.accept',
   'ownershipTransfer.cancel': 'app.certified.group.ownershipTransfer.cancel',
   'ownershipTransfer.status': 'app.certified.group.ownershipTransfer.status',
 }

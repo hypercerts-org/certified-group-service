@@ -36,6 +36,10 @@
         }
       },
       "errors": [
+        {
+          "name": "ApiKeyNotPermitted",
+          "description": "The request was authenticated with an API key. Accepting ownership requires a DID-authenticated JWT, which proves live control of the recipient DID."
+        },
         { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." },
         {
           "name": "NoPendingTransfer",

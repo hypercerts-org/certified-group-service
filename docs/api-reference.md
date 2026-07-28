@@ -693,8 +693,12 @@ Propose transferring ownership to another member. Ownership does not move yet.
 The proposed new owner must already be a member (bring in a stranger with
 `member.add` first). This is a policy choice, not a safety check — the safety
 comes from the proposed owner having to accept; requiring membership keeps
-outsider onboarding on a single path and lets `propose` fail fast. A new
-proposal replaces any existing one.
+outsider onboarding on a single path and lets `propose` fail fast.
+
+A new proposal replaces any existing one — including one naming the same member.
+Re-proposing the same `newOwner` therefore acts as a **renewal**: it issues fresh
+`createdAt` / `expiresAt` values and restarts the 7-day expiry window, so an owner
+can keep a proposal alive while waiting for the recipient to accept.
 
 **Request body:**
 
@@ -737,6 +741,17 @@ promoted to owner atomically; the pending proposal is cleared.
 
 **Required role:** the caller must be the proposed new owner (any member role).
 
+**API keys cannot call this method.** `accept` must be made with a
+DID-authenticated JWT; an API-key request is refused with `ApiKeyNotPermitted`.
+Acceptance is what proves the incoming owner still controls their DID, and a key
+is a bearer secret with no cryptographic tie to that DID's signing key — it keeps
+working after its creator can no longer sign (lost PDS credentials, a suspended
+or shut-down PDS, an unrecoverable self-hosted key, or a DID document rotated
+away by someone else). Allowing a key here would let ownership land on an account
+nobody controls, recoverable only via the operator-only
+`app.certified.group.admin.setOwner`. `propose`, `cancel` and `status` remain
+key-accessible.
+
 **Request body:**
 
 ```json
@@ -758,12 +773,13 @@ promoted to owner atomically; the pending proposal is cleared.
 
 **Errors:**
 
-| Code | Name              | Description                                                                               |
-| ---- | ----------------- | ----------------------------------------------------------------------------------------- |
-| 403  | Forbidden         | Caller is not a member of the group (membership is checked before the recipient identity) |
-| 403  | NotProposedOwner  | Caller is a member but not the DID named as the proposed new owner                        |
-| 404  | NoPendingTransfer | No live pending transfer (never proposed, already resolved, or expired)                   |
-| 404  | UnknownGroup      | `repo` does not resolve to a managed group                                                |
+| Code | Name               | Description                                                                               |
+| ---- | ------------------ | ----------------------------------------------------------------------------------------- |
+| 403  | ApiKeyNotPermitted | Request authenticated with an API key; `accept` requires a DID-authenticated JWT          |
+| 403  | Forbidden          | Caller is not a member of the group (membership is checked before the recipient identity) |
+| 403  | NotProposedOwner   | Caller is a member but not the DID named as the proposed new owner                        |
+| 404  | NoPendingTransfer  | No live pending transfer (never proposed, already resolved, or expired)                   |
+| 404  | UnknownGroup       | `repo` does not resolve to a managed group                                                |
 
 ### `POST /xrpc/app.certified.group.ownershipTransfer.cancel`
 

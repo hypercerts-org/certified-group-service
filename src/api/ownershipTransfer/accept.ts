@@ -12,6 +12,16 @@ import { registerAuthedMethod, jsonResponse, assertCanWithAudit, resolveGroupDid
  * the two-phase handshake safe. The previous owner is demoted to admin and the
  * caller promoted to owner atomically (MemberIndex.transferOwner, reused from the
  * admin setOwner path), then the pending proposal is cleared.
+ *
+ * That liveness proof is why this is the one member-facing operation an API key
+ * may not perform: a key is a bearer secret with no cryptographic tie to the
+ * DID's signing key, so it keeps working after its creator can no longer sign as
+ * that DID (lost PDS credentials, suspended or shut-down PDS, unrecoverable
+ * self-hosted key, or a DID document rotated away by someone else). None of that
+ * is visible to this service — the member row still reads `member` — so a key
+ * could accept on behalf of an account nobody controls, leaving the group owned
+ * by a DID that can never authenticate again. Only the operator-only
+ * `admin.setOwner` break-glass could recover from that.
  */
 export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.ownershipTransfer.accept', ctx, {
@@ -22,8 +32,24 @@ export default function (server: Server, ctx: AppContext) {
       const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      // Caller must be a member; the scope check is also enforced for an API key.
-      // The real gate — that the caller IS the proposed owner — is below.
+      // Reject key auth up front, with a distinct error rather than the generic
+      // scope denial `assertCanWithAudit` would raise. `ownershipTransfer.accept`
+      // has no OPERATION_LXM entry, so the scope gate already denies keys; this
+      // guard makes the refusal explicit and survives that mapping coming back.
+      if (authKind === 'apiKey') {
+        await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.accept', 'denied', {
+          apiKeyRef,
+          reason: 'ownership transfer must be accepted with a DID-authenticated request',
+        })
+        throw new XRPCError(
+          403,
+          'Ownership transfer must be accepted with a DID-authenticated request, not an API key',
+          'ApiKeyNotPermitted',
+        )
+      }
+
+      // Caller must be a member. The real gate — that the caller IS the proposed
+      // owner — is below.
       await assertCanWithAudit(ctx, groupDb, callerDid, 'ownershipTransfer.accept', undefined, {
         authKind,
         scopes,

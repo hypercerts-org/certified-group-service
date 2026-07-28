@@ -45,9 +45,15 @@ and an un-accepted proposal expires after **7 days**. A group holds at most one
 pending proposal.
 
 - `propose` — **owner-only**; target must already be a member (add strangers
-  with `member.add` first).
+  with `member.add` first). Re-proposing the same member **renews** the
+  proposal, restarting the 7-day window.
 - `accept` — callable **only by the proposed member**; demotes the old owner to
-  admin and promotes the caller atomically.
+  admin and promotes the caller atomically. **JWT-only**: an API-key request is
+  refused with `403 ApiKeyNotPermitted`, and no `rpc:` scope exists to grant it.
+  A key outlives its creator's ability to authenticate as their DID, so allowing
+  it here would defeat the liveness proof the accept step exists for. Automate
+  the rest with a key if you like, but route this step through the user's own
+  authenticated session.
 - `cancel` — either party (owner revoking, or proposed member declining).
 - `status` — a **query**; disclosed **only to the two parties**, deliberately
   not surfaced on `member.list`. A non-party gets `403 NotPartyToTransfer`.

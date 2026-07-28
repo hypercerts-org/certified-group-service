@@ -66,6 +66,31 @@ describe('lxmForOperation', () => {
     expect(lxmForOperation('createRecord')).toBeUndefined()
     expect(lxmForOperation('group.destroy')).toBeUndefined()
   })
+
+  it('maps the key-safe ownership-transfer operations', () => {
+    expect(lxmForOperation('ownershipTransfer.propose')).toBe(
+      'app.certified.group.ownershipTransfer.propose',
+    )
+    expect(lxmForOperation('ownershipTransfer.cancel')).toBe(
+      'app.certified.group.ownershipTransfer.cancel',
+    )
+    expect(lxmForOperation('ownershipTransfer.status')).toBe(
+      'app.certified.group.ownershipTransfer.status',
+    )
+  })
+
+  // Accepting must prove live control of the recipient DID; an API key outlives
+  // that control, so the scope must not be mintable onto a key at all.
+  it('does not map ownershipTransfer.accept, so no key scope can cover it', () => {
+    expect(lxmForOperation('ownershipTransfer.accept')).toBeUndefined()
+    expect(scopeNeededFor('ownershipTransfer.accept', SERVICE_DID)).toBeUndefined()
+
+    const aud = serviceScopeAud(SERVICE_DID)
+    const wild = `rpc:*?aud=${aud}`
+    const explicit = `rpc:app.certified.group.ownershipTransfer.accept?aud=${aud}`
+    expect(scopesCoverOperation([wild], 'ownershipTransfer.accept', SERVICE_DID)).toBe(false)
+    expect(scopesCoverOperation([explicit], 'ownershipTransfer.accept', SERVICE_DID)).toBe(false)
+  })
 })
 
 describe('scopeNeededFor', () => {
