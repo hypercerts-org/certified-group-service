@@ -323,7 +323,9 @@ sequenceDiagram
 
 ### Destroy
 
-`group.destroy` is the service-level inverse: an owner removes the group **from the service** while leaving the underlying PDS account intact (so it can be re-imported later — it is not account deletion). It deletes the group's `groups` row and `member_index` entries in a single global-DB transaction, then unlinks the per-group SQLite file; doing the file unlink only after the transaction commits means an interrupted destroy leaves at worst an orphaned file rather than inconsistent global state. Because the per-group audit log is deleted with it, the destroy is recorded in the service's operational log instead.
+`group.destroy` is the service-level inverse: an owner removes the group **from the service** while leaving the underlying PDS account intact (it is not account deletion). It deletes the group's `groups` row and `member_index` entries in a single global-DB transaction, then unlinks the per-group SQLite file; doing the file unlink only after the transaction commits means an interrupted destroy leaves at worst an orphaned file rather than inconsistent global state. Because the per-group audit log is deleted with it, the destroy is recorded in the service's operational log instead.
+
+Destroy is lossy: the per-group DB — including the `group_record_authors` table and the audit log — is gone. The account can be re-imported afterward, but the re-imported group has an empty authorship table, so surviving PDS records are treated as unowned and a member can claim authorship by `putRecord`ing a known `rkey` (see `putRecord.ts`: no author row ⇒ `createRecord`, which members may perform). Destroy also leaves the `certified_group` DID-document entry (for `register`ed groups) and the PDS app password in place — the service cannot revoke either. These are the DID/account controller's responsibility. User-facing consequences are spelled out in [api-reference.md](./api-reference.md#post-xrpcappcertifiedgroupdestroy).
 
 ## Startup sequence
 

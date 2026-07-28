@@ -535,9 +535,13 @@ It has **no request body**, so — like `uploadBlob` — the target group is nam
 await groupAgent.call('app.certified.group.destroy', { repo: groupDid })
 ```
 
-This is the service-level inverse of `register` / `import`: it drops the group's stored credentials, its membership, and its per-group data from the service. It deliberately does **not** touch the underlying PDS account — the DID, handle, and repo continue to exist, so the same account can be re-imported later with `app.certified.group.import`. Destroy is therefore _not_ account deletion; if you also want to tear down the account, do that separately against its PDS.
+This is the service-level inverse of `register` / `import`: it drops the group's stored credentials, its membership, and its per-group data from the service. It deliberately does **not** touch the underlying PDS account — the DID, handle, records, and blobs continue to exist and stay publicly readable. Destroy is therefore _not_ account or data deletion; if you also want to tear down the account, do that separately against its PDS.
 
-Because the per-group data (including the audit log) is removed, the destroy is not recorded in the group's audit log — it is recorded only in the service's operational log.
+Destroy is **lossy and irreversible** — plan for it before calling:
+
+- **Export the audit log first if you need it.** `app.certified.group.audit.query` works only while the group lives; destroy deletes the audit log along with the rest of the per-group data. The destroy itself is not written to that log (it is deleted in the same step) — only to the service's operational log.
+- **Re-import resurrects the account, not the group's history.** Because the account survives, you can `app.certified.group.import` it later, but the re-imported group starts with an empty authorship table. Records still on the PDS become unowned, so the first member to `putRecord` a surviving `rkey` is recorded as its author and can overwrite it.
+- **Clean up the DID document and app password yourself.** For `register`-created groups the `certified_group` entry in the DID document is left in place — remove it as the DID controller if you no longer want requests routed to the service. The stored app password is likewise not revoked at the PDS (the service cannot); revoke it directly against the account if that matters.
 
 ## Error handling
 
