@@ -852,7 +852,7 @@ than shown the details. Returns `pending: false` when there is no live proposal.
 
 ## API key management
 
-JWT-authenticated methods for issuing and revoking [API keys](#authenticating-with-an-api-key). Any group member can create, list, and revoke their own keys; owners can list and revoke all keys in the group. A member can only create keys with scopes their current role can use; for example, `audit.query` requires admin. A key can never manage keys. These methods target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
+JWT-authenticated methods for issuing and revoking [API keys](#authenticating-with-an-api-key). Any group member can create, list, and revoke their own keys; owners can list and revoke all keys in the group. A member can only create keys with scopes their current role can use; for example, `audit.query` requires admin. The wildcard `rpc:*` is the exception: it names no operation, so it is accepted for any role and grants whatever that member's role permits **at request time** — a member's `rpc:*` key can call `member.list` but is still refused `audit.query` with a `403`. Because the cap follows the issuer's current role, promoting or demoting them widens or narrows an existing wildcard key with no re-issue. A key can never manage keys. These methods target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
 
 ### `POST /xrpc/app.certified.group.keys.create`
 

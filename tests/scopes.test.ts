@@ -150,20 +150,29 @@ describe('validateScopesAllowedForRole', () => {
     expect(validateScopesAllowedForRole([AUDIT_QUERY_SCOPE], 'admin')).toEqual({ ok: true })
   })
 
-  it('validates wildcard rpc scopes against every key-accessible rpc operation', () => {
+  // A wildcard names no operation, so there is no specific claim to reject: it
+  // grants whatever the issuer's role permits, enforced by RBAC at request time.
+  // Role-checking it against the whole OPERATION_LXM table would make `rpc:*`
+  // unusable for everyone below the strictest entry in that table.
+  it('allows a wildcard rpc scope for every role', () => {
     const wild = `rpc:*?aud=${serviceScopeAud(SERVICE_DID)}`
-    // A member cannot cover the wildcard — it includes the admin-level
-    // audit.query among the key-accessible operations.
-    const memberResult = validateScopesAllowedForRole([wild], 'member')
+    expect(validateScopesAllowedForRole([wild], 'member')).toEqual({ ok: true })
+    expect(validateScopesAllowedForRole([wild], 'admin')).toEqual({ ok: true })
+    expect(validateScopesAllowedForRole([wild], 'owner')).toEqual({ ok: true })
+  })
+
+  // The wildcard exemption must not leak into enumerated scopes: naming an
+  // operation your role cannot use is still a fail-fast error.
+  it('still rejects an enumerated scope the role cannot use', () => {
+    const memberResult = validateScopesAllowedForRole([AUDIT_QUERY_SCOPE], 'member')
     expect(memberResult.ok).toBe(false)
     if (!memberResult.ok) expect(memberResult.reason).toContain('audit.query')
-    // Nor can an admin: the wildcard now also spans the owner-only
-    // ownershipTransfer.propose operation.
-    const adminResult = validateScopesAllowedForRole([wild], 'admin')
+
+    const proposeScope = scopeNeededFor('ownershipTransfer.propose', SERVICE_DID)!
+    const adminResult = validateScopesAllowedForRole([proposeScope], 'admin')
     expect(adminResult.ok).toBe(false)
     if (!adminResult.ok) expect(adminResult.reason).toContain('ownershipTransfer.propose')
-    // Only an owner covers every key-accessible rpc operation.
-    expect(validateScopesAllowedForRole([wild], 'owner')).toEqual({ ok: true })
+    expect(validateScopesAllowedForRole([proposeScope], 'owner')).toEqual({ ok: true })
   })
 
   it('allows blob scopes for members', () => {
