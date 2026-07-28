@@ -298,6 +298,40 @@ describe('ownershipTransfer', () => {
       // The inconsistent row was cleared.
       expect(await pendingRow()).toBeUndefined()
     })
+
+    // Same reasoning as the post-accept clear: the defensive branch must scope
+    // its clear to the row it read, or a proposal that replaced the pinned row
+    // in the meantime is silently destroyed.
+    it('defensive clear does not wipe a proposal that replaced the row it read', async () => {
+      await groupDb.deleteFrom('pending_ownership_transfer').execute()
+      await groupDb
+        .insertInto('pending_ownership_transfer')
+        .values({ id: 1, proposer_did: ADMIN, recipient_did: OWNER, expires_at: '2999-01-01' })
+        .execute()
+
+      // Simulate a concurrent propose swapping the pinned row between accept
+      // reading it and reaching the defensive clear.
+      const realGet = ctx.pendingTransfers.get.bind(ctx.pendingTransfers)
+      ctx.pendingTransfers.get = async (db: typeof groupDb) => {
+        const row = await realGet(db)
+        await groupDb
+          .updateTable('pending_ownership_transfer')
+          .set({ proposer_did: OWNER, recipient_did: MEMBER })
+          .where('id', '=', 1)
+          .execute()
+        return row
+      }
+
+      const res = await as(OWNER).post(`/xrpc/${ACCEPT}`).send({ repo: GROUP })
+      expect(res.status).toBe(404)
+      expect(res.body.error).toBe('NoPendingTransfer')
+
+      // The newer, unrelated proposal must survive.
+      const row = await pendingRow()
+      expect(row).toBeDefined()
+      expect(row?.recipient_did).toBe(MEMBER)
+      expect(await roleOf(OWNER)).toBe('owner')
+    })
   })
 
   // --- cancel --------------------------------------------------------------

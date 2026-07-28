@@ -84,7 +84,15 @@ export default function (server: Server, ctx: AppContext) {
       // keeps it so). Guard anyway, so a future change can't turn this into a
       // no-op that leaves a resolved-looking transfer, or worse.
       if (callerDid === previousOwner) {
-        await ctx.pendingTransfers.clear(groupDb)
+        // Scope the clear to the row we read, for the same reason the post-accept
+        // clear below does: a concurrent propose may have replaced the pinned row
+        // since, and an unconditional clear would silently wipe that unrelated
+        // proposal.
+        await ctx.pendingTransfers.clearIfMatches(
+          groupDb,
+          pending.proposerDid,
+          pending.recipientDid,
+        )
         throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
       }
 
