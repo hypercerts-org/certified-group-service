@@ -237,8 +237,10 @@ describe('ownershipTransfer', () => {
     it('rejects acceptance by anyone other than the proposed owner', async () => {
       const res = await as(MEMBER).post(`/xrpc/${ACCEPT}`).send({ repo: GROUP })
 
-      expect(res.status).toBe(403)
-      expect(res.body.error).toBe('NotProposedOwner')
+      // Indistinguishable from "nothing pending" — a distinct error would tell
+      // a non-recipient that a transfer is in flight.
+      expect(res.status).toBe(404)
+      expect(res.body.error).toBe('NoPendingTransfer')
       // Nothing moved.
       expect(await roleOf(OWNER)).toBe('owner')
       expect(await roleOf(ADMIN)).toBe('admin')
@@ -361,9 +363,21 @@ describe('ownershipTransfer', () => {
     it('rejects cancellation by a non-party member', async () => {
       const res = await as(MEMBER).post(`/xrpc/${CANCEL}`).send({ repo: GROUP })
 
-      expect(res.status).toBe(403)
-      expect(res.body.error).toBe('NotPartyToTransfer')
+      // Same response as "nothing pending", so the refusal does not disclose
+      // that a transfer exists.
+      expect(res.status).toBe(404)
+      expect(res.body.error).toBe('NoPendingTransfer')
       expect(await pendingRow()).toBeDefined()
+    })
+
+    it('a non-party cannot tell a live transfer from no transfer at all', async () => {
+      const withTransfer = await as(MEMBER).post(`/xrpc/${CANCEL}`).send({ repo: GROUP })
+
+      await groupDb.deleteFrom('pending_ownership_transfer').execute()
+      const without = await as(MEMBER).post(`/xrpc/${CANCEL}`).send({ repo: GROUP })
+
+      expect(withTransfer.status).toBe(without.status)
+      expect(withTransfer.body).toEqual(without.body)
     })
 
     it('rejects cancellation when nothing is pending', async () => {
@@ -419,8 +433,19 @@ describe('ownershipTransfer', () => {
       it('refuses details to a non-party member (does not leak the transfer)', async () => {
         const res = await as(MEMBER).get(`/xrpc/${STATUS}`).query({ repo: GROUP })
 
-        expect(res.status).toBe(403)
-        expect(res.body.error).toBe('NotPartyToTransfer')
+        // Not a 403: the error code itself would reveal that a transfer exists.
+        expect(res.status).toBe(200)
+        expect(res.body).toEqual({ groupDid: GROUP, pending: false })
+      })
+
+      it('a non-party gets a byte-identical response whether or not one is pending', async () => {
+        const withTransfer = await as(MEMBER).get(`/xrpc/${STATUS}`).query({ repo: GROUP })
+
+        await groupDb.deleteFrom('pending_ownership_transfer').execute()
+        const without = await as(MEMBER).get(`/xrpc/${STATUS}`).query({ repo: GROUP })
+
+        expect(withTransfer.status).toBe(without.status)
+        expect(withTransfer.body).toEqual(without.body)
       })
 
       it('reports pending=false once the proposal has expired', async () => {

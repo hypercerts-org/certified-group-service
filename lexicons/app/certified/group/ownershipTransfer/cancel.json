@@ -36,11 +36,7 @@
         { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." },
         {
           "name": "NoPendingTransfer",
-          "description": "There is no live pending transfer to cancel."
-        },
-        {
-          "name": "NotPartyToTransfer",
-          "description": "The caller is neither the proposing owner nor the proposed new owner."
+          "description": "There is no live pending transfer to cancel, or the caller is neither the proposing owner nor the proposed new owner. The two cases are deliberately indistinguishable: a distinct error would disclose to any member that a transfer is in flight."
         }
       ]
     }

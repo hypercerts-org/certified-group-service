@@ -56,7 +56,10 @@ pending proposal.
   authenticated session.
 - `cancel` — either party (owner revoking, or proposed member declining).
 - `status` — a **query**; disclosed **only to the two parties**, deliberately
-  not surfaced on `member.list`. A non-party gets `403 NotPartyToTransfer`.
+  not surfaced on `member.list`. A non-party gets the same `pending: false` as
+  when no transfer exists — refusing them would itself reveal that one is in
+  flight. Same reasoning on `accept`/`cancel`: a non-party gets `404
+NoPendingTransfer`, indistinguishable from nothing pending.
 
 `accept`/`cancel`/`status` carry a `member` role floor, but the real gate is an
 in-handler identity check — role alone doesn't let a bystander act. Endpoint

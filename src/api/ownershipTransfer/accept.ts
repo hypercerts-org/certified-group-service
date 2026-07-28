@@ -61,11 +61,15 @@ export default function (server: Server, ctx: AppContext) {
         throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
       }
       if (pending.recipientDid !== callerDid) {
-        // Do not reveal transfer details to a non-party; deny by identity.
+        // Deliberately the same 404 a caller gets when nothing is pending. A
+        // distinct error here would tell any member that a transfer is in
+        // flight — the existence of a proposal is disclosed only to its two
+        // parties, so the refusal must not become the disclosure. The true
+        // reason goes to the audit log for operators.
         await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.accept', 'denied', {
           reason: 'caller is not the proposed new owner',
         })
-        throw new XRPCError(403, 'You are not the proposed new owner', 'NotProposedOwner')
+        throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
       }
 
       // Demote whoever holds owner now, not the proposer recorded on the row: the

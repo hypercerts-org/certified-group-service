@@ -33,13 +33,7 @@
           }
         }
       },
-      "errors": [
-        { "name": "Unauthorized" },
-        {
-          "name": "NotPartyToTransfer",
-          "description": "The caller is neither the current owner nor the proposed new owner."
-        }
-      ]
+      "errors": [{ "name": "Unauthorized" }]
     }
   }
 }

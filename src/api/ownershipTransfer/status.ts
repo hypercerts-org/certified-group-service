@@ -9,9 +9,14 @@ import { registerAuthedMethod, jsonResponse, assertCanWithAudit, sqliteToIso } f
  * Scoped visibility (Kristofer's design, HYPER-313): a pending transfer is
  * disclosed only to the two parties — the current owner and the proposed new
  * owner. Other members are not told a transfer is in flight, so this is NOT
- * surfaced on member.list. When there is no live proposal, any member gets a
- * plain `pending: false` (nothing to hide); when there is one, a caller who is
- * neither party is refused rather than shown the details.
+ * surfaced on member.list.
+ *
+ * A non-party gets exactly the same `pending: false` response as when nothing
+ * is pending. Refusing them with a distinct error instead would itself be the
+ * disclosure: a member could poll this endpoint and learn whether a transfer
+ * is in flight from the status code alone, which is precisely what scoping the
+ * visibility exists to prevent. The real reason is recorded in the audit log,
+ * so operators can still see who probed and why they were refused.
  */
 export default function (server: Server, ctx: AppContext) {
   registerAuthedMethod(server, 'app.certified.group.ownershipTransfer.status', ctx, {
@@ -46,11 +51,11 @@ export default function (server: Server, ctx: AppContext) {
         callerDid === pending.proposerDid ||
         callerDid === currentOwner?.member_did
       if (!isParty) {
-        throw new XRPCError(
-          403,
-          'You are not a party to this ownership transfer',
-          'NotPartyToTransfer',
-        )
+        // Indistinguishable from "nothing pending" — see the note above.
+        await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.status', 'denied', {
+          reason: 'caller is not a party to this ownership transfer',
+        })
+        return jsonResponse({ groupDid, pending: false })
       }
 
       return jsonResponse({

@@ -777,9 +777,14 @@ key-accessible.
 | ---- | ------------------ | ----------------------------------------------------------------------------------------- |
 | 403  | ApiKeyNotPermitted | Request authenticated with an API key; `accept` requires a DID-authenticated JWT          |
 | 403  | Forbidden          | Caller is not a member of the group (membership is checked before the recipient identity) |
-| 403  | NotProposedOwner   | Caller is a member but not the DID named as the proposed new owner                        |
-| 404  | NoPendingTransfer  | No live pending transfer (never proposed, already resolved, or expired)                   |
+| 404  | NoPendingTransfer  | No live pending transfer, **or** the caller is a member but not the proposed new owner    |
 | 404  | UnknownGroup       | `repo` does not resolve to a managed group                                                |
+
+The two `NoPendingTransfer` cases are deliberately indistinguishable. Returning a
+distinct error to a non-recipient would tell any member that a transfer is in
+flight, which only the two parties may know — the refusal must not become the
+disclosure. Operators can still tell the cases apart from the audit log, which
+records the true reason.
 
 ### `POST /xrpc/app.certified.group.ownershipTransfer.cancel`
 
@@ -805,17 +810,20 @@ owner (revoking their proposal) or the proposed new owner (declining).
 
 **Errors:**
 
-| Code | Name               | Description                                                      |
-| ---- | ------------------ | ---------------------------------------------------------------- |
-| 403  | NotPartyToTransfer | Caller is neither the proposing owner nor the proposed new owner |
-| 404  | NoPendingTransfer  | No live pending transfer to cancel                               |
-| 404  | UnknownGroup       | `repo` does not resolve to a managed group                       |
+| Code | Name              | Description                                                                |
+| ---- | ----------------- | -------------------------------------------------------------------------- |
+| 404  | NoPendingTransfer | No live pending transfer to cancel, **or** the caller is not a party to it |
+| 404  | UnknownGroup      | `repo` does not resolve to a managed group                                 |
+
+As with `accept`, the two `NoPendingTransfer` cases are indistinguishable on
+purpose, so a non-party cannot use the response to detect a transfer.
 
 ### `GET /xrpc/app.certified.group.ownershipTransfer.status`
 
 Report the group's pending transfer, if any. Details are disclosed only to the
-current owner and the proposed new owner; any other member is refused rather
-than shown the details. Returns `pending: false` when there is no live proposal.
+current owner and the proposed new owner. Returns `pending: false` when there is
+no live proposal — and also to any member who is not a party, so that the
+response reveals nothing about whether a transfer exists.
 
 **Query parameters:** `repo` (handle or DID of the target group).
 
@@ -843,10 +851,14 @@ than shown the details. Returns `pending: false` when there is no live proposal.
 
 **Errors:**
 
-| Code | Name               | Description                                                                                     |
-| ---- | ------------------ | ----------------------------------------------------------------------------------------------- |
-| 401  | —                  | `repo` is missing or does not resolve to a managed group (rejected at auth, like `member.list`) |
-| 403  | NotPartyToTransfer | A pending transfer exists but the caller is not a party to it                                   |
+| Code | Name | Description                                                                                     |
+| ---- | ---- | ----------------------------------------------------------------------------------------------- |
+| 401  | —    | `repo` is missing or does not resolve to a managed group (rejected at auth, like `member.list`) |
+
+A non-party member is **not** refused: they receive the same
+`{ "pending": false }` response as when no transfer exists. Refusing them would
+itself disclose that a transfer is in flight, so the two cases are made
+identical; the audit log records the real outcome.
 
 ---
 

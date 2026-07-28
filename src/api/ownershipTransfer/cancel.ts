@@ -32,14 +32,13 @@ export default function (server: Server, ctx: AppContext) {
         throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
       }
       if (callerDid !== pending.proposerDid && callerDid !== pending.recipientDid) {
+        // Same 404 as "nothing pending": a distinct error would tell a
+        // non-party that a transfer exists, which only its two parties may
+        // know. True reason recorded in the audit log.
         await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.cancel', 'denied', {
           reason: 'caller is neither proposer nor proposed new owner',
         })
-        throw new XRPCError(
-          403,
-          'You are not a party to this ownership transfer',
-          'NotPartyToTransfer',
-        )
+        throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
       }
 
       await ctx.pendingTransfers.clear(groupDb)

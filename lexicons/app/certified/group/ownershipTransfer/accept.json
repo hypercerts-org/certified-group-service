@@ -43,11 +43,7 @@
         { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." },
         {
           "name": "NoPendingTransfer",
-          "description": "There is no live pending transfer to accept (never proposed, already resolved, or expired)."
-        },
-        {
-          "name": "NotProposedOwner",
-          "description": "The caller is not the DID named as the proposed new owner."
+          "description": "There is no live pending transfer to accept (never proposed, already resolved, or expired), or the caller is not the DID named as the proposed new owner. The two cases are deliberately indistinguishable: a distinct error would disclose to any member that a transfer is in flight."
         }
       ]
     }

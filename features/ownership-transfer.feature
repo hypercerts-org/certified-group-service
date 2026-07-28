@@ -50,10 +50,12 @@ Feature: Member-initiated ownership transfer
     When the admin queries the ownership transfer status
     Then the response status is 200
     And the status response pending is true
-    # Not visible to a non-party member.
+    # Not visible to a non-party member: they get the same pending=false a
+    # caller sees when no transfer exists, so the response cannot be used to
+    # detect that one is in flight.
     When the member queries the ownership transfer status
-    Then the response status is 403
-    And the response error is "NotPartyToTransfer"
+    Then the response status is 200
+    And the status response pending is false
     # Owner is still the owner — the handshake is not complete.
     And the owner is still the group owner
 
@@ -78,9 +80,11 @@ Feature: Member-initiated ownership transfer
   Scenario: A non-proposed member cannot accept
     When the owner proposes the admin as the new owner
     Then the response status is 200
+    # Deliberately the same 404 as "nothing pending" — the refusal must not
+    # disclose that a transfer exists.
     When the member accepts the ownership transfer
-    Then the response status is 403
-    And the response error is "NotProposedOwner"
+    Then the response status is 404
+    And the response error is "NoPendingTransfer"
     And the owner is still the group owner
 
   Scenario: Accepting with nothing pending is rejected
