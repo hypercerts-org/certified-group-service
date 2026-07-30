@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Create or update a record in the group's repository. Proxied through the user's PDS.",
+      "description": "Create or update a record in the group's repository. Creating a new record also writes an app.certified.group.authorship sidecar attributing it to the caller (in the same commit); updating an existing record leaves its attribution untouched. Proxied through the group's PDS.",
       "input": {
         "encoding": "application/json",
         "schema": {
@@ -14,7 +14,16 @@
             "repo": { "type": "string", "format": "at-identifier" },
             "collection": { "type": "string", "format": "nsid" },
             "rkey": { "type": "string" },
-            "record": { "type": "unknown" }
+            "record": { "type": "unknown" },
+            "validate": {
+              "type": "boolean",
+              "description": "'false' skips Lexicon schema validation of record data. When the write creates a new record, 'true' degrades to the default (validate known Lexicons) — see app.certified.group.repo.createRecord."
+            },
+            "swapCommit": {
+              "type": "string",
+              "format": "cid",
+              "description": "Compare and swap with the previous commit by CID."
+            }
           }
         }
       },

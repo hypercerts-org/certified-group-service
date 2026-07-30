@@ -129,6 +129,7 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 - **Self-removal always succeeds**: Any member can remove themselves regardless of role
 - **Owner role is immutable**: `role.set` rejects both promoting a member to owner (`CannotPromoteToOwner`) and changing an existing owner's role (`CannotModifyOwner`); `member.remove` rejects removing an owner (`CannotRemoveOwner`). Each group has exactly one owner (the registrant). Ownership transfer is a separate operation that is not yet implemented.
 - **Author-based record ownership**: `putRecord` and `deleteRecord` check the `group_record_authors` table to determine if the caller authored the record, then select the appropriate operation (`putOwnRecord` / `putAnyRecord` vs `putRecord:profile`, `deleteOwnRecord` vs `deleteAnyRecord`). Members can only edit or delete their own records; editing or deleting another member's record requires admin.
+- **Public authorship sidecars**: every record created through CGS also gets an `app.certified.group.authorship` record written into the group's repo (in the same `applyWrites` commit for creates), publishing who authored it — publicly and interoperably, independent of this service's internal state. The sidecar collection is service-managed: direct writes or deletes to it are rejected (`InvalidRequest`), since they could forge or erase attribution. See [docs/design/record-authorship.md](design/record-authorship.md).
 
 ### RBAC enforcement
 
@@ -199,6 +200,13 @@ Composite index on `(added_at, member_did)` for efficient paginated listing.
 | `created_at` | TEXT      | ISO timestamp                    |
 
 Indexed on `author_did` for authorship lookups.
+
+This table is a **derived index** for fast RBAC own-vs-any checks. The source
+of truth for attribution is the `app.certified.group.authorship` sidecar
+records in the group's own repo: `group.import` rehydrates this table from
+them, and `admin.backfillAuthorship` publishes rows that predate the sidecars
+back into the repo. See
+[docs/design/record-authorship.md](design/record-authorship.md).
 
 #### `group_audit_log`
 
