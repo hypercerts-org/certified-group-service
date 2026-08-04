@@ -1,5 +1,41 @@
 # group-service
 
+## 0.6.0
+
+### Who should read this release
+
+- **End users:**
+  - [A group's owner can now hand ownership to another member, who must accept before it takes effect.](#v0.6.0-a-group-s-owner-can-now-hand-ownership-to-another-member)
+- **Client app developers:**
+  - [A group's owner can now hand ownership to another member, who must accept before it takes effect.](#v0.6.0-a-group-s-owner-can-now-hand-ownership-to-another-member)
+  - [An API key requesting "everything I'm allowed to do" is no longer refused for members and admins.](#v0.6.0-an-api-key-requesting-everything-i-m-allowed-to-do-is-no)
+
+### Minor Changes
+
+- <a id="v0.6.0-a-group-s-owner-can-now-hand-ownership-to-another-member"></a> [#72](https://github.com/hypercerts-org/certified-group-service/pull/72) [`cfe0d40`](https://github.com/hypercerts-org/certified-group-service/commit/cfe0d40bcb93743d746682dc171046ee8d81b34c) Thanks [@aspiers](https://github.com/aspiers)! - A group's owner can now hand ownership to another member, who must accept before it takes effect.
+
+  **Affects:** End users, Client app developers
+
+  **End users:** once the app you use adds support for it, owning a group lets you transfer ownership to another member yourself instead of asking an operator. You propose them, and ownership only moves once they accept by signing in themselves — so it can't be handed to someone who has lost access to their account. Either of you can cancel before then, and an un-accepted transfer expires after 7 days. Only the two of you can see a transfer in progress.
+
+  **Client app developers:**
+  - Four new methods under `app.certified.group.ownershipTransfer.*`: `propose`, `accept`, `cancel` (procedures) and `status` (query). See [Ownership transfer](../docs/api-reference.md#ownership-transfer) for the contract.
+  - `propose` is owner-only; `accept` is callable only by the proposed member; `cancel` and `status` by either party. `status` is deliberately not exposed on `member.list`.
+  - **A non-party cannot detect that a transfer exists.** Whether or not one is pending, a member who is not a party gets the same response: `{ "pending": false }` from `status`, and `404 NoPendingTransfer` from `accept` and `cancel`. There are no `NotPartyToTransfer` or `NotProposedOwner` errors — a distinct code would itself be the disclosure. Do not branch on the difference between "no transfer" and "not yours" in client code; it is not observable. The true reason for each refusal is recorded in the group's audit log.
+  - `propose`, `cancel` and `status` accept a service-auth JWT or an API key with the matching `rpc:` scope, subject to the caller's role (so a key can only `propose` if issued by the owner).
+  - `accept` is **JWT-only**. An API-key request is refused with `403 ApiKeyNotPermitted`, and there is no `rpc:` scope for it — `app.certified.group.ownershipTransfer.accept` cannot be granted to a key, and a wildcard `rpc:*` scope does not cover it. Acceptance is what proves the incoming owner still controls their account, and an API key keeps working after its creator can no longer authenticate as that DID, so a key could otherwise park ownership on an unrecoverable account. Apps that automate group admin with a key must route this one step through the user's own authenticated session.
+  - A pending proposal is cleared automatically when ownership or a party's membership changes by another route (`admin.setOwner`, `member.remove`, `role.set`), so a stale proposal can never be accepted to revert those changes.
+
+- <a id="v0.6.0-an-api-key-requesting-everything-i-m-allowed-to-do-is-no"></a> [#72](https://github.com/hypercerts-org/certified-group-service/pull/72) [`46a3aa4`](https://github.com/hypercerts-org/certified-group-service/commit/46a3aa48c3c1cc8b7c22f270d23585813c83ee7e) Thanks [@aspiers](https://github.com/aspiers)! - An API key requesting "everything I'm allowed to do" is no longer refused for members and admins.
+
+  **Affects:** Client app developers
+
+  **Client app developers:**
+  - `keys.create` no longer rejects a wildcard `rpc:*` scope on the basis of the creator's role. Previously the wildcard was expanded to every key-accessible operation and each was role-checked, so the whole request failed if any single one outranked the caller — in practice `rpc:*` was refused for members (blocked by the admin-only `audit.query`) and, once ownership transfer added the owner-only `ownershipTransfer.propose`, for admins too.
+  - A wildcard now always passes creation and grants whatever the issuing member's role permits **at request time**. A member's `rpc:*` key can call `member.list` but is still refused `audit.query` with a `403`; the cap follows the issuer's current role, so promotion or demotion widens or narrows an existing key with no re-issue.
+  - Enumerated scopes are unchanged: naming an operation your role cannot use is still rejected at creation with `role '<role>' cannot use scope for '<operation>'`. The fail-fast behaviour applies where you made a specific claim, not where you asked for whatever is available.
+  - No key gains access it did not have before. Request-time RBAC was always the enforcement point; this only stops refusing to mint keys that would have been correctly capped anyway.
+
 ## 0.5.0
 
 ### Who should read this release
