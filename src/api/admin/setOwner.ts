@@ -74,6 +74,26 @@ export default function (server: Server, ctx: AppContext) {
         previousOwner,
       )
 
+      // Invalidate any member-initiated pending transfer: ownership just moved
+      // out of band. Without this, a stale proposal made by the now-demoted owner
+      // could be accepted within its TTL and silently revert this operator
+      // reassignment — the exact break-glass case setOwner exists for.
+      //
+      // This clear is a separate statement after the transferOwner transaction,
+      // not part of it. That is deliberate: a concurrent accept that reads the
+      // proposal in the gap still resolves safely — accept re-reads the current
+      // owner and transferOwner is atomic, so no invariant (one owner, always an
+      // owner) breaks; at worst a stale row lingers until the next op or its TTL.
+      // Folding the clear into MemberIndex's cross-DB transaction would be a
+      // larger refactor for no correctness gain here.
+      //
+      // Load-bearing assumption: better-sqlite3 is a SYNCHRONOUS driver, so the
+      // transferOwner transaction above cannot interleave with a concurrent
+      // accept's statements — only whole operations reorder across the `await`
+      // below, never individual statements within a transaction. If the driver
+      // ever becomes async, re-audit this gap. See `src/db/sqlite.ts`.
+      await ctx.pendingTransfers.clear(groupDb)
+
       await ctx.audit.log(groupDb, 'admin', 'admin.setOwner', 'permitted', {
         newOwner: newOwnerDid,
         previousOwner,

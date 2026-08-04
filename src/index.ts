@@ -21,6 +21,7 @@ import { GroupDbPool } from './db/group-db-pool.js'
 import { MemberIndex, backfillMemberIndex } from './db/member-index.js'
 import { PdsAgentPool } from './pds/agent.js'
 import { AuditLogger } from './audit.js'
+import { PendingTransferStore } from './transfer/pending.js'
 import { buildDidDocument } from './did-document.js'
 import type { AppContext } from './context.js'
 import type { GlobalDatabase } from './db/schema.js'
@@ -84,6 +85,7 @@ async function main() {
   const pdsAgents = new PdsAgentPool(globalDb, Buffer.from(config.encryptionKey, 'hex'))
   const audit = new AuditLogger()
   const memberIndex = new MemberIndex(globalDbPath)
+  const pendingTransfers = new PendingTransferStore()
   const ctx: AppContext = {
     config,
     globalDb,
@@ -96,6 +98,7 @@ async function main() {
     pdsAgents,
     audit,
     memberIndex,
+    pendingTransfers,
     logger,
   }
 

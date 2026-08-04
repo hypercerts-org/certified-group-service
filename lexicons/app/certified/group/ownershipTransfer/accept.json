@@ -1,0 +1,51 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.ownershipTransfer.accept",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Accept a pending ownership transfer, becoming the group's owner. Callable only by the DID named as the proposed new owner in the pending proposal — the authenticated request proves they still control that DID. On success the previous owner is demoted to admin, the caller is promoted to owner atomically, and the pending proposal is cleared.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the target group. Omit when supplied via the querystring."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid", "owner", "updatedAt"],
+          "properties": {
+            "groupDid": { "type": "string", "format": "did" },
+            "owner": { "type": "string", "format": "did" },
+            "previousOwner": {
+              "type": "string",
+              "format": "did",
+              "description": "The DID demoted from owner to admin. Present whenever the group had an owner before the transfer, which is the normal case; omitted only in the degenerate case of a group with no prior owner."
+            },
+            "updatedAt": { "type": "string", "format": "datetime" }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "ApiKeyNotPermitted",
+          "description": "The request was authenticated with an API key. Accepting ownership requires a DID-authenticated JWT, which proves live control of the recipient DID."
+        },
+        { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." },
+        {
+          "name": "NoPendingTransfer",
+          "description": "There is no live pending transfer to accept (never proposed, already resolved, or expired), or the caller is not the DID named as the proposed new owner. The two cases are deliberately indistinguishable: a distinct error would disclose to any member that a transfer is in flight."
+        }
+      ]
+    }
+  }
+}

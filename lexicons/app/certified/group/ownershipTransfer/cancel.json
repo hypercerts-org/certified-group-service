@@ -1,0 +1,44 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.ownershipTransfer.cancel",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Cancel a pending ownership transfer without moving ownership. Callable by the current owner (who proposed it) or by the proposed new owner (declining). Clears the pending proposal.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "at-identifier",
+              "description": "The handle or DID of the target group. Omit when supplied via the querystring."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["groupDid", "cancelled"],
+          "properties": {
+            "groupDid": { "type": "string", "format": "did" },
+            "cancelled": {
+              "type": "boolean",
+              "description": "True — a pending proposal was cleared."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." },
+        {
+          "name": "NoPendingTransfer",
+          "description": "There is no live pending transfer to cancel, or the caller is neither the proposing owner nor the proposed new owner. The two cases are deliberately indistinguishable: a distinct error would disclose to any member that a transfer is in flight."
+        }
+      ]
+    }
+  }
+}
