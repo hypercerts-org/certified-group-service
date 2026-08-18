@@ -4,7 +4,7 @@ This guide walks you through integrating the group service into your app. By the
 
 ## Service URLs and DID
 
-```
+```text
 SERVICE_URL = https://dev.groups.certified.app
 SERVICE_DID  = did:web:dev.groups.certified.app
 ```
@@ -20,18 +20,21 @@ const GROUP_SERVICE_DID = 'did:web:dev.groups.certified.app'
 
 ## Architecture: where your app fits
 
-```
+The current reference integration uses **direct calls to the configured CGS URL**:
+
+```text
 Your App (BFF server)
     │
     │  1. User logs in via OAuth → you get an access token
-    │  2. You send XRPC requests to the user's PDS with atproto-proxy header
-    │  3. The PDS handles service auth and forwards to the group service
-    │
+    │  2. Your BFF asks the user's PDS for a service-auth JWT
+    │  3. Your BFF calls the configured CGS URL with that JWT
     ▼
-User's PDS ──▶ Group Service ──▶ Group's PDS
+Group Service ──▶ Group's PDS
 ```
 
-Your app acts as a **backend-for-frontend (BFF)** that sits between your users and the group service. Instead of managing service auth JWTs yourself, you send requests to the user's PDS with an `atproto-proxy` header — the PDS handles authentication and forwards requests to the group service on your behalf.
+This direct path is currently preferred because service proxying depends on DID-document discovery. Immediately after `group.register`, the group DID document may be cached before the separate PLC operation that adds the `certified_group` service entry has propagated. A direct call uses the configured `GROUP_SERVICE_URL`, sends `aud` equal to the CGS service DID, and targets the group with `repo`, so it avoids that PDS DID-document cache race.
+
+Service proxying remains supported as an optional path. It is useful when you want the user's PDS to forward requests, but it must resolve the appropriate DID document and service entry. The demo's BFF uses direct CGS calls for normal requests; see [Direct service calls](#direct-service-calls-recommended-current-path).
 
 ## Custom lexicons: why `app.certified.group.repo.*`
 
@@ -44,13 +47,34 @@ The group service uses **custom NSIDs** for record operations instead of the sta
 | Delete a record | `app.certified.group.repo.deleteRecord` |
 | Upload a blob   | `app.certified.group.repo.uploadBlob`   |
 
-**Why not `com.atproto.repo.*`?** The recommended integration pattern uses service proxying: your app sends requests to the user's PDS with an `atproto-proxy` header, and the PDS forwards them to the group service. When the PDS sees a `com.atproto.repo.createRecord` call, it handles it itself (writing to its own repo) — it has no reason to forward it anywhere. Custom NSIDs like `app.certified.group.repo.createRecord` are unrecognized by the PDS, so it looks up the target service in the group's DID document and proxies the request there. **This is the only way record operations can reach the group service through the proxy pattern.**
+**Why use the custom NSIDs?** When using service proxying, the user's PDS recognizes standard `com.atproto.repo.*` methods as local operations. Custom NSIDs such as `app.certified.group.repo.createRecord` make the PDS route the request to the group service instead. This distinction matters for the optional proxy path.
 
-> **Do not use `com.atproto.repo.*` NSIDs.** They will never reach the group service when proxying through a PDS. The group service does accept them for backwards compatibility on non-proxied calls, but non-proxied calls are not the recommended pattern and the standard NSIDs may be removed in the future.
+For direct calls to the CGS URL, the service accepts both the custom NSIDs and the registered `com.atproto.repo.*` aliases. The examples below use the custom NSIDs consistently so the same request shape works if you later switch to service proxying.
+
+> **Proxy callers:** use `app.certified.group.repo.*` for writes. Standard `com.atproto.repo.*` writes will normally be handled by the user's PDS rather than forwarded to CGS.
 
 The custom lexicons are JSON files shipped with the group service under `lexicons/app/certified/`. You must load them into your proxy agent so the `@atproto/api` client recognizes them. See Step 2 below.
 
-## Step 1: Register a group
+## Step 1: Set up the group account
+
+There are two equal alternatives: have CGS create a new account with `group.register`, or create the account separately and bring it under CGS management with `group.import`. Choose between them based primarily on who should _initially_ control the underlying PDS account.
+
+The CGS `owner` role controls membership and permissions **inside CGS**. It does not necessarily identify the person who controls the underlying account:
+
+| Control point                     | 1a: CGS creates the account with `group.register`                                                                                                                                                               | 1b: An existing account is added with `group.import`                                                                                                                                                                       |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Starting point                    | CGS provisions a new DID, handle, and repo on the group's PDS.                                                                                                                                                  | The account holder has already created the DID, handle, and repo.                                                                                                                                                          |
+| Account email                     | A non-deliverable placeholder is used by default. A real recovery email is used only if supplied during registration.                                                                                           | The existing account's email and recovery arrangements remain under the account holder's control.                                                                                                                          |
+| Primary account password          | CGS generates one internally to create the account, but does **not** currently return it to the owner.                                                                                                          | The existing account holder retains the full password.                                                                                                                                                                     |
+| Credential held by CGS            | CGS creates and stores an app password.                                                                                                                                                                         | The account holder supplies CGS with an app password and can revoke it at any time.                                                                                                                                        |
+| Recovery/rotation key held by CGS | CGS generates and retains the recovery key; it is not currently delivered to the owner.                                                                                                                         | None. CGS never receives the existing account's recovery or rotation keys.                                                                                                                                                 |
+| Effective account-level control   | Without a real recovery email, CGS is the only party among the group participants holding usable account credentials. CGS controls the account-level access path, while its owner and admins govern membership. | The holder of the account's email/full password remains the ultimate controller, even if a different DID is assigned the CGS `owner` role. They can recover the account or revoke CGS's app password independently of CGS. |
+
+The intended account-control model for groups created through `group.register` is to support transferring **full control of the underlying PDS account** to the group's CGS owner. This is distinct from merely assigning the CGS `owner` role: the handoff must give that person control of the underlying account's recovery and primary credentials. After such a transfer, the result may be effectively the same as if the owner had created the account themselves and then imported it: the owner ultimately controls the account, while CGS operates through delegated, revocable credentials. This full account-control transfer is not yet supported, so clients must not present the CGS `owner` role as proof of underlying account ownership today.
+
+Both alternatives are **service-scoped** calls: they target the service itself (`aud` = the service DID), not an existing group. This guide invokes them **non-proxied** (the client calls the group service directly), which is the simplest approach. The per-group calls in later steps go through the proxy agent instead.
+
+### Step 1a: Register a new account through CGS
 
 Registration requires a **service auth JWT** proving the caller controls the `ownerDid`. Your BFF obtains this from the user's PDS via `com.atproto.server.getServiceAuth`, then forwards it to the group service.
 
@@ -83,14 +107,12 @@ async function registerGroup(agent: AtpAgent, handle: string, ownerDid: string, 
 
 - `agent` — an `AtpAgent` authenticated to the user's PDS (with their OAuth session).
 - `handle` — alphanumeric with hyphens (e.g. `"my-team"`). Gets suffixed with the PDS hostname automatically.
-- `ownerDid` — the DID of the user who will own this group. Must match the JWT's `iss` claim. They're immediately seeded as the owner.
-- `email` — optional recovery email for the group account. If omitted, a placeholder is generated. Providing a real email enables the forgot-password flow for credible exit.
+- `ownerDid` — the DID of the user who will own this group within CGS. Must match the JWT's `iss` claim. They're immediately seeded with the CGS `owner` role.
+- `email` — optional recovery email for the group account. If omitted, a placeholder is generated. Providing a real email enables the forgot-password flow, but does not yet constitute the full account-control transfer described above.
 
-Registration (and import, below) are **service-scoped** calls — they target the service itself (`aud` = the service DID), not an existing group. This guide invokes them **non-proxied** (the client calls the group service directly), which is the simplest way; the per-group calls in later steps go through the proxy agent instead.
+### Step 1b: Import an existing account
 
-## Step 1b (alternative): Import an existing account
-
-If the account already exists — e.g. a Bluesky/atproto account you want to "promote" to a group rather than creating a fresh one — use `app.certified.group.import` instead of `register`. It reuses the existing DID, handle, and repo.
+If the account already exists — e.g. a Bluesky/atproto account you want to "promote" to a group rather than creating a fresh one — use `app.certified.group.import`. It reuses the existing DID, handle, and repo.
 
 The JWT must be signed by **the account being imported** (`groupDid`), not by the prospective owner: the service authenticates the account granting itself to the group (the grantor), and an app password alone cannot produce that signature. So `agent` below is an authenticated session for the `groupDid` account.
 
@@ -125,18 +147,14 @@ async function importGroup(
 ```
 
 - `groupDid` — the DID of the existing account to import. The group service resolves its PDS and handle from the DID document.
-- `appPassword` — an [app password](https://bsky.app/settings/app-passwords) for that account, so the service can act on its behalf. Stored encrypted; **the owner manages its lifecycle and can revoke it at any time** to sever the service's access.
-- `ownerDid` — the DID seeded as the group's owner. Unlike the JWT issuer (which must be `groupDid`), `ownerDid` is **not** separately authenticated and may differ from `groupDid`: the imported account can hand ownership to a different DID. The recipient is not asked to opt in, so validate it client-side before importing.
+- `appPassword` — an [app password](https://bsky.app/settings/app-passwords) for that account, so the service can act on its behalf. Stored encrypted; the account holder manages its lifecycle and can revoke it at any time to sever the service's access.
+- `ownerDid` — the DID seeded with the CGS `owner` role. Unlike the JWT issuer (which must be `groupDid`), `ownerDid` is **not** separately authenticated and may differ from `groupDid`: the imported account can hand CGS governance to a different DID without transferring the underlying account credentials. The recipient is not asked to opt in, so validate it client-side before importing.
 
-**How import differs from register:**
+Import does **not** modify the account's DID document. Service proxying is not currently relied upon, and an app password cannot perform the PLC operation required to add a service entry. See `docs/design/group-import.md`.
 
-- The account is **not** created — it already exists, and its DID/handle/repo are reused.
-- The group service holds **no recovery key** for an imported account (unlike registered groups, where it generates one). The owner's own pre-existing account credentials are their credible exit; the service is not a custodian of the account's keys.
-- Import does **not** modify the account's DID document. (Service proxying is not currently relied upon; and an app password cannot perform the PLC operation required to add a service entry. See `docs/design/group-import.md`.)
+## Step 2: Choose direct calls or optional service proxying
 
-## Step 2: Create a proxy agent with custom lexicons
-
-With the group's DID in hand, create a proxy agent that routes all group service calls through the user's PDS. You must also load the custom lexicons so the client knows about the `app.certified.group.repo.*` NSIDs.
+For the current recommended path, keep the CGS URL configured and call it directly with service-auth JWTs; the complete pattern appears in [Direct service calls](#direct-service-calls-recommended-current-path). If you choose service proxying, create a proxy agent with the custom lexicons as follows.
 
 ```typescript
 import { readFileSync, readdirSync } from 'node:fs'
@@ -162,9 +180,9 @@ function loadLexicons(dir: string): LexiconDoc[] {
 const customLexicons = loadLexicons('./lexicons/app/certified')
 
 function createGroupAgent(agent: AtpAgent, groupDid: string): AtpAgent {
-  // withProxy sets the atproto-proxy header so the PDS forwards to the group service.
-  // The second arg is the group DID — the PDS resolves the group's DID document to
-  // find the "certified_group" service endpoint, then routes requests there.
+  // Optional proxy path. withProxy sets the atproto-proxy header so the PDS
+  // forwards to the group service. The legacy target resolves the group's DID
+  // document and is vulnerable to the post-registration cache race described above.
   const proxied = agent.withProxy('certified_group', groupDid) as AtpAgent
 
   // Register the custom lexicons so the client can call app.certified.group.repo.*
@@ -185,17 +203,16 @@ const groupAgent = createGroupAgent(agent, groupDid)
 > to manage sessions and create agents. See the [demo app's proxy-agent.ts](../demo/server/oauth/proxy-agent.ts)
 > for a complete implementation that restores an OAuth session and creates a proxied agent.
 
-> **Heads up — this proxy agent is on the legacy `aud` path (#27).** Because
+> **Proxying caveat:** this example uses the legacy `aud` path. Because
 > `withProxy('certified_group', groupDid)` routes through the **group's** DID document,
-> the PDS mints the service-auth JWT with `aud` = the **group DID**. That is the
-> deprecated targeting form: it still works, but every response now carries an RFC
-> 8594 `Deprecation: true` header. To use the supported form under proxying, target the
-> **service** DID instead — `withProxy('certified_group_service', cgsServiceDid)` — so
-> the PDS mints `aud` = the service DID; also send an explicit `repo` to name the group.
-> See [Migrating from the legacy `aud` form (#27)](#migrating-from-the-legacy-aud-form-27).
+> it can fail immediately after registration if the user's PDS has cached the
+> pre-registration document. It also mints the deprecated group-DID `aud` form.
+> If you use proxying, target the **service** DID instead —
+> `withProxy('certified_group_service', cgsServiceDid)` — and send an explicit
+> `repo` to name the group. See [Migrating from the legacy `aud` form (#27)](#migrating-from-the-legacy-aud-form-27).
 > Do **not** add `repo` while staying on the legacy proxy target: for a query, `repo`
-> present with `aud` = group DID is a hard `401`, not a silenced warning. `repo` and the
-> service-DID `aud` must change together.
+> present with `aud` = group DID is a hard `401`. `repo` and the service-DID `aud`
+> must change together.
 
 ## Step 3: Make authenticated requests
 
@@ -304,7 +321,7 @@ raw blob bytes, so the target group is named by `repo` in the **querystring** (t
 first argument to `.call`) rather than the body:
 
 ```typescript
-// Upload a blob (max 5 MB) — repo in the querystring, body is the raw bytes
+// Upload a blob (5 MB by default; configurable via MAX_BLOB_SIZE) — repo in the querystring, body is the raw bytes
 const {
   data: { blob },
 } = await groupAgent.call('app.certified.group.repo.uploadBlob', { repo: groupDid }, imageBuffer, {
@@ -378,7 +395,7 @@ Creates a new record in the group's repository. Tracks the caller as author (use
 | ---------------------------------------------------------------- | ------------- |
 | Creating new record (no existing author)                         | member        |
 | Updating a record you authored                                   | member        |
-| Updating another member's record                                 | member        |
+| Updating another member's record                                 | admin         |
 | Editing the group profile (`app.bsky.actor.profile` rkey `self`) | admin         |
 
 ```typescript
@@ -449,7 +466,7 @@ await groupAgent.call(
 )
 
 // Change a member's role (requires owner)
-// role can be 'member' or 'admin' (the owner role is immutable)
+// role can be 'member' or 'admin' (role.set cannot change an owner)
 await groupAgent.call(
   'app.certified.group.role.set',
   {},
@@ -522,9 +539,13 @@ It has **no request body**, so — like `uploadBlob` — the target group is nam
 await groupAgent.call('app.certified.group.destroy', { repo: groupDid })
 ```
 
-This is the service-level inverse of `register` / `import`: it drops the group's stored credentials, its membership, and its per-group data from the service. It deliberately does **not** touch the underlying PDS account — the DID, handle, and repo continue to exist, so the same account can be re-imported later with `app.certified.group.import`. Destroy is therefore _not_ account deletion; if you also want to tear down the account, do that separately against its PDS.
+This is the service-level inverse of `register` / `import`: it drops the group's stored credentials, its membership, and its per-group data from the service. It deliberately does **not** touch the underlying PDS account — the DID, handle, records, and blobs continue to exist and stay publicly readable. Destroy is therefore _not_ account or data deletion; if you also want to tear down the account, do that separately against its PDS.
 
-Because the per-group data (including the audit log) is removed, the destroy is not recorded in the group's audit log — it is recorded only in the service's operational log.
+Destroy is **lossy and irreversible** — plan for it before calling:
+
+- **Export the audit log first if you need it.** `app.certified.group.audit.query` works only while the group lives; destroy deletes the audit log along with the rest of the per-group data. The destroy itself is not written to that log (it is deleted in the same step) — only to the service's operational log.
+- **Re-import resurrects the account, not the group's history.** Because the account survives, you can `app.certified.group.import` it later, but the re-imported group starts with an empty authorship table. Records still on the PDS become unowned, so the first member to `putRecord` a surviving `rkey` is recorded as its author and can overwrite it.
+- **Clean up the DID document and app password yourself.** For `register`-created groups the `certified_group` entry in the DID document is left in place — remove it as the DID controller if you no longer want requests routed to the service. The stored app password is likewise not revoked at the PDS (the service cannot); revoke it directly against the account if that matters.
 
 ## Error handling
 
@@ -549,20 +570,29 @@ All error responses follow this shape:
 
 ## Complete endpoint reference
 
-| NSID                                    | Type      | Required role | Description                                    |
-| --------------------------------------- | --------- | ------------- | ---------------------------------------------- |
-| `app.certified.group.register`          | procedure | service auth  | Register a new group (non-proxied call)        |
-| `app.certified.group.import`            | procedure | service auth  | Import an existing account as a group (direct) |
-| `app.certified.group.repo.createRecord` | procedure | member        | Create a record                                |
-| `app.certified.group.repo.putRecord`    | procedure | member/admin  | Update or create a record                      |
-| `app.certified.group.repo.deleteRecord` | procedure | member/admin  | Delete a record                                |
-| `app.certified.group.repo.uploadBlob`   | procedure | member        | Upload a blob (max 5 MB)                       |
-| `app.certified.group.member.add`        | procedure | admin         | Add a member                                   |
-| `app.certified.group.member.remove`     | procedure | admin/self    | Remove a member                                |
-| `app.certified.group.member.list`       | query     | member        | List members with pagination                   |
-| `app.certified.group.role.set`          | procedure | owner         | Change a member's role                         |
-| `app.certified.group.destroy`           | procedure | owner         | Remove the group from the service              |
-| `app.certified.group.audit.query`       | query     | admin         | Query the audit log                            |
+| NSID                                            | Type      | Required role | Description                                                       |
+| ----------------------------------------------- | --------- | ------------- | ----------------------------------------------------------------- |
+| `app.certified.group.register`                  | procedure | service auth  | Register a new group (non-proxied call)                           |
+| `app.certified.group.import`                    | procedure | service auth  | Import an existing account as a group (direct)                    |
+| `app.certified.group.repo.createRecord`         | procedure | member        | Create a record                                                   |
+| `app.certified.group.repo.putRecord`            | procedure | member/admin  | Update or create a record                                         |
+| `app.certified.group.repo.deleteRecord`         | procedure | member/admin  | Delete a record                                                   |
+| `app.certified.group.repo.uploadBlob`           | procedure | member        | Upload a blob (5 MB by default; configurable via `MAX_BLOB_SIZE`) |
+| `app.certified.group.member.add`                | procedure | admin         | Add a member                                                      |
+| `app.certified.group.member.remove`             | procedure | admin/self    | Remove a member                                                   |
+| `app.certified.group.member.list`               | query     | member        | List members with pagination                                      |
+| `app.certified.group.role.set`                  | procedure | owner         | Change a member's role                                            |
+| `app.certified.group.destroy`                   | procedure | owner         | Remove the group from the service                                 |
+| `app.certified.group.audit.query`               | query     | admin         | Query the audit log                                               |
+| `app.certified.group.ownershipTransfer.propose` | procedure | owner         | Propose an ownership transfer                                     |
+| `app.certified.group.ownershipTransfer.accept`  | procedure | member\*      | Accept an ownership transfer                                      |
+| `app.certified.group.ownershipTransfer.cancel`  | procedure | member\*      | Cancel an ownership transfer                                      |
+| `app.certified.group.ownershipTransfer.status`  | query     | member        | Check ownership-transfer status                                   |
+| `app.certified.group.keys.create`               | procedure | member        | Mint a scoped API key                                             |
+| `app.certified.group.keys.list`                 | query     | member        | List API keys visible to the caller                               |
+| `app.certified.group.keys.delete`               | procedure | member        | Revoke an API key                                                 |
+| `app.certified.groups.membership.list`          | query     | service auth  | List the caller's groups on this service                          |
+| `app.certified.group.admin.setOwner`            | procedure | HTTP Basic    | Operator ownership reassignment                                   |
 
 ## Role quick reference
 
@@ -573,35 +603,41 @@ Roles are **per-group**, not global. A user can be an owner of one group, a memb
 | _(anyone)_ | Read records (`getRecord`, `listRecords`) — reads go to the PDS, not the group service                       |
 | **member** | Create records, edit/delete own records, upload blobs, list members                                          |
 | **admin**  | Everything above + edit/delete any member's records, edit group profile, add/remove members, query audit log |
-| **owner**  | Everything above + change member/admin roles (the owner role itself is immutable)                            |
+| **owner**  | Everything above + change member/admin roles and initiate ownership transfer                                 |
 
 Key constraints:
 
 - Admins can add members at `member` or `admin` level — but not at or above their own role
 - Admins can remove members below their own role level
 - Any member can remove themselves (self-removal)
-- The owner role is immutable — it cannot be demoted, removed, or reassigned
-- `member.add` and `role.set` can only assign `member` or `admin`; the owner role cannot be assigned via any endpoint
+- `member.remove` and `role.set` cannot remove, demote, or otherwise change an owner
+- `member.add` and `role.set` can only assign `member` or `admin`; the owner role cannot be assigned through those endpoints
+- Ownership transfer is a separate propose/accept flow; `accept` requires a DID-authenticated JWT, not an API key. The operator-only `admin.setOwner` endpoint can also reassign ownership, demoting the previous owner.
+- API-key-authenticated callers cannot create, list, or revoke API keys; JWT-authenticated members can use those endpoints
+
+`*` Ownership-transfer `accept` and `cancel` have a member role floor, but their handlers apply additional identity checks: only the proposed owner can accept, and only the current owner or proposed owner can cancel.
 
 ## Reference implementation
 
 The [demo app](../demo/) is a complete working example with:
 
 - OAuth login via `@atproto/oauth-client-node` ([`demo/server/oauth/client.ts`](../demo/server/oauth/client.ts))
-- Proxy agent creation with custom lexicons ([`demo/server/oauth/proxy-agent.ts`](../demo/server/oauth/proxy-agent.ts))
-- BFF proxy via service proxying ([`demo/server/routes/proxy.ts`](../demo/server/routes/proxy.ts))
+- Direct CGS calls with service-auth JWTs ([`demo/server/oauth/proxy-agent.ts`](../demo/server/oauth/proxy-agent.ts))
+- Optional proxy-agent setup with custom lexicons ([`demo/server/oauth/proxy-agent.ts`](../demo/server/oauth/proxy-agent.ts))
+- BFF routes for group-service requests ([`demo/server/routes/proxy.ts`](../demo/server/routes/proxy.ts))
 - Group registration ([`demo/server/routes/register.ts`](../demo/server/routes/register.ts))
 - React frontend ([`demo/src/`](../demo/src/))
 
 For the full API specification, see the [API Reference](./api-reference.md).
 
-## Non-proxied calls (advanced)
+## Direct service calls (recommended current path)
 
-If you can't use service proxying (e.g. your environment doesn't support it), the
-client can call the group service itself: fetch a service-auth token via
-`com.atproto.server.getServiceAuth` and make requests with `Authorization: Bearer <jwt>`. Use the custom
-`app.certified.group.repo.*` NSIDs — the `lxm` field in the JWT must match the NSID
-you're calling.
+For current integrations, call the configured group service URL directly. Fetch a
+service-auth token via `com.atproto.server.getServiceAuth`, then send the request
+with `Authorization: Bearer <jwt>`. This is the path used by the demo because it
+avoids the PDS DID-document cache race that can occur after registration. Use the
+custom `app.certified.group.repo.*` NSIDs — the `lxm` field in the JWT must match
+the NSID you're calling.
 
 Mint the JWT with `aud` = the **service DID** (its standard RFC 7519 meaning), and
 name the target group with `repo` — in the body for JSON procedures, in the
@@ -639,8 +675,7 @@ const res = await fetch(`${GROUP_SERVICE}/xrpc/app.certified.group.repo.createRe
 //   GET /xrpc/app.certified.group.member.list?repo=<handle-or-did>&limit=50
 ```
 
-Service proxying is preferred because it's simpler, more secure (the BFF never touches
-service auth JWTs), and follows the standard atproto pattern.
+Service proxying remains available when its DID-document resolution path is suitable. It lets the user's PDS mint and forward the service-auth request, but it does not avoid the post-registration DID-document propagation/cache issue. Direct calls are the recommended current path for the reference integration.
 
 ## Migrating from the legacy `aud` form (#27)
 

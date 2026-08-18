@@ -6,6 +6,7 @@ import { PermissionSetResolver } from '../../src/auth/permission-set-resolver.js
 import type { Role } from '../../src/rbac/permissions.js'
 import { AuditLogger } from '../../src/audit.js'
 import { TestMemberIndex } from '../../src/db/member-index.js'
+import { PendingTransferStore } from '../../src/transfer/pending.js'
 import { createTestGlobalDb, createTestGroupDb } from './test-db.js'
 import type { Kysely } from 'kysely'
 import type { GlobalDatabase, GroupDatabase } from '../../src/db/schema.js'
@@ -108,6 +109,7 @@ export async function createTestContext(overrides?: Partial<AppContext>): Promis
     pdsAgents: mockPdsAgents as any,
     audit: new AuditLogger(),
     memberIndex,
+    pendingTransfers: new PendingTransferStore(),
     logger: {
       info: () => {},
       error: () => {},

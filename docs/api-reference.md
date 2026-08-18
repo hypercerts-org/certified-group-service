@@ -1,6 +1,6 @@
 # API Reference
 
-All endpoints (except `/health` and `/xrpc/_health`) require authentication. The primary mode is a signed service-auth **JWT** in the `Authorization: Bearer <token>` header (below); group-scoped read and write methods additionally accept a long-lived, scope-limited **API key** in the `X-API-Key` header (see [Authenticating with an API key](#authenticating-with-an-api-key)). The JWT must include:
+All XRPC endpoints (except `/xrpc/_health`) require authentication. The liveness endpoint `/health` and the public service DID document `/.well-known/did.json` do not require authentication. The primary mode is a signed service-auth **JWT** in the `Authorization: Bearer <token>` header (below); group-scoped read and write methods additionally accept a long-lived, scope-limited **API key** in the `X-API-Key` header (see [Authenticating with an API key](#authenticating-with-an-api-key)). The JWT must include:
 
 - `iss` — the caller's DID
 - `aud` — the **service DID** (its standard RFC 7519 meaning: the audience is the service receiving the request)
@@ -130,12 +130,11 @@ Create a new group: provision a fresh account on the group's PDS and seed the ca
 ```json
 {
   "groupDid": "did:plc:group123",
-  "handle": "mygroup.pds.example.com",
-  "accountPassword": "generated-primary-password"
+  "handle": "mygroup.pds.example.com"
 }
 ```
 
-The owner must save `accountPassword` — it is the group account's primary credential for credible exit.
+The generated primary account password is not returned by the service. If the owner needs an account-level recovery path, supply a real recovery email and use the PDS's recovery flow; the CGS owner role alone does not prove control of the underlying PDS account.
 
 **Errors:**
 
@@ -190,7 +189,14 @@ Remove the group from the service.
 
 **Required role:** owner
 
-The service-level inverse of `register` / `import`: it removes the group's stored credentials, membership, and per-group data. It does **not** delete the underlying PDS account — the DID, handle, and repo continue to exist, so the account can be re-imported afterwards with `app.certified.group.import`.
+The service-level inverse of `register` / `import`: it removes the group's stored credentials, membership, and per-group data from the service. It does **not** delete the underlying PDS account — the DID, handle, records, and blobs all continue to exist and remain publicly readable on the group's PDS. Destroy is a **service-governance deletion, not account or data deletion**; if you also want to tear down the account, do that separately against its PDS.
+
+Destroy is **lossy and irreversible.** The per-group database — the member roster, the record-authorship table, and the entire audit log — is deleted outright. Read the caveats below before calling it.
+
+- **Re-import works, but loses history.** Because the account survives, you can `app.certified.group.import` it again afterward — but the re-imported group starts with an empty authorship table. Records left on the PDS are then treated as unowned: the first member to `putRecord` a surviving `rkey` is recorded as its author and may overwrite it. Re-import resurrects the account, not the group's governance state.
+- **Export the audit log first.** The audit log is readable via `app.certified.group.audit.query` only while the group lives. Once destroyed it is gone, and the destroy itself is **not** written to it (the log is deleted in the same operation) — only to the service's operational log. If you need a durable governance record, export it before destroying.
+- **The DID document still advertises the service.** For groups created via `register`, the `certified_group` service entry added to the group's DID document is **not** removed by destroy. A client or PDS may still route requests to the service, which will answer that the group is unknown. Removing that entry is the DID controller's responsibility.
+- **The app password is not revoked.** Destroy deletes the service's encrypted copy of the group-service app password but does **not** revoke it at the PDS — the service intentionally lacks full account access and cannot. The credential stays valid until the account controller revokes it directly; do so if old copies or backups are a concern.
 
 **Request body:** none. The target group is named by the `repo` querystring parameter (`?repo=<handle-or-did>`), with JWT `aud` = service DID.
 
@@ -212,8 +218,6 @@ The service-level inverse of `register` / `import`: it removes the group's store
 | 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
 | 403  | Forbidden              | Caller lacks the owner role                            |
 | 404  | GroupNotFound          | The group is not registered on the service             |
-
-Because the per-group data (including the audit log) is deleted, the destroy is **not** written to the group's audit log — it is recorded only in the service's operational log.
 
 ---
 
@@ -626,7 +630,7 @@ The target group is named by the optional `repo` body field (a handle or DID), w
 }
 ```
 
-The `role` field can be `"member"` or `"admin"`. The owner role is immutable: a member cannot be promoted to owner, and an existing owner's role cannot be changed. Ownership transfer is a separate operation (not yet implemented).
+The `role` field can be `"member"` or `"admin"`. The owner role is immutable through `role.set`: a member cannot be promoted to owner, and an existing owner's role cannot be changed. Ownership transfer is a separate operation — see [Ownership transfer](#ownership-transfer).
 
 **Response (200):**
 
@@ -663,9 +667,208 @@ curl -X POST https://group-service.example.com/xrpc/app.certified.group.role.set
 
 ---
 
+## Ownership transfer
+
+A group has exactly one owner. Ownership moves through a **two-phase handshake**,
+not a unilateral role change: the current owner _proposes_ a new owner, and the
+proposed owner must _accept_. Requiring the proposed owner to accept proves they
+still control their DID — so a group can never be stranded by handing ownership
+to an account whose keys or recovery are lost. A group holds at most one pending
+proposal at a time, and a proposal lapses if it is not accepted within **7 days**.
+
+Only the two parties (the current owner and the proposed new owner) can see a
+pending transfer; it is deliberately **not** surfaced on `member.list`. All four
+methods are JWT-authenticated and also reachable with an [API key](#authenticating-with-an-api-key)
+carrying the corresponding `rpc:` scope (subject to the caller's role — `propose`
+is owner-only). The target group is named the usual way: `repo` in the body for
+the procedures, on the querystring for the `status` query (see
+[Targeting a group](#targeting-a-group)).
+
+This member-facing flow is distinct from the operator-only
+[`admin.setOwner`](#post-xrpcappcertifiedgroupadminsetowner) break-glass endpoint,
+which reassigns ownership unilaterally when the incumbent owner is unavailable.
+
+### `POST /xrpc/app.certified.group.ownershipTransfer.propose`
+
+Propose transferring ownership to another member. Ownership does not move yet.
+
+**Required role:** owner
+
+The proposed new owner must already be a member (bring in a stranger with
+`member.add` first). This is a policy choice, not a safety check — the safety
+comes from the proposed owner having to accept; requiring membership keeps
+outsider onboarding on a single path and lets `propose` fail fast.
+
+A new proposal replaces any existing one — including one naming the same member.
+Re-proposing the same `newOwner` therefore acts as a **renewal**: it issues fresh
+`createdAt` / `expiresAt` values and restarts the 7-day expiry window, so an owner
+can keep a proposal alive while waiting for the recipient to accept.
+
+**Request body:**
+
+```json
+{
+  "repo": "did:plc:group123",
+  "newOwner": "did:plc:newowner"
+}
+```
+
+`newOwner` is a handle or DID.
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "proposedOwner": "did:plc:newowner",
+  "proposedBy": "did:plc:currentowner",
+  "createdAt": "2026-07-24T12:00:00.000Z",
+  "expiresAt": "2026-07-31T12:00:00.000Z"
+}
+```
+
+**Errors:**
+
+| Code | Name           | Description                                             |
+| ---- | -------------- | ------------------------------------------------------- |
+| 400  | InvalidRequest | `newOwner` is a malformed DID or an unresolvable handle |
+| 400  | NotAMember     | The proposed new owner is not a member of the group     |
+| 400  | AlreadyOwner   | The proposed new owner is already the owner             |
+| 403  | Forbidden      | Caller is not the owner                                 |
+| 404  | UnknownGroup   | `repo` does not resolve to a managed group              |
+
+### `POST /xrpc/app.certified.group.ownershipTransfer.accept`
+
+Accept a pending transfer and become the group's owner. **Callable only by the
+proposed new owner.** The previous owner is demoted to admin and the caller
+promoted to owner atomically; the pending proposal is cleared.
+
+**Required role:** the caller must be the proposed new owner (any member role).
+
+**API keys cannot call this method.** `accept` must be made with a
+DID-authenticated JWT; an API-key request is refused with `ApiKeyNotPermitted`.
+Acceptance is what proves the incoming owner still controls their DID, and a key
+is a bearer secret with no cryptographic tie to that DID's signing key — it keeps
+working after its creator can no longer sign (lost PDS credentials, a suspended
+or shut-down PDS, an unrecoverable self-hosted key, or a DID document rotated
+away by someone else). Allowing a key here would let ownership land on an account
+nobody controls, recoverable only via the operator-only
+`app.certified.group.admin.setOwner`. `propose`, `cancel` and `status` remain
+key-accessible.
+
+**Request body:**
+
+```json
+{
+  "repo": "did:plc:group123"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "owner": "did:plc:newowner",
+  "previousOwner": "did:plc:currentowner",
+  "updatedAt": "2026-07-24T12:05:00.000Z"
+}
+```
+
+**Errors:**
+
+| Code | Name               | Description                                                                               |
+| ---- | ------------------ | ----------------------------------------------------------------------------------------- |
+| 403  | ApiKeyNotPermitted | Request authenticated with an API key; `accept` requires a DID-authenticated JWT          |
+| 403  | Forbidden          | Caller is not a member of the group (membership is checked before the recipient identity) |
+| 404  | NoPendingTransfer  | No live pending transfer, **or** the caller is a member but not the proposed new owner    |
+| 404  | UnknownGroup       | `repo` does not resolve to a managed group                                                |
+
+The two `NoPendingTransfer` cases are deliberately indistinguishable. Returning a
+distinct error to a non-recipient would tell any member that a transfer is in
+flight, which only the two parties may know — the refusal must not become the
+disclosure. Operators can still tell the cases apart from the audit log, which
+records the true reason.
+
+### `POST /xrpc/app.certified.group.ownershipTransfer.cancel`
+
+Abandon a pending transfer without moving ownership. Callable by the current
+owner (revoking their proposal) or the proposed new owner (declining).
+
+**Request body:**
+
+```json
+{
+  "repo": "did:plc:group123"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "cancelled": true
+}
+```
+
+**Errors:**
+
+| Code | Name              | Description                                                                |
+| ---- | ----------------- | -------------------------------------------------------------------------- |
+| 404  | NoPendingTransfer | No live pending transfer to cancel, **or** the caller is not a party to it |
+| 404  | UnknownGroup      | `repo` does not resolve to a managed group                                 |
+
+As with `accept`, the two `NoPendingTransfer` cases are indistinguishable on
+purpose, so a non-party cannot use the response to detect a transfer.
+
+### `GET /xrpc/app.certified.group.ownershipTransfer.status`
+
+Report the group's pending transfer, if any. Details are disclosed only to the
+current owner and the proposed new owner. Returns `pending: false` when there is
+no live proposal — and also to any member who is not a party, so that the
+response reveals nothing about whether a transfer exists.
+
+**Query parameters:** `repo` (handle or DID of the target group).
+
+**Response (200) — a pending transfer visible to a party:**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "pending": true,
+  "proposedOwner": "did:plc:newowner",
+  "proposedBy": "did:plc:currentowner",
+  "createdAt": "2026-07-24T12:00:00.000Z",
+  "expiresAt": "2026-07-31T12:00:00.000Z"
+}
+```
+
+**Response (200) — nothing pending:**
+
+```json
+{
+  "groupDid": "did:plc:group123",
+  "pending": false
+}
+```
+
+**Errors:**
+
+| Code | Name | Description                                                                                     |
+| ---- | ---- | ----------------------------------------------------------------------------------------------- |
+| 401  | —    | `repo` is missing or does not resolve to a managed group (rejected at auth, like `member.list`) |
+
+A non-party member is **not** refused: they receive the same
+`{ "pending": false }` response as when no transfer exists. Refusing them would
+itself disclose that a transfer is in flight, so the two cases are made
+identical; the audit log records the real outcome.
+
+---
+
 ## API key management
 
-JWT-authenticated methods for issuing and revoking [API keys](#authenticating-with-an-api-key). Any group member can create, list, and revoke their own keys; owners can list and revoke all keys in the group. A member can only create keys with scopes their current role can use; for example, `audit.query` requires admin. A key can never manage keys. These methods target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
+JWT-authenticated methods for issuing and revoking [API keys](#authenticating-with-an-api-key). Any group member can create, list, and revoke their own keys; owners can list and revoke all keys in the group. A member can only create keys with scopes their current role can use; for example, `audit.query` requires admin. The wildcard `rpc:*` is the exception: it names no operation, so it is accepted for any role and grants whatever that member's role permits **at request time** — a member's `rpc:*` key can call `member.list` but is still refused `audit.query` with a `403`. Because the cap follows the issuer's current role, promoting or demoting them widens or narrows an existing wildcard key with no re-issue. A key can never manage keys. These methods target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
 
 ### `POST /xrpc/app.certified.group.keys.create`
 
@@ -866,21 +1069,28 @@ Entries are ordered newest first (`id DESC`). The `detail` field is a JSON objec
 
 Every audited operation produces one of the following `action` strings. Denied operations use the same action value with `"result": "denied"` and an additional `reason` field in `detail`.
 
-| Action              | Trigger                                                           | `detail` fields                                     |
-| ------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
-| `group.register`    | Group created via `app.certified.group.register`                  | `{ handle }`                                        |
-| `group.import`      | Existing account imported via `app.certified.group.import`        | `{ handle }`                                        |
-| `member.add`        | Member added via `member.add`                                     | `{ memberDid, role }`                               |
-| `member.remove`     | Member removed via `member.remove`                                | `{ memberDid }`                                     |
-| `role.set`          | Role changed via `role.set`                                       | `{ memberDid, previousRole, newRole }`              |
-| `admin.setOwner`    | Owner reassigned via the admin `setOwner` endpoint                | `{ newOwner, previousOwner, addedAsMember, noop? }` |
-| `createRecord`      | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
-| `putOwnRecord`      | Caller updated a record they authored                             | `{ collection, rkey }`                              |
-| `putAnyRecord`      | Caller updated another member's record                            | `{ collection, rkey }`                              |
-| `putRecord:profile` | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                              |
-| `deleteOwnRecord`   | Caller deleted a record they authored                             | `{ collection, rkey }`                              |
-| `deleteAnyRecord`   | Caller deleted another member's record                            | `{ collection, rkey }`                              |
-| `uploadBlob`        | Blob uploaded via `uploadBlob`                                    | _(none)_                                            |
+| Action                      | Trigger                                                           | `detail` fields                                     |
+| --------------------------- | ----------------------------------------------------------------- | --------------------------------------------------- |
+| `group.register`            | Group created via `app.certified.group.register`                  | `{ handle }`                                        |
+| `group.import`              | Existing account imported via `app.certified.group.import`        | `{ handle }`                                        |
+| `member.add`                | Member added via `member.add`                                     | `{ memberDid, role }`                               |
+| `member.remove`             | Member removed via `member.remove`                                | `{ memberDid }`                                     |
+| `role.set`                  | Role changed via `role.set`                                       | `{ memberDid, previousRole, newRole }`              |
+| `admin.setOwner`            | Owner reassigned via the admin `setOwner` endpoint                | `{ newOwner, previousOwner, addedAsMember, noop? }` |
+| `ownershipTransfer.propose` | Ownership transfer proposed via `ownershipTransfer.propose`       | `{ proposedOwner, expiresAt }`                      |
+| `ownershipTransfer.accept`  | Transfer accepted; ownership moved via `ownershipTransfer.accept` | `{ newOwner, previousOwner }`                       |
+| `ownershipTransfer.cancel`  | Pending transfer cancelled via `ownershipTransfer.cancel`         | `{ proposedOwner, proposedBy }`                     |
+| `ownershipTransfer.status`  | Non-party status probe denied                                     | `{ reason }`                                        |
+| `keys.create`               | API key created                                                   | `{ createdKeyRef, name, scopes }`                   |
+| `keys.delete`               | API key revoked                                                   | `{ revokedKeyRef }`                                 |
+| `keys.list`                 | Unauthorized key-list attempt                                     | `{ reason }`                                        |
+| `createRecord`              | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
+| `putOwnRecord`              | Caller updated a record they authored                             | `{ collection, rkey }`                              |
+| `putAnyRecord`              | Caller updated another member's record                            | `{ collection, rkey }`                              |
+| `putRecord:profile`         | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                              |
+| `deleteOwnRecord`           | Caller deleted a record they authored                             | `{ collection, rkey }`                              |
+| `deleteAnyRecord`           | Caller deleted another member's record                            | `{ collection, rkey }`                              |
+| `uploadBlob`                | Blob uploaded via `uploadBlob`                                    | _(none)_                                            |
 
 **Denied entries** include the same `detail` fields as permitted entries, plus a `reason` string explaining why the operation was denied:
 

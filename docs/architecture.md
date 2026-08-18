@@ -4,85 +4,69 @@
 
 The Certified Group Service (CGS) solves a specific problem in the AT Protocol ecosystem: **how can multiple users collaboratively manage a single atproto repository with access control?**
 
-In standard atproto, each repository is controlled by a single identity (DID). CGS sits between clients and the group's PDS, acting as a governance layer that enforces who can do what. It manages its own membership database, tracks record authorship, and proxies all repository operations to the backing PDS using stored credentials.
+In standard atproto, each repository is controlled by a single identity (DID). CGS sits between clients and the group's PDS, acting as a governance layer that enforces who can do what. It manages membership, record authorship, API keys, pending ownership transfers, and audit data in its own SQLite databases, then proxies repository writes and blob uploads to the backing PDS using stored credentials.
+
+Clients can call CGS directly or reach it through atproto service proxying:
 
 ```
-Any atproto client
-    │
-    │  atproto-proxy: did:plc:GROUP#certified_group
-    ▼
-User's PDS
-    │
-    │  Authorization: Bearer <service-auth-jwt>
-    │  (JWT signed with user's key, iss=user, aud=group)
-    ▼
-┌──────────────────────────────────┐
-│  Certified Group Service         │
-│                                  │
-│  1. AuthVerifier  (JWT → DID)    │
-│  2. RbacChecker   (DID → role)   │
-│  3. PdsAgentPool  (proxy to PDS) │
-│  4. AuditLogger   (record all)   │
-└──────────────────────────────────┘
-    │
-    ▼
-  Group's PDS
+Client ── direct JWT / X-API-Key ──▶ CGS ──▶ Group's PDS
+   │                                  │
+   └─ user's PDS + atproto-proxy ─────┘
+
+CGS:
+  1. AuthVerifier       (JWT, API key, or admin Basic auth)
+  2. RbacChecker        (DID → group role)
+  3. Scope gate         (API-key scopes, when applicable)
+  4. PdsAgentPool       (stored group credentials)
+  5. AuditLogger        (authorized operations and denials)
 ```
 
 ## Authentication flow
 
-Every request must include an `Authorization: Bearer <JWT>` header. The verification process:
+Authentication depends on the endpoint and credential type:
 
-1. **Extract token** from the `Authorization` header
-2. **Parse the XRPC method** (NSID) from the request path
-3. **Validate the NSID** against the accepted whitelist:
-   - `com.atproto.repo.createRecord` (alias: `app.certified.group.repo.createRecord`)
-   - `com.atproto.repo.putRecord` (alias: `app.certified.group.repo.putRecord`)
-   - `com.atproto.repo.deleteRecord` (alias: `app.certified.group.repo.deleteRecord`)
-   - `com.atproto.repo.uploadBlob` (alias: `app.certified.group.repo.uploadBlob`)
-   - `app.certified.group.member.add`
-   - `app.certified.group.member.remove`
-   - `app.certified.group.member.list`
-   - `app.certified.group.role.set`
-   - `app.certified.group.destroy`
-   - `app.certified.group.audit.query`
-4. **Verify JWT signature** against the issuer's DID document using `@atproto/xrpc-server`'s `verifyJwt()`. This checks:
-   - Cryptographic signature validity (resolved via the DID doc's signing key)
-   - Token expiration (`exp`)
-   - Lexicon method (`lxm`) matches the requested NSID
-5. **Validate audience** — the JWT's `aud` claim must match a group DID registered in the `groups` table
-6. **Enforce token lifetime** — the JWT's `exp - iat` must not exceed the nonce TTL (120 seconds). This prevents an attacker (e.g. a malicious PDS) from issuing long-lived tokens that remain valid after the nonce window closes.
-7. **Check nonce** — the JWT's `jti` (JWT ID) is checked against the `nonce_cache` table. If it already exists, the request is rejected as a replay. Otherwise the jti is stored with a 2-minute TTL.
-8. **Return** `{ iss: callerDid, aud: groupDid }` to the endpoint handler
+- **Service-level JWT methods** (`group.register`, `group.import`, and `groups.membership.list`) require `aud` equal to the service DID and do not target an existing group.
+- **Group-scoped JWT methods** use the supported form of `aud` equal to the service DID plus an explicit `repo` group selector. Queries, raw-body methods, and bodyless procedures such as `app.certified.group.destroy` read `repo` from the querystring; JSON procedures with a body read it from the body. The deprecated form, where `aud` is the group DID and `repo` is omitted, remains accepted and receives deprecation headers.
+- **API-key requests** use `X-API-Key` and require `repo` in the querystring, including for procedures. The key is looked up in the selected group's database before the body is parsed.
+- **Operator admin methods** use HTTP Basic auth with `CGS_ADMIN_PASSWORD` and do not use group membership authentication.
+
+For group-scoped JWT-authenticated requests, CGS:
+
+1. **Parses the XRPC method** (NSID) from the request path and verifies the JWT `lxm` matches it.
+2. **Verifies the JWT signature** against the issuer's DID document and checks expiration.
+3. **Enforces token lifetime**: `exp - iat` must not exceed the 120-second nonce window.
+4. **Checks the `jti` nonce** in `nonce_cache`; a reused token is rejected.
+5. **Resolves the target group** from `repo` or, for legacy requests, the group-DID `aud`.
+6. **Runs RBAC**, and for API keys also checks the key's scopes against the requested operation.
+7. **Returns the authenticated caller and resolved group** to the endpoint handler. Service-level JWT methods return the caller without a group target.
 
 ## Service proxying
 
-Clients don't call the group service directly. Instead, they send XRPC requests to their own PDS with an `atproto-proxy` header specifying the group DID and service fragment:
+### Proxy targets
 
-```
-atproto-proxy: did:plc:GROUP#certified_group
-```
+Clients may call CGS directly with a service-auth JWT or use the standard atproto proxy path through their own PDS. There are two proxy targets:
 
-The user's PDS then:
+- `atproto-proxy: did:plc:GROUP#certified_group` resolves the group's DID document and uses the deprecated group-DID `aud` form.
+- `atproto-proxy: did:web:SERVICE_HOST#certified_group_service` resolves CGS's own DID document and uses the supported service-DID `aud` form. The request must also include an explicit `repo` group selector.
 
-1. **Receives** the XRPC request with the `atproto-proxy` header
-2. **Resolves** the group's DID document via the AT Protocol DID resolution mechanism
-3. **Finds** the `#certified_group` service endpoint in the DID document
-4. **Creates** a service auth JWT signed with the user's signing key (`iss=user DID`, `aud=group DID`, `lxm=NSID`)
-5. **Forwards** the request to the group service endpoint with the JWT as a Bearer token
-6. **Returns** the group service's response to the client
+For a proxied request, the user's PDS:
 
-This is the same mechanism used by Ozone labeling services in the AT Protocol ecosystem.
+1. **Receives** the XRPC request with the `atproto-proxy` header.
+2. **Resolves** the DID named by the proxy target through the AT Protocol DID resolution mechanism.
+3. **Finds** the matching service entry in that DID document: `#certified_group` for the deprecated group-DID route, or `#certified_group_service` for the supported service-DID route.
+4. **Creates** a service-auth JWT signed with the user's signing key (`iss` = user DID, `aud` = the proxy target's DID, `lxm` = NSID).
+5. **Forwards** the request to the discovered group service endpoint with the JWT as a Bearer token.
+6. **Returns** the group service's response to the client.
 
-### DID document service entry
+### DID document service entries
 
-During group registration, a service entry is added to the group's DID document via a PLC operation:
+During `group.register`, CGS adds this service entry to the group's DID document via a PLC operation:
 
 - **id**: `#certified_group`
 - **type**: `CertifiedGroupService`
 - **endpoint**: the service's public URL (`SERVICE_URL`)
 
-This entry is registered automatically during `group.register` and is what allows the user's PDS to discover and forward requests to the group service.
+CGS also serves its own `did:web` document at `/.well-known/did.json` with the `#certified_group_service` entry. Imported groups do not receive a DID-document update because CGS does not hold their rotation keys. A stale DID-document cache can temporarily hide the group service entry immediately after registration.
 
 ### Nonce cache
 
@@ -126,8 +110,8 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 
 - **Cannot modify equal or higher roles**: An admin cannot remove another admin; only owners can
 - **Cannot assign roles above assignable set**: `member.add` only allows assigning `member` or `admin` — not `owner`
-- **Self-removal always succeeds**: Any member can remove themselves regardless of role
-- **Owner role is immutable**: `role.set` rejects both promoting a member to owner (`CannotPromoteToOwner`) and changing an existing owner's role (`CannotModifyOwner`); `member.remove` rejects removing an owner (`CannotRemoveOwner`). Each group has exactly one owner (the registrant). Ownership transfer is a separate operation that is not yet implemented.
+- **Self-removal succeeds for non-owners**: Any non-owner member can remove themselves regardless of role. The owner cannot self-remove — the `CannotRemoveOwner` guard fires before the self-removal path; transfer ownership away first.
+- **Owner role is immutable**: `role.set` rejects both promoting a member to owner (`CannotPromoteToOwner`) and changing an existing owner's role (`CannotModifyOwner`); `member.remove` rejects removing an owner (`CannotRemoveOwner`). Each group has exactly one owner (initially the registrant). Ownership moves only through the dedicated two-phase [`ownershipTransfer.*`](api-reference.md#ownership-transfer) handshake (owner proposes, proposed member accepts) or the operator-only [`admin.setOwner`](api-reference.md#post-xrpcappcertifiedgroupadminsetowner) break-glass endpoint — never through `role.set`.
 - **Author-based record ownership**: `putRecord` and `deleteRecord` check the `group_record_authors` table to determine if the caller authored the record, then select the appropriate operation (`putOwnRecord` / `putAnyRecord` vs `putRecord:profile`, `deleteOwnRecord` vs `deleteAnyRecord`). Members can only edit or delete their own records; editing or deleting another member's record requires admin.
 
 ### RBAC enforcement
@@ -136,6 +120,30 @@ The `RbacChecker` class provides two key methods:
 
 - `assertCan(groupDb, memberDid, operation)` — looks up the member's role, compares against the operation's minimum role, and throws `UnauthorizedError` (not a member) or `ForbiddenError` (insufficient role) on failure. Returns the member's role on success.
 - `isAuthor(groupDb, recordUri, memberDid)` — checks if a specific member authored a record.
+
+### Concurrency model
+
+The service runs on Node's single-threaded event loop with a **synchronous**
+SQLite driver (`better-sqlite3`, configured in `src/db/sqlite.ts`). Every query
+and every `raw.transaction(...)` runs to completion within one event-loop turn —
+there is no `await` inside a transaction. **A request handler's database
+statements therefore cannot interleave with another handler's mid-transaction;
+the only points at which control passes between concurrent handlers are the
+`await` boundaries _between_ database calls.**
+
+This is load-bearing for several read-modify-write flows that are safe only
+because whole transactions are indivisible. The clearest example is ownership
+transfer: `admin.setOwner` invalidates a pending member-initiated proposal with
+a `clear()` issued _after_ its `transferOwner` transaction commits (not inside
+it), and a concurrent `ownershipTransfer.accept` in that gap still resolves
+consistently because `accept` re-reads the current owner and `transferOwner` is
+atomic. That argument holds only under a synchronous driver.
+
+**If this ever moves to an asynchronous driver** (e.g. `node:sqlite` worker
+threads, libsql, or a connection pool with genuine parallelism), every such
+flow must be re-audited: statements could then interleave mid-transaction, and
+the affected paths would need explicit locking or single-transaction
+invalidation.
 
 ## Data model
 
@@ -216,6 +224,32 @@ Indexed on `author_did` for authorship lookups.
 
 Indexed on `created_at`, `actor_did`, `action`, and `collection` for efficient querying.
 
+#### `group_api_keys`
+
+Stores hashed, long-lived API keys issued by group members. The plaintext key is returned only at creation time.
+
+| Column         | Description                           |
+| -------------- | ------------------------------------- |
+| `key_ref`      | Non-secret key identifier             |
+| `key_hash`     | SHA-256 hash of the key secret        |
+| `name`         | Member-supplied label                 |
+| `scopes`       | JSON array of canonical scope strings |
+| `created_by`   | DID of the issuing member             |
+| `created_at`   | Creation timestamp                    |
+| `last_used_at` | Best-effort last-use timestamp        |
+| `revoked_at`   | Nullable soft-revocation timestamp    |
+
+#### `pending_ownership_transfer`
+
+A single-row table holding the current pending ownership proposal. Expiry is lazy: expired rows are treated as absent when read, and no sweeper is required.
+
+| Column          | Description                                |
+| --------------- | ------------------------------------------ |
+| `proposer_did`  | DID of the owner who proposed the transfer |
+| `recipient_did` | DID of the proposed new owner              |
+| `created_at`    | Proposal creation timestamp                |
+| `expires_at`    | Proposal expiry timestamp                  |
+
 ## PDS proxy layer
 
 ### Agent pool
@@ -237,13 +271,9 @@ App passwords are encrypted at rest using **AES-256-GCM**:
 - **Auth tag**: 16 bytes for integrity verification
 - **Storage format**: Base64 encoding of `IV || AuthTag || Ciphertext`
 
-### Blob streaming
+### Blob handling
 
-The `uploadBlob` endpoint streams blob data to the PDS with size enforcement:
-
-- The `Content-Length` header is checked upfront for fast rejection
-- The request body is buffered with per-chunk size tracking
-- If the accumulated size exceeds `MAX_BLOB_SIZE`, the request is immediately rejected with `BlobTooLarge`
+The `uploadBlob` endpoint accepts the raw request stream and buffers the complete blob in memory before forwarding it to the group's PDS. The XRPC server enforces `MAX_BLOB_SIZE`; the handler then sends the resulting `Buffer` upstream. This is not a streaming transfer to the PDS.
 
 ## Audit logging
 
@@ -255,6 +285,8 @@ The `AuditLogger` records every meaningful action in the per-group `group_audit_
 - Blob uploads
 - Member management (add, remove)
 - Role changes
+- Ownership-transfer operations and operator ownership reassignment
+- API-key creation and revocation, plus denied key-management attempts
 - RBAC denials (with the reason for denial)
 
 ### Entry structure
@@ -323,7 +355,9 @@ sequenceDiagram
 
 ### Destroy
 
-`group.destroy` is the service-level inverse: an owner removes the group **from the service** while leaving the underlying PDS account intact (so it can be re-imported later — it is not account deletion). It deletes the group's `groups` row and `member_index` entries in a single global-DB transaction, then unlinks the per-group SQLite file; doing the file unlink only after the transaction commits means an interrupted destroy leaves at worst an orphaned file rather than inconsistent global state. Because the per-group audit log is deleted with it, the destroy is recorded in the service's operational log instead.
+`group.destroy` is the service-level inverse: an owner removes the group **from the service** while leaving the underlying PDS account intact (it is not account deletion). It deletes the group's `groups` row and `member_index` entries in a single global-DB transaction, then unlinks the per-group SQLite file; doing the file unlink only after the transaction commits means an interrupted destroy leaves at worst an orphaned file rather than inconsistent global state. Because the per-group audit log is deleted with it, the destroy is recorded in the service's operational log instead.
+
+Destroy is lossy: the per-group DB — including the `group_record_authors` table and the audit log — is gone. The account can be re-imported afterward, but the re-imported group has an empty authorship table, so surviving PDS records are treated as unowned and a member can claim authorship by `putRecord`ing a known `rkey` (see `putRecord.ts`: no author row ⇒ `createRecord`, which members may perform). Destroy also leaves the `certified_group` DID-document entry (for `register`ed groups) and the PDS app password in place — the service cannot revoke either. These are the DID/account controller's responsibility. User-facing consequences are spelled out in [api-reference.md](./api-reference.md#post-xrpcappcertifiedgroupdestroy).
 
 ## Startup sequence
 
