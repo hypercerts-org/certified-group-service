@@ -1,6 +1,6 @@
 # API Reference
 
-All endpoints (except `/health` and `/xrpc/_health`) require authentication. The primary mode is a signed service-auth **JWT** in the `Authorization: Bearer <token>` header (below); group-scoped read and write methods additionally accept a long-lived, scope-limited **API key** in the `X-API-Key` header (see [Authenticating with an API key](#authenticating-with-an-api-key)). The JWT must include:
+All XRPC endpoints (except `/xrpc/_health`) require authentication. The liveness endpoint `/health` and the public service DID document `/.well-known/did.json` do not require authentication. The primary mode is a signed service-auth **JWT** in the `Authorization: Bearer <token>` header (below); group-scoped read and write methods additionally accept a long-lived, scope-limited **API key** in the `X-API-Key` header (see [Authenticating with an API key](#authenticating-with-an-api-key)). The JWT must include:
 
 - `iss` — the caller's DID
 - `aud` — the **service DID** (its standard RFC 7519 meaning: the audience is the service receiving the request)
@@ -130,12 +130,11 @@ Create a new group: provision a fresh account on the group's PDS and seed the ca
 ```json
 {
   "groupDid": "did:plc:group123",
-  "handle": "mygroup.pds.example.com",
-  "accountPassword": "generated-primary-password"
+  "handle": "mygroup.pds.example.com"
 }
 ```
 
-The owner must save `accountPassword` — it is the group account's primary credential for credible exit.
+The generated primary account password is not returned by the service. If the owner needs an account-level recovery path, supply a real recovery email and use the PDS's recovery flow; the CGS owner role alone does not prove control of the underlying PDS account.
 
 **Errors:**
 
@@ -1081,6 +1080,10 @@ Every audited operation produces one of the following `action` strings. Denied o
 | `ownershipTransfer.propose` | Ownership transfer proposed via `ownershipTransfer.propose`       | `{ proposedOwner, expiresAt }`                      |
 | `ownershipTransfer.accept`  | Transfer accepted; ownership moved via `ownershipTransfer.accept` | `{ newOwner, previousOwner }`                       |
 | `ownershipTransfer.cancel`  | Pending transfer cancelled via `ownershipTransfer.cancel`         | `{ proposedOwner, proposedBy }`                     |
+| `ownershipTransfer.status`  | Non-party status probe denied                                     | `{ reason }`                                        |
+| `keys.create`               | API key created                                                   | `{ createdKeyRef, name, scopes }`                   |
+| `keys.delete`               | API key revoked                                                   | `{ revokedKeyRef }`                                 |
+| `keys.list`                 | Unauthorized key-list attempt                                     | `{ reason }`                                        |
 | `createRecord`              | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
 | `putOwnRecord`              | Caller updated a record they authored                             | `{ collection, rkey }`                              |
 | `putAnyRecord`              | Caller updated another member's record                            | `{ collection, rkey }`                              |
