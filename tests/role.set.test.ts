@@ -120,6 +120,22 @@ describe('role.set', () => {
     expect(res.body.error).toBe('InvalidRole')
   })
 
+  it('rejects a prototype key as a role with InvalidRole', async () => {
+    await seedMember(groupDb, 'did:plc:target', 'member')
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.role.set')
+      .send({ memberDid: 'did:plc:target', role: 'toString' })
+
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('InvalidRole')
+    const row = await groupDb
+      .selectFrom('group_members')
+      .select('role')
+      .where('member_did', '=', 'did:plc:target')
+      .executeTakeFirst()
+    expect(row?.role).toBe('member')
+  })
+
   it('audit log records previousRole and newRole', async () => {
     await seedMember(groupDb, 'did:plc:target', 'member')
     await request(app)

@@ -66,6 +66,31 @@ describe('lxmForOperation', () => {
     expect(lxmForOperation('createRecord')).toBeUndefined()
     expect(lxmForOperation('group.destroy')).toBeUndefined()
   })
+
+  it('maps the key-safe ownership-transfer operations', () => {
+    expect(lxmForOperation('ownershipTransfer.propose')).toBe(
+      'app.certified.group.ownershipTransfer.propose',
+    )
+    expect(lxmForOperation('ownershipTransfer.cancel')).toBe(
+      'app.certified.group.ownershipTransfer.cancel',
+    )
+    expect(lxmForOperation('ownershipTransfer.status')).toBe(
+      'app.certified.group.ownershipTransfer.status',
+    )
+  })
+
+  // Accepting must prove live control of the recipient DID; an API key outlives
+  // that control, so the scope must not be mintable onto a key at all.
+  it('does not map ownershipTransfer.accept, so no key scope can cover it', () => {
+    expect(lxmForOperation('ownershipTransfer.accept')).toBeUndefined()
+    expect(scopeNeededFor('ownershipTransfer.accept', SERVICE_DID)).toBeUndefined()
+
+    const aud = serviceScopeAud(SERVICE_DID)
+    const wild = `rpc:*?aud=${aud}`
+    const explicit = `rpc:app.certified.group.ownershipTransfer.accept?aud=${aud}`
+    expect(scopesCoverOperation([wild], 'ownershipTransfer.accept', SERVICE_DID)).toBe(false)
+    expect(scopesCoverOperation([explicit], 'ownershipTransfer.accept', SERVICE_DID)).toBe(false)
+  })
 })
 
 describe('scopeNeededFor', () => {
@@ -125,12 +150,29 @@ describe('validateScopesAllowedForRole', () => {
     expect(validateScopesAllowedForRole([AUDIT_QUERY_SCOPE], 'admin')).toEqual({ ok: true })
   })
 
-  it('validates wildcard rpc scopes against every key-accessible rpc operation', () => {
+  // A wildcard names no operation, so there is no specific claim to reject: it
+  // grants whatever the issuer's role permits, enforced by RBAC at request time.
+  // Role-checking it against the whole OPERATION_LXM table would make `rpc:*`
+  // unusable for everyone below the strictest entry in that table.
+  it('allows a wildcard rpc scope for every role', () => {
     const wild = `rpc:*?aud=${serviceScopeAud(SERVICE_DID)}`
-    const memberResult = validateScopesAllowedForRole([wild], 'member')
+    expect(validateScopesAllowedForRole([wild], 'member')).toEqual({ ok: true })
+    expect(validateScopesAllowedForRole([wild], 'admin')).toEqual({ ok: true })
+    expect(validateScopesAllowedForRole([wild], 'owner')).toEqual({ ok: true })
+  })
+
+  // The wildcard exemption must not leak into enumerated scopes: naming an
+  // operation your role cannot use is still a fail-fast error.
+  it('still rejects an enumerated scope the role cannot use', () => {
+    const memberResult = validateScopesAllowedForRole([AUDIT_QUERY_SCOPE], 'member')
     expect(memberResult.ok).toBe(false)
     if (!memberResult.ok) expect(memberResult.reason).toContain('audit.query')
-    expect(validateScopesAllowedForRole([wild], 'admin')).toEqual({ ok: true })
+
+    const proposeScope = scopeNeededFor('ownershipTransfer.propose', SERVICE_DID)!
+    const adminResult = validateScopesAllowedForRole([proposeScope], 'admin')
+    expect(adminResult.ok).toBe(false)
+    if (!adminResult.ok) expect(adminResult.reason).toContain('ownershipTransfer.propose')
+    expect(validateScopesAllowedForRole([proposeScope], 'owner')).toEqual({ ok: true })
   })
 
   it('allows blob scopes for members', () => {

@@ -48,6 +48,11 @@ export default function (server: Server, ctx: AppContext) {
       const groupRaw = ctx.groupDbs.getRaw(groupDid)
       ctx.memberIndex.remove(groupRaw, groupDid, memberDid)
 
+      // If the removed member was a party to a pending ownership transfer, that
+      // proposal is now stale — drop it so it can't be resurrected if the DID is
+      // re-added later within the TTL.
+      await ctx.pendingTransfers.clearIfParty(groupDb, memberDid)
+
       await ctx.audit.log(groupDb, callerDid, 'member.remove', 'permitted', {
         memberDid,
       })

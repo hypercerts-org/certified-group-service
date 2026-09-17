@@ -3,7 +3,8 @@
 A small reference app showing how to integrate with the
 [Certified Group Service](../) (CGS) from a web app. It's a **React SPA** with a
 thin **backend-for-frontend (BFF)** that logs the user in via AT Protocol OAuth
-and forwards XRPC calls to the group service through the `atproto-proxy` pattern.
+and calls the group service directly with service-auth JWTs. Optional service
+proxying is also available, but direct calls are the current reliable path.
 
 It is a teaching/demo app, not production code — but it exercises the real CGS
 API end to end.
@@ -47,8 +48,9 @@ Browser (React SPA, Vite)
    │  /api/*        → BFF
    ▼
 BFF (Express, server/)
-   │  OAuth session + atproto-proxy → user's PDS → Group Service
-   │  /api/keys/call → direct X-API-Key call to the Group Service
+   │  OAuth session + direct service-auth JWT → Group Service
+   │  /api/keys/call → direct X-API-Key call to Group Service
+   │  optional: atproto-proxy → user's PDS → Group Service
    ▼
 Group Service (CGS) ──▶ Group's PDS
 ```
@@ -78,7 +80,7 @@ Open the Vite URL it prints (default http://localhost:5173).
 | Variable             | Purpose                                                                       |
 | -------------------- | ----------------------------------------------------------------------------- |
 | `GROUP_SERVICE_URL`  | CGS base URL, e.g. `https://dev.groups.certified.app`.                         |
-| `GROUP_SERVICE_DID`  | CGS DID (the JWT `aud`), e.g. `did:web:dev.groups.certified.app`.              |
+| `GROUP_SERVICE_DID`  | CGS service DID used as the JWT `aud`, e.g. `did:web:dev.groups.certified.app`. |
 | `EPDS_URL`           | The ePDS users authenticate against, e.g. `https://epds1.test.certified.app`. |
 | `SESSION_SECRET`     | Random string for the BFF session cookie (`openssl rand -hex 32`).            |
 | `OAUTH_CLIENT_ID`    | URL of the OAuth client metadata — **must be publicly reachable** so the ePDS can fetch it (e.g. `https://<your-domain>/client-metadata.json`). |
@@ -97,6 +99,12 @@ pnpm start    # node dist-server/index.js  (set NODE_ENV=production)
 
 With `NODE_ENV=production`, the BFF serves the built SPA from `dist/` (override
 with `CLIENT_DIST`) and listens on `PORT` (falling back to `BFF_PORT`, then 3001).
+
+The demo configures `GROUP_SERVICE_URL` because its normal request path calls CGS
+directly. This avoids a DID-document cache race: after `group.register`, the
+`certified_group` service entry is added in a separate PLC operation and may not
+be visible to a user's PDS immediately. Service proxying remains an optional
+alternative once the relevant DID documents have propagated.
 
 ## Deploying to Railway
 

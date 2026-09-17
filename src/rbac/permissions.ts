@@ -17,6 +17,10 @@ export type Operation =
   | 'keys.create'
   | 'keys.list'
   | 'keys.delete'
+  | 'ownershipTransfer.propose'
+  | 'ownershipTransfer.accept'
+  | 'ownershipTransfer.cancel'
+  | 'ownershipTransfer.status'
 
 export const ROLE_HIERARCHY: Record<Role, number> = {
   member: 0,
@@ -46,6 +50,14 @@ const MIN_ROLE_FOR_OPERATION: Record<Operation, Role> = {
   'keys.create': 'member',
   'keys.list': 'member',
   'keys.delete': 'member',
+  // Ownership transfer. Only the owner may propose. accept/cancel/status carry
+  // a `member` floor because the proposed new owner may be a plain member — the
+  // real gate is an identity check in the handler (only the named recipient may
+  // accept; only the owner or recipient may cancel/read status), not the role.
+  'ownershipTransfer.propose': 'owner',
+  'ownershipTransfer.accept': 'member',
+  'ownershipTransfer.cancel': 'member',
+  'ownershipTransfer.status': 'member',
 }
 
 export function canPerform(userRole: Role, operation: Operation): boolean {
