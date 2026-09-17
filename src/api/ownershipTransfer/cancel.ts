@@ -41,7 +41,19 @@ export default function (server: Server, ctx: AppContext) {
         throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
       }
 
-      await ctx.pendingTransfers.clear(groupDb)
+      // Delete the exact proposal this caller was authorized against, not
+      // whatever row exists now: `get` above is awaited, so a concurrent propose
+      // can replace the pinned row while this handler is suspended, and an
+      // unconditional clear would wipe that new, unrelated proposal on the
+      // strength of an identity check made against the old one.
+      const cancelled = await ctx.pendingTransfers.clearIfMatches(
+        groupDb,
+        pending.proposerDid,
+        pending.recipientDid,
+      )
+      if (!cancelled) {
+        throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
+      }
 
       await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.cancel', 'permitted', {
         proposedOwner: pending.recipientDid,

@@ -387,6 +387,31 @@ describe('ownershipTransfer', () => {
       expect(res.status).toBe(404)
       expect(res.body.error).toBe('NoPendingTransfer')
     })
+
+    // The identity check authorizes the caller against the row `get` returned;
+    // the delete must be scoped to that same row, or a proposal that replaced it
+    // in the meantime is cancelled on the strength of an unrelated check.
+    it('does not cancel a proposal that replaced the row it read', async () => {
+      // Simulate a concurrent propose swapping the pinned row between cancel
+      // reading it and reaching the delete.
+      const realGet = ctx.pendingTransfers.get.bind(ctx.pendingTransfers)
+      ctx.pendingTransfers.get = async (db: typeof groupDb) => {
+        const row = await realGet(db)
+        await groupDb
+          .updateTable('pending_ownership_transfer')
+          .set({ proposer_did: OWNER, recipient_did: MEMBER })
+          .where('id', '=', 1)
+          .execute()
+        return row
+      }
+
+      const res = await as(OWNER).post(`/xrpc/${CANCEL}`).send({ repo: GROUP })
+      expect(res.status).toBe(404)
+      expect(res.body.error).toBe('NoPendingTransfer')
+
+      const row = await pendingRow()
+      expect(row?.recipient_did).toBe(MEMBER)
+    })
   })
 
   // --- status --------------------------------------------------------------
