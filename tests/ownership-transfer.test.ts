@@ -790,6 +790,34 @@ describe('admin.setOwner clears a pending ownership transfer', () => {
     expect(await roleOf(ADMIN)).toBe('admin')
   })
 
+  // The clear and the transfer are separate transactions, so a failure between
+  // them commits one without the other. The clear must be the one that survives:
+  // a committed transfer plus a surviving proposal lets the demoted owner's
+  // recipient accept later and undo the reassignment.
+  it('a failed transfer leaves no proposal behind', async () => {
+    caller = OWNER
+    await request(app).post(`/xrpc/${PROPOSE}`).send({ repo: GROUP, newOwner: ADMIN })
+
+    ctx.memberIndex.transferOwner = () => {
+      throw new Error('transfer failed')
+    }
+
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.admin.setOwner')
+      .set('Authorization', basic('admin', TEST_ADMIN_PASSWORD))
+      .send({ repo: GROUP, newOwner: NEWOWNER })
+    expect(res.status).not.toBe(200)
+
+    // Ownership did not move, and the proposal that could have reverted it is
+    // gone — the operator retries, the owner re-proposes.
+    expect(await roleOf(OWNER)).toBe('owner')
+    const row = await groupDb
+      .selectFrom('pending_ownership_transfer')
+      .selectAll()
+      .executeTakeFirst()
+    expect(row).toBeUndefined()
+  })
+
   // Both handlers are read-modify-write sequences spanning several awaits, so
   // without the per-group ownership lock they interleave: propose writes its
   // proposal after setOwner has already cleared, leaving a proposal signed by an

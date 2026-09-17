@@ -69,29 +69,33 @@ export default function (server: Server, ctx: AppContext) {
         // in place. Either way the previous owner (if any) is demoted to admin.
         const addedAsMember = !target
         const previousOwner = currentOwner?.member_did ?? null
+
+        // Invalidate any member-initiated pending transfer: ownership is about to
+        // move out of band. Without this, a stale proposal made by the (now
+        // demoted) owner could be accepted within its TTL and silently revert this
+        // operator reassignment — the exact break-glass case setOwner exists for.
+        //
+        // Before the transfer, not after. The two are separate transactions —
+        // folding the clear into MemberIndex's cross-DB transaction would couple a
+        // member-index primitive to this feature's table — so one can commit
+        // without the other if the process dies in between. In this order that
+        // leaves a group whose ownership did not move and whose proposal is gone:
+        // the owner re-proposes. The reverse order leaves the new owner installed
+        // and the old owner's proposal still acceptable after a restart, which is
+        // the failure this clear exists to prevent. The lock keeps a concurrent
+        // propose out of the gap either way.
+        //
+        // Deleting unconditionally is safe under the lock: only the owner may
+        // propose, so any row present was written by the owner this call is
+        // demoting.
+        await ctx.pendingTransfers.clear(groupDb)
+
         ctx.memberIndex.transferOwner(
           ctx.groupDbs.getRaw(groupDid),
           groupDid,
           newOwnerDid,
           previousOwner,
         )
-
-        // Invalidate any member-initiated pending transfer: ownership just moved
-        // out of band. Without this, a stale proposal made by the now-demoted owner
-        // could be accepted within its TTL and silently revert this operator
-        // reassignment — the exact break-glass case setOwner exists for.
-        //
-        // This clear is a separate statement after the transferOwner transaction
-        // rather than part of it — folding it into MemberIndex's cross-DB
-        // transaction would be a larger refactor for no correctness gain. The
-        // ownership lock covers both, so no propose can slip a fresh proposal in
-        // between and have it deleted here, and no accept can act on the proposal
-        // this deletes.
-        //
-        // Deleting unconditionally is safe under the lock: only the owner may
-        // propose, so any row still present was written by the owner this call is
-        // demoting.
-        await ctx.pendingTransfers.clear(groupDb)
 
         await ctx.audit.log(groupDb, 'admin', 'admin.setOwner', 'permitted', {
           newOwner: newOwnerDid,
