@@ -72,7 +72,7 @@ The CGS `owner` role controls membership and permissions **inside CGS**. It does
 
 The intended account-control model for groups created through `group.register` is to support transferring **full control of the underlying PDS account** to the group's CGS owner. This is distinct from merely assigning the CGS `owner` role: the handoff must give that person control of the underlying account's recovery and primary credentials. After such a transfer, the result may be effectively the same as if the owner had created the account themselves and then imported it: the owner ultimately controls the account, while CGS operates through delegated, revocable credentials. This full account-control transfer is not yet supported, so clients must not present the CGS `owner` role as proof of underlying account ownership today.
 
-Both alternatives are **service-scoped** calls: they target the service itself (`aud` = the service DID), not an existing group. This guide invokes them **non-proxied** (the client calls the group service directly), which is the simplest approach. The per-group calls in later steps go through the proxy agent instead.
+Both alternatives are **service-scoped** calls: they target the service itself (`aud` = the service DID), not an existing group. This guide invokes them **non-proxied** (the client calls the group service directly), which is the simplest approach — and the same direct path is the recommended default for the per-group calls in later steps, whose examples are written against the optional proxy agent purely for brevity. See [Direct service calls](#direct-service-calls-recommended-current-path) for the direct form of every one of them.
 
 ### Step 1a: Register a new account through CGS
 
@@ -215,6 +215,14 @@ const groupAgent = createGroupAgent(agent, groupDid)
 > must change together.
 
 ## Step 3: Make authenticated requests
+
+> **These examples use the optional proxy agent.** `groupAgent.call(...)` is
+> shorthand: it keeps each snippet to one call instead of a `getServiceAuth` +
+> `fetch` pair. It is not the recommended path. Every example below has a direct
+> equivalent — same NSID, same `repo` placement, same body — shown in
+> [Direct service calls](#direct-service-calls-recommended-current-path), which
+> is what the demo uses and what avoids the post-registration DID-document cache
+> race.
 
 With a `groupAgent` configured, call group service endpoints. Use the custom `app.certified.group.repo.*` NSIDs for record operations (the PDS needs these to route correctly), and the `app.certified.group.*` NSIDs for member/role/audit operations.
 
