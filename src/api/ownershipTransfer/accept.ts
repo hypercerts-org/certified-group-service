@@ -106,6 +106,28 @@ export default function (server: Server, ctx: AppContext) {
           throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
         }
 
+        // Re-read the caller's membership immediately before the transfer.
+        // member.remove and role.set do not take the ownership lock, so either
+        // can land between the role floor check at the top of this handler and
+        // here — and transferOwner inserts a non-member as owner, which would
+        // hand the group to a DID that was just removed from it. Nothing can
+        // interleave between this read resolving and the synchronous
+        // transferOwner below (see the concurrency model in
+        // docs/architecture.md), so the check holds for the transfer.
+        const stillMember = await groupDb
+          .selectFrom('group_members')
+          .select('role')
+          .where('member_did', '=', callerDid)
+          .executeTakeFirst()
+        if (!stillMember) {
+          await ctx.pendingTransfers.clearIfMatches(
+            groupDb,
+            pending.proposerDid,
+            pending.recipientDid,
+          )
+          throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
+        }
+
         ctx.memberIndex.transferOwner(
           ctx.groupDbs.getRaw(groupDid),
           groupDid,

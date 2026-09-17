@@ -483,6 +483,35 @@ describe('ownershipTransfer', () => {
     })
   })
 
+  // member.remove and role.set do not take the ownership lock, so either can
+  // land after accept has validated its recipient. transferOwner inserts a
+  // non-member as owner, so without the re-read the removed DID would end up
+  // owning the group it was just removed from.
+  describe('a removal racing accept', () => {
+    beforeEach(async () => {
+      await as(OWNER).post(`/xrpc/${PROPOSE}`).send({ repo: GROUP, newOwner: ADMIN })
+    })
+
+    it('does not hand the group to a member removed mid-accept', async () => {
+      // Simulate member.remove landing between accept's role floor check and the
+      // transfer: drop the recipient's membership while accept is suspended.
+      const realGet = ctx.pendingTransfers.get.bind(ctx.pendingTransfers)
+      ctx.pendingTransfers.get = async (db: typeof groupDb) => {
+        const row = await realGet(db)
+        await groupDb.deleteFrom('group_members').where('member_did', '=', ADMIN).execute()
+        return row
+      }
+
+      const res = await as(ADMIN).post(`/xrpc/${ACCEPT}`).send({ repo: GROUP })
+
+      expect(res.status).toBe(404)
+      expect(res.body.error).toBe('NoPendingTransfer')
+      expect(await roleOf(ADMIN)).toBeUndefined()
+      expect(await roleOf(OWNER)).toBe('owner')
+      expect(await pendingRow()).toBeUndefined()
+    })
+  })
+
   // --- full lifecycle ------------------------------------------------------
 
   it('propose → status → accept → status completes the transfer', async () => {
