@@ -138,13 +138,21 @@ Indivisible statements are not enough on their own, though: a flow that reads,
 validates and then writes across an `await` can still act on state another
 handler has invalidated in between. Ownership transfer is the case in point —
 `ownershipTransfer.propose` checks the caller is the owner before it writes,
-`accept` reads a proposal before it transfers, and `admin.setOwner` transfers
-before it invalidates any proposal. Those three therefore run under a **per-group
-serialization boundary** (`OwnershipLock`, `src/transfer/ownership-lock.ts`),
-which chains each group's ownership operations so one completes before the next
-begins. It is an in-process promise queue, consistent with the single-writer
+`accept` reads a proposal before it transfers, and `admin.setOwner` invalidates
+any proposal before it transfers. Those three and `ownershipTransfer.cancel`
+therefore run under a **per-group serialization boundary** (`OwnershipLock`,
+`src/transfer/ownership-lock.ts`), which chains each group's ownership
+operations so one completes before the next begins. It is an in-process promise queue, consistent with the single-writer
 per-group SQLite model; identity and handle resolution stay outside it so no
 network call is made while it is held.
+
+The boundary does not extend to `member.remove` and `role.set`, which mutate
+membership and invalidate a proposal whose party changed. `accept` therefore
+re-reads its recipient's membership immediately before transferring ownership,
+rather than trusting the role check it made earlier in the handler. Nor does the
+boundary survive a restart: where two writes must not come apart across a crash,
+order them so the harmless half is the one that can be left behind — as
+`admin.setOwner` does by clearing the pending proposal before it transfers.
 
 **If this ever moves to an asynchronous driver** (e.g. `node:sqlite` worker
 threads, libsql, or a connection pool with genuine parallelism), every such
