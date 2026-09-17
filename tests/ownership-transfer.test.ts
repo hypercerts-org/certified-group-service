@@ -760,4 +760,40 @@ describe('admin.setOwner clears a pending ownership transfer', () => {
     expect(await roleOf(NEWOWNER)).toBe('owner')
     expect(await roleOf(ADMIN)).toBe('admin')
   })
+
+  // Both handlers are read-modify-write sequences spanning several awaits, so
+  // without the per-group ownership lock they interleave: propose writes its
+  // proposal after setOwner has already cleared, leaving a proposal signed by an
+  // owner who no longer holds the role — acceptable within its TTL, which is
+  // exactly what the clear exists to prevent.
+  it('a propose racing the reassignment cannot outlive it', async () => {
+    // Hold propose open long enough for an unserialized setOwner to run to
+    // completion between the owner check and the write.
+    const realPropose = ctx.pendingTransfers.propose.bind(ctx.pendingTransfers)
+    ctx.pendingTransfers.propose = async (db: any, proposer: string, recipient: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      return realPropose(db, proposer, recipient)
+    }
+
+    caller = OWNER
+    const [propose, setOwner] = await Promise.all([
+      request(app).post(`/xrpc/${PROPOSE}`).send({ repo: GROUP, newOwner: ADMIN }),
+      request(app)
+        .post('/xrpc/app.certified.group.admin.setOwner')
+        .set('Authorization', basic('admin', TEST_ADMIN_PASSWORD))
+        .send({ repo: GROUP, newOwner: NEWOWNER }),
+    ])
+
+    expect(setOwner.status).toBe(200)
+    // Whichever order the lock granted: propose first (200, its proposal then
+    // cleared by setOwner) or setOwner first (403, OWNER is no longer the owner).
+    expect([200, 403]).toContain(propose.status)
+
+    expect(await roleOf(NEWOWNER)).toBe('owner')
+    const row = await groupDb
+      .selectFrom('pending_ownership_transfer')
+      .selectAll()
+      .executeTakeFirst()
+    expect(row).toBeUndefined()
+  })
 })

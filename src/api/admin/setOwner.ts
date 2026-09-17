@@ -32,26 +32,77 @@ export default function (server: Server, ctx: AppContext) {
 
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      const [currentOwner, target] = await Promise.all([
-        groupDb
-          .selectFrom('group_members')
-          .select('member_did')
-          .where('role', '=', 'owner')
-          .executeTakeFirst(),
-        groupDb
-          .selectFrom('group_members')
-          .select('role')
-          .where('member_did', '=', newOwnerDid)
-          .executeTakeFirst(),
-      ])
+      // The ownership read, the transfer and the proposal invalidation run as
+      // one unit against this group's member-initiated transfer flow: a propose
+      // interleaved here would either be written by an owner this call has
+      // already demoted, or survive the clear below and let a stale proposal
+      // revert the reassignment. Resolution above is outside the lock, so no
+      // network call is made while holding it.
+      const outcome = await ctx.ownershipLock.run(groupDid, async () => {
+        const [currentOwner, target] = await Promise.all([
+          groupDb
+            .selectFrom('group_members')
+            .select('member_did')
+            .where('role', '=', 'owner')
+            .executeTakeFirst(),
+          groupDb
+            .selectFrom('group_members')
+            .select('role')
+            .where('member_did', '=', newOwnerDid)
+            .executeTakeFirst(),
+        ])
 
-      // Already the owner — nothing to do. Report it rather than churn the DB.
-      if (currentOwner?.member_did === newOwnerDid) {
+        // Already the owner — nothing to do. Report it rather than churn the DB.
+        if (currentOwner?.member_did === newOwnerDid) {
+          await ctx.audit.log(groupDb, 'admin', 'admin.setOwner', 'permitted', {
+            newOwner: newOwnerDid,
+            previousOwner: newOwnerDid,
+            noop: true,
+          })
+          return { noop: true as const }
+        }
+
+        // The new owner need NOT already be a member: this is an operator
+        // break-glass endpoint, used precisely when the incumbent owner/admin is
+        // unavailable (lost keys, incapacitated) and a fresh owner must be
+        // installed. If they aren't a member, add them as owner; otherwise promote
+        // in place. Either way the previous owner (if any) is demoted to admin.
+        const addedAsMember = !target
+        const previousOwner = currentOwner?.member_did ?? null
+        ctx.memberIndex.transferOwner(
+          ctx.groupDbs.getRaw(groupDid),
+          groupDid,
+          newOwnerDid,
+          previousOwner,
+        )
+
+        // Invalidate any member-initiated pending transfer: ownership just moved
+        // out of band. Without this, a stale proposal made by the now-demoted owner
+        // could be accepted within its TTL and silently revert this operator
+        // reassignment — the exact break-glass case setOwner exists for.
+        //
+        // This clear is a separate statement after the transferOwner transaction
+        // rather than part of it — folding it into MemberIndex's cross-DB
+        // transaction would be a larger refactor for no correctness gain. The
+        // ownership lock covers both, so no propose can slip a fresh proposal in
+        // between and have it deleted here, and no accept can act on the proposal
+        // this deletes.
+        //
+        // Deleting unconditionally is safe under the lock: only the owner may
+        // propose, so any row still present was written by the owner this call is
+        // demoting.
+        await ctx.pendingTransfers.clear(groupDb)
+
         await ctx.audit.log(groupDb, 'admin', 'admin.setOwner', 'permitted', {
           newOwner: newOwnerDid,
-          previousOwner: newOwnerDid,
-          noop: true,
+          previousOwner,
+          addedAsMember,
         })
+
+        return { noop: false as const, previousOwner, addedAsMember }
+      })
+
+      if (outcome.noop) {
         return jsonResponse({
           groupDid,
           owner: newOwnerDid,
@@ -60,53 +111,13 @@ export default function (server: Server, ctx: AppContext) {
         })
       }
 
-      // The new owner need NOT already be a member: this is an operator
-      // break-glass endpoint, used precisely when the incumbent owner/admin is
-      // unavailable (lost keys, incapacitated) and a fresh owner must be
-      // installed. If they aren't a member, add them as owner; otherwise promote
-      // in place. Either way the previous owner (if any) is demoted to admin.
-      const addedAsMember = !target
-      const previousOwner = currentOwner?.member_did ?? null
-      ctx.memberIndex.transferOwner(
-        ctx.groupDbs.getRaw(groupDid),
-        groupDid,
-        newOwnerDid,
-        previousOwner,
-      )
-
-      // Invalidate any member-initiated pending transfer: ownership just moved
-      // out of band. Without this, a stale proposal made by the now-demoted owner
-      // could be accepted within its TTL and silently revert this operator
-      // reassignment — the exact break-glass case setOwner exists for.
-      //
-      // This clear is a separate statement after the transferOwner transaction,
-      // not part of it. That is deliberate: a concurrent accept that reads the
-      // proposal in the gap still resolves safely — accept re-reads the current
-      // owner and transferOwner is atomic, so no invariant (one owner, always an
-      // owner) breaks; at worst a stale row lingers until the next op or its TTL.
-      // Folding the clear into MemberIndex's cross-DB transaction would be a
-      // larger refactor for no correctness gain here.
-      //
-      // Load-bearing assumption: better-sqlite3 is a SYNCHRONOUS driver, so the
-      // transferOwner transaction above cannot interleave with a concurrent
-      // accept's statements — only whole operations reorder across the `await`
-      // below, never individual statements within a transaction. If the driver
-      // ever becomes async, re-audit this gap. See `src/db/sqlite.ts`.
-      await ctx.pendingTransfers.clear(groupDb)
-
-      await ctx.audit.log(groupDb, 'admin', 'admin.setOwner', 'permitted', {
-        newOwner: newOwnerDid,
-        previousOwner,
-        addedAsMember,
-      })
-
       // updatedAt is the time of this operation, consistent with the no-op
       // branch — not the new owner's (older) original join time.
       return jsonResponse({
         groupDid,
         owner: newOwnerDid,
-        ...(previousOwner ? { previousOwner } : {}),
-        addedAsMember,
+        ...(outcome.previousOwner ? { previousOwner: outcome.previousOwner } : {}),
+        addedAsMember: outcome.addedAsMember,
         noop: false,
         updatedAt: new Date().toISOString(),
       })

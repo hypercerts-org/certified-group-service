@@ -132,18 +132,26 @@ the only points at which control passes between concurrent handlers are the
 `await` boundaries _between_ database calls.**
 
 This is load-bearing for several read-modify-write flows that are safe only
-because whole transactions are indivisible. The clearest example is ownership
-transfer: `admin.setOwner` invalidates a pending member-initiated proposal with
-a `clear()` issued _after_ its `transferOwner` transaction commits (not inside
-it), and a concurrent `ownershipTransfer.accept` in that gap still resolves
-consistently because `accept` re-reads the current owner and `transferOwner` is
-atomic. That argument holds only under a synchronous driver.
+because whole transactions are indivisible.
+
+Indivisible statements are not enough on their own, though: a flow that reads,
+validates and then writes across an `await` can still act on state another
+handler has invalidated in between. Ownership transfer is the case in point —
+`ownershipTransfer.propose` checks the caller is the owner before it writes,
+`accept` reads a proposal before it transfers, and `admin.setOwner` transfers
+before it invalidates any proposal. Those three therefore run under a **per-group
+serialization boundary** (`OwnershipLock`, `src/transfer/ownership-lock.ts`),
+which chains each group's ownership operations so one completes before the next
+begins. It is an in-process promise queue, consistent with the single-writer
+per-group SQLite model; identity and handle resolution stay outside it so no
+network call is made while it is held.
 
 **If this ever moves to an asynchronous driver** (e.g. `node:sqlite` worker
 threads, libsql, or a connection pool with genuine parallelism), every such
 flow must be re-audited: statements could then interleave mid-transaction, and
 the affected paths would need explicit locking or single-transaction
-invalidation.
+invalidation. The same applies to running more than one process against the same
+group database — `OwnershipLock` serializes within one process only.
 
 ## Data model
 

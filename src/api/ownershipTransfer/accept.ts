@@ -56,72 +56,82 @@ export default function (server: Server, ctx: AppContext) {
         apiKeyRef,
       })
 
-      const pending = await ctx.pendingTransfers.get(groupDb)
-      if (!pending) {
-        throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
-      }
-      if (pending.recipientDid !== callerDid) {
-        // Deliberately the same 404 a caller gets when nothing is pending. A
-        // distinct error here would tell any member that a transfer is in
-        // flight — the existence of a proposal is disclosed only to its two
-        // parties, so the refusal must not become the disclosure. The true
-        // reason goes to the audit log for operators.
-        await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.accept', 'denied', {
-          reason: 'caller is not the proposed new owner',
-        })
-        throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
-      }
+      // From reading the proposal through consuming it, this group's ownership
+      // operations are serialized: an interleaved propose or admin.setOwner
+      // would otherwise change ownership under a proposal already validated
+      // here, and this handler would then transfer on the strength of state
+      // that no longer holds — reversing the newer operation.
+      const previousOwner = await ctx.ownershipLock.run(groupDid, async () => {
+        const pending = await ctx.pendingTransfers.get(groupDb)
+        if (!pending) {
+          throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
+        }
+        if (pending.recipientDid !== callerDid) {
+          // Deliberately the same 404 a caller gets when nothing is pending. A
+          // distinct error here would tell any member that a transfer is in
+          // flight — the existence of a proposal is disclosed only to its two
+          // parties, so the refusal must not become the disclosure. The true
+          // reason goes to the audit log for operators.
+          await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.accept', 'denied', {
+            reason: 'caller is not the proposed new owner',
+          })
+          throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
+        }
 
-      // Demote whoever holds owner now, not the proposer recorded on the row: the
-      // current owner can differ from the proposer if ownership moved by another
-      // route since propose. (Those routes clear the pending row, so in practice
-      // the two agree — this stays robust if that ever changes.)
-      const currentOwner = await groupDb
-        .selectFrom('group_members')
-        .select('member_did')
-        .where('role', '=', 'owner')
-        .executeTakeFirst()
-      const previousOwner = currentOwner?.member_did ?? null
+        // Demote whoever holds owner now, not the proposer recorded on the row: the
+        // current owner can differ from the proposer if ownership moved by another
+        // route since propose. (Those routes clear the pending row, so in practice
+        // the two agree — this stays robust if that ever changes.)
+        const currentOwner = await groupDb
+          .selectFrom('group_members')
+          .select('member_did')
+          .where('role', '=', 'owner')
+          .executeTakeFirst()
+        const previousOwner = currentOwner?.member_did ?? null
 
-      // Defensive: a pending row should never name the current owner as recipient
-      // (propose rejects AlreadyOwner, and the clear-on-owner-change invariant
-      // keeps it so). Guard anyway, so a future change can't turn this into a
-      // no-op that leaves a resolved-looking transfer, or worse.
-      if (callerDid === previousOwner) {
-        // Scope the clear to the row we read, for the same reason the post-accept
-        // clear below does: a concurrent propose may have replaced the pinned row
-        // since, and an unconditional clear would silently wipe that unrelated
-        // proposal.
-        await ctx.pendingTransfers.clearIfMatches(
+        // Defensive: a pending row should never name the current owner as recipient
+        // (propose rejects AlreadyOwner, and the clear-on-owner-change invariant
+        // keeps it so). Guard anyway, so a future change can't turn this into a
+        // no-op that leaves a resolved-looking transfer, or worse.
+        if (callerDid === previousOwner) {
+          // Scope the clear to the row we read, for the same reason the post-accept
+          // clear below does: an invalidation from member.remove or role.set may
+          // have replaced the pinned row since, and an unconditional clear would
+          // silently wipe that unrelated proposal.
+          await ctx.pendingTransfers.clearIfMatches(
+            groupDb,
+            pending.proposerDid,
+            pending.recipientDid,
+          )
+          throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
+        }
+
+        ctx.memberIndex.transferOwner(
+          ctx.groupDbs.getRaw(groupDid),
+          groupDid,
+          callerDid,
+          previousOwner,
+        )
+        // Clear only the proposal we actually acted on. The lock keeps other
+        // ownership operations out, but member.remove and role.set also drop a
+        // proposal whose party changed, and an unconditional clear would wipe
+        // whatever row an unrelated one of those left behind.
+        const stillMatched = await ctx.pendingTransfers.clearIfMatches(
           groupDb,
           pending.proposerDid,
           pending.recipientDid,
         )
-        throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
-      }
+        if (!stillMatched) {
+          // The transfer above still completed correctly; log so a superseded
+          // proposal isn't lost without a trace.
+          ctx.logger.warn(
+            { groupDid },
+            'pending ownership transfer changed before accept could clear it',
+          )
+        }
 
-      ctx.memberIndex.transferOwner(
-        ctx.groupDbs.getRaw(groupDid),
-        groupDid,
-        callerDid,
-        previousOwner,
-      )
-      // Clear only the proposal we actually acted on. If a concurrent propose
-      // replaced the pinned row between reading `pending` above and here, an
-      // unconditional clear would silently wipe that new, unrelated proposal.
-      const stillMatched = await ctx.pendingTransfers.clearIfMatches(
-        groupDb,
-        pending.proposerDid,
-        pending.recipientDid,
-      )
-      if (!stillMatched) {
-        // The transfer above still completed correctly; log so a superseded
-        // proposal isn't lost without a trace.
-        ctx.logger.warn(
-          { groupDid },
-          'pending ownership transfer changed before accept could clear it',
-        )
-      }
+        return previousOwner
+      })
 
       await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.accept', 'permitted', {
         newOwner: callerDid,

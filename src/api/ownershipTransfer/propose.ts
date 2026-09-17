@@ -46,27 +46,34 @@ export default function (server: Server, ctx: AppContext) {
 
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      // Owner-only. The scope check is also enforced here for an API key.
-      await assertCanWithAudit(ctx, groupDb, callerDid, 'ownershipTransfer.propose', undefined, {
-        authKind,
-        scopes,
-        apiKeyRef,
+      // Everything from the owner check to the write runs under the group's
+      // ownership lock. Otherwise admin.setOwner could demote this caller across
+      // either `await` below, and a proposal signed by someone who is no longer
+      // the owner would still be written. Resolution happened above, outside the
+      // lock, so no network call is made while holding it.
+      const pending = await ctx.ownershipLock.run(groupDid, async () => {
+        // Owner-only. The scope check is also enforced here for an API key.
+        await assertCanWithAudit(ctx, groupDb, callerDid, 'ownershipTransfer.propose', undefined, {
+          authKind,
+          scopes,
+          apiKeyRef,
+        })
+
+        // The proposed owner must be an existing member, and not already the owner.
+        const target = await groupDb
+          .selectFrom('group_members')
+          .select('role')
+          .where('member_did', '=', newOwnerDid)
+          .executeTakeFirst()
+        if (!target) {
+          throw new XRPCError(400, 'Proposed new owner is not a member of this group', 'NotAMember')
+        }
+        if (target.role === 'owner') {
+          throw new XRPCError(400, 'Proposed new owner is already the owner', 'AlreadyOwner')
+        }
+
+        return ctx.pendingTransfers.propose(groupDb, callerDid, newOwnerDid)
       })
-
-      // The proposed owner must be an existing member, and not already the owner.
-      const target = await groupDb
-        .selectFrom('group_members')
-        .select('role')
-        .where('member_did', '=', newOwnerDid)
-        .executeTakeFirst()
-      if (!target) {
-        throw new XRPCError(400, 'Proposed new owner is not a member of this group', 'NotAMember')
-      }
-      if (target.role === 'owner') {
-        throw new XRPCError(400, 'Proposed new owner is already the owner', 'AlreadyOwner')
-      }
-
-      const pending = await ctx.pendingTransfers.propose(groupDb, callerDid, newOwnerDid)
 
       await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.propose', 'permitted', {
         proposedOwner: newOwnerDid,

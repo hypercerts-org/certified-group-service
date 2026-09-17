@@ -22,6 +22,7 @@ import { MemberIndex, backfillMemberIndex } from './db/member-index.js'
 import { PdsAgentPool } from './pds/agent.js'
 import { AuditLogger } from './audit.js'
 import { PendingTransferStore } from './transfer/pending.js'
+import { OwnershipLock } from './transfer/ownership-lock.js'
 import { buildDidDocument } from './did-document.js'
 import type { AppContext } from './context.js'
 import type { GlobalDatabase } from './db/schema.js'
@@ -86,6 +87,7 @@ async function main() {
   const audit = new AuditLogger()
   const memberIndex = new MemberIndex(globalDbPath)
   const pendingTransfers = new PendingTransferStore()
+  const ownershipLock = new OwnershipLock()
   const ctx: AppContext = {
     config,
     globalDb,
@@ -99,6 +101,7 @@ async function main() {
     audit,
     memberIndex,
     pendingTransfers,
+    ownershipLock,
     logger,
   }
 
