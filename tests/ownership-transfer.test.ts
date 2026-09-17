@@ -387,6 +387,31 @@ describe('ownershipTransfer', () => {
       expect(res.status).toBe(404)
       expect(res.body.error).toBe('NoPendingTransfer')
     })
+
+    // The identity check authorizes the caller against the row `get` returned;
+    // the delete must be scoped to that same row, or a proposal that replaced it
+    // in the meantime is cancelled on the strength of an unrelated check.
+    it('does not cancel a proposal that replaced the row it read', async () => {
+      // Simulate a concurrent propose swapping the pinned row between cancel
+      // reading it and reaching the delete.
+      const realGet = ctx.pendingTransfers.get.bind(ctx.pendingTransfers)
+      ctx.pendingTransfers.get = async (db: typeof groupDb) => {
+        const row = await realGet(db)
+        await groupDb
+          .updateTable('pending_ownership_transfer')
+          .set({ proposer_did: OWNER, recipient_did: MEMBER })
+          .where('id', '=', 1)
+          .execute()
+        return row
+      }
+
+      const res = await as(OWNER).post(`/xrpc/${CANCEL}`).send({ repo: GROUP })
+      expect(res.status).toBe(404)
+      expect(res.body.error).toBe('NoPendingTransfer')
+
+      const row = await pendingRow()
+      expect(row?.recipient_did).toBe(MEMBER)
+    })
   })
 
   // --- status --------------------------------------------------------------
@@ -455,6 +480,35 @@ describe('ownershipTransfer', () => {
         expect(res.status).toBe(200)
         expect(res.body.pending).toBe(false)
       })
+    })
+  })
+
+  // member.remove and role.set do not take the ownership lock, so either can
+  // land after accept has validated its recipient. transferOwner inserts a
+  // non-member as owner, so without the re-read the removed DID would end up
+  // owning the group it was just removed from.
+  describe('a removal racing accept', () => {
+    beforeEach(async () => {
+      await as(OWNER).post(`/xrpc/${PROPOSE}`).send({ repo: GROUP, newOwner: ADMIN })
+    })
+
+    it('does not hand the group to a member removed mid-accept', async () => {
+      // Simulate member.remove landing between accept's role floor check and the
+      // transfer: drop the recipient's membership while accept is suspended.
+      const realGet = ctx.pendingTransfers.get.bind(ctx.pendingTransfers)
+      ctx.pendingTransfers.get = async (db: typeof groupDb) => {
+        const row = await realGet(db)
+        await groupDb.deleteFrom('group_members').where('member_did', '=', ADMIN).execute()
+        return row
+      }
+
+      const res = await as(ADMIN).post(`/xrpc/${ACCEPT}`).send({ repo: GROUP })
+
+      expect(res.status).toBe(404)
+      expect(res.body.error).toBe('NoPendingTransfer')
+      expect(await roleOf(ADMIN)).toBeUndefined()
+      expect(await roleOf(OWNER)).toBe('owner')
+      expect(await pendingRow()).toBeUndefined()
     })
   })
 
@@ -734,5 +788,69 @@ describe('admin.setOwner clears a pending ownership transfer', () => {
     expect(accept.body.error).toBe('NoPendingTransfer')
     expect(await roleOf(NEWOWNER)).toBe('owner')
     expect(await roleOf(ADMIN)).toBe('admin')
+  })
+
+  // The clear and the transfer are separate transactions, so a failure between
+  // them commits one without the other. The clear must be the one that survives:
+  // a committed transfer plus a surviving proposal lets the demoted owner's
+  // recipient accept later and undo the reassignment.
+  it('a failed transfer leaves no proposal behind', async () => {
+    caller = OWNER
+    await request(app).post(`/xrpc/${PROPOSE}`).send({ repo: GROUP, newOwner: ADMIN })
+
+    ctx.memberIndex.transferOwner = () => {
+      throw new Error('transfer failed')
+    }
+
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.admin.setOwner')
+      .set('Authorization', basic('admin', TEST_ADMIN_PASSWORD))
+      .send({ repo: GROUP, newOwner: NEWOWNER })
+    expect(res.status).not.toBe(200)
+
+    // Ownership did not move, and the proposal that could have reverted it is
+    // gone — the operator retries, the owner re-proposes.
+    expect(await roleOf(OWNER)).toBe('owner')
+    const row = await groupDb
+      .selectFrom('pending_ownership_transfer')
+      .selectAll()
+      .executeTakeFirst()
+    expect(row).toBeUndefined()
+  })
+
+  // Both handlers are read-modify-write sequences spanning several awaits, so
+  // without the per-group ownership lock they interleave: propose writes its
+  // proposal after setOwner has already cleared, leaving a proposal signed by an
+  // owner who no longer holds the role — acceptable within its TTL, which is
+  // exactly what the clear exists to prevent.
+  it('a propose racing the reassignment cannot outlive it', async () => {
+    // Hold propose open long enough for an unserialized setOwner to run to
+    // completion between the owner check and the write.
+    const realPropose = ctx.pendingTransfers.propose.bind(ctx.pendingTransfers)
+    ctx.pendingTransfers.propose = async (db: any, proposer: string, recipient: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      return realPropose(db, proposer, recipient)
+    }
+
+    caller = OWNER
+    const [propose, setOwner] = await Promise.all([
+      request(app).post(`/xrpc/${PROPOSE}`).send({ repo: GROUP, newOwner: ADMIN }),
+      request(app)
+        .post('/xrpc/app.certified.group.admin.setOwner')
+        .set('Authorization', basic('admin', TEST_ADMIN_PASSWORD))
+        .send({ repo: GROUP, newOwner: NEWOWNER }),
+    ])
+
+    expect(setOwner.status).toBe(200)
+    // Whichever order the lock granted: propose first (200, its proposal then
+    // cleared by setOwner) or setOwner first (403, OWNER is no longer the owner).
+    expect([200, 403]).toContain(propose.status)
+
+    expect(await roleOf(NEWOWNER)).toBe('owner')
+    const row = await groupDb
+      .selectFrom('pending_ownership_transfer')
+      .selectAll()
+      .executeTakeFirst()
+    expect(row).toBeUndefined()
   })
 })

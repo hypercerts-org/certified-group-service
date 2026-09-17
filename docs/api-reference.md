@@ -678,10 +678,14 @@ proposal at a time, and a proposal lapses if it is not accepted within **7 days*
 
 Only the two parties (the current owner and the proposed new owner) can see a
 pending transfer; it is deliberately **not** surfaced on `member.list`. All four
-methods are JWT-authenticated and also reachable with an [API key](#authenticating-with-an-api-key)
-carrying the corresponding `rpc:` scope (subject to the caller's role — `propose`
-is owner-only). The target group is named the usual way: `repo` in the body for
-the procedures, on the querystring for the `status` query (see
+methods are JWT-authenticated. `propose`, `cancel` and `status` are additionally
+reachable with an [API key](#authenticating-with-an-api-key) carrying the
+corresponding `rpc:` scope (subject to the caller's role — `propose` is
+owner-only). **`accept` is JWT-only:** an API-key request is refused with
+`403 ApiKeyNotPermitted`, because acceptance is what proves the incoming owner
+still controls their account and a key carries no such proof. The target group
+is named the usual way: `repo` in the body for the procedures, on the
+querystring for the `status` query (see
 [Targeting a group](#targeting-a-group)).
 
 This member-facing flow is distinct from the operator-only
@@ -855,9 +859,10 @@ response reveals nothing about whether a transfer exists.
 
 **Errors:**
 
-| Code | Name | Description                                                                                     |
-| ---- | ---- | ----------------------------------------------------------------------------------------------- |
-| 401  | —    | `repo` is missing or does not resolve to a managed group (rejected at auth, like `member.list`) |
+| Code | Name             | Description                                                                       |
+| ---- | ---------------- | --------------------------------------------------------------------------------- |
+| 400  | `InvalidRequest` | `repo` is missing, so no group could be resolved                                  |
+| 401  | —                | `repo` does not resolve to a managed group (rejected at auth, like `member.list`) |
 
 A non-party member is **not** refused: they receive the same
 `{ "pending": false }` response as when no transfer exists. Refusing them would

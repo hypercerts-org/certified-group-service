@@ -12,9 +12,10 @@ export interface SqliteDb<T> {
  * turn, with no `await` inside it. This is load-bearing for concurrency
  * correctness across the service — a handler's DB statements cannot interleave
  * with another handler's mid-transaction; the only yield points are `await`
- * boundaries *between* DB calls. Several read-modify-write flows rely on this
- * (e.g. ownership transfer accepts while an out-of-band owner change races —
- * see `src/api/admin/setOwner.ts`). If this ever moves to an async driver
+ * boundaries *between* DB calls. Several read-modify-write flows rely on this.
+ * It does not make a validate-then-write sequence spanning an `await` safe on
+ * its own: the ownership flows add a per-group serialization boundary for that
+ * (`src/transfer/ownership-lock.ts`). If this ever moves to an async driver
  * (`node:sqlite` worker threads, libsql, a connection pool with real
  * parallelism), those flows must be re-audited for interleaving.
  */

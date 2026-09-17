@@ -27,21 +27,41 @@ export default function (server: Server, ctx: AppContext) {
         apiKeyRef,
       })
 
-      const pending = await ctx.pendingTransfers.get(groupDb)
-      if (!pending) {
-        throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
-      }
-      if (callerDid !== pending.proposerDid && callerDid !== pending.recipientDid) {
-        // Same 404 as "nothing pending": a distinct error would tell a
-        // non-party that a transfer exists, which only its two parties may
-        // know. True reason recorded in the audit log.
-        await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.cancel', 'denied', {
-          reason: 'caller is neither proposer nor proposed new owner',
-        })
-        throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
-      }
+      // Serialized against this group's other ownership operations, so the row
+      // read here is still the row deleted below; clearIfMatches additionally
+      // covers invalidation by member.remove / role.set, which do not take the
+      // lock.
+      const pending = await ctx.ownershipLock.run(groupDid, async () => {
+        const pending = await ctx.pendingTransfers.get(groupDb)
+        if (!pending) {
+          throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
+        }
+        if (callerDid !== pending.proposerDid && callerDid !== pending.recipientDid) {
+          // Same 404 as "nothing pending": a distinct error would tell a
+          // non-party that a transfer exists, which only its two parties may
+          // know. True reason recorded in the audit log.
+          await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.cancel', 'denied', {
+            reason: 'caller is neither proposer nor proposed new owner',
+          })
+          throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
+        }
 
-      await ctx.pendingTransfers.clear(groupDb)
+        // Delete the exact proposal this caller was authorized against, not
+        // whatever row exists now. The lock keeps propose out, but member.remove
+        // and role.set invalidate a proposal without taking it, so the row read
+        // above can still be gone — in which case there is nothing to cancel and
+        // the caller gets the usual 404.
+        const cancelled = await ctx.pendingTransfers.clearIfMatches(
+          groupDb,
+          pending.proposerDid,
+          pending.recipientDid,
+        )
+        if (!cancelled) {
+          throw new XRPCError(404, 'No pending ownership transfer', 'NoPendingTransfer')
+        }
+
+        return pending
+      })
 
       await ctx.audit.log(groupDb, callerDid, 'ownershipTransfer.cancel', 'permitted', {
         proposedOwner: pending.recipientDid,

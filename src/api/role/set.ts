@@ -26,7 +26,11 @@ export default function (server: Server, ctx: AppContext) {
         throw new XRPCError(400, 'Missing memberDid', 'InvalidRequest')
       }
 
-      if (newRole === undefined || !(newRole in ROLE_HIERARCHY)) {
+      // `Object.hasOwn`, not `in`: `in` also matches inherited keys, so a role of
+      // `"toString"` or `"constructor"` would pass validation, read back as an
+      // `undefined` level in the promote-above-own-role check below (making that
+      // comparison false), and be written to the member row verbatim.
+      if (typeof newRole !== 'string' || !Object.hasOwn(ROLE_HIERARCHY, newRole)) {
         throw new XRPCError(
           400,
           `Role must be one of: ${Object.keys(ROLE_HIERARCHY).join(', ')}`,
