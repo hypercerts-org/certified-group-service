@@ -111,6 +111,56 @@ describe('API-key scope enforcement at the handler layer', () => {
     expect(res.status).toBe(403)
   })
 
+  // A wildcard key is allowed at creation for any role (it names no operation),
+  // so the role cap has to hold at request time — otherwise a member could mint
+  // `rpc:*` and reach admin-only operations.
+  it('wildcard: a member-issued rpc:* key reaches member.list (200) but not audit.query (403)', async () => {
+    await seedMember(groupDb, 'did:plc:member', 'member')
+    const wild = `rpc:*?aud=${SERVICE_DID}%23certified_group_service`
+
+    ctx.authVerifier = apiKeyAuth([wild], 'did:plc:member')
+    const allowed = await request(app(memberListHandler)).get(
+      `/xrpc/app.certified.group.member.list?repo=${GROUP}`,
+    )
+    expect(allowed.status).toBe(200)
+
+    ctx.authVerifier = apiKeyAuth([wild], 'did:plc:member')
+    const denied = await request(app(auditQueryHandler)).get(
+      `/xrpc/app.certified.group.audit.query?repo=${GROUP}`,
+    )
+    expect(denied.status).toBe(403)
+  })
+
+  // The member case above pins the floor (denied above role). These pin the
+  // ceiling: a higher role's wildcard must actually reach the operation, or the
+  // wildcard could silently match nothing and still look correct.
+  it('wildcard: an admin-issued rpc:* key reaches the admin-level audit.query (200)', async () => {
+    await seedMember(groupDb, 'did:plc:admin', 'admin')
+    const wild = `rpc:*?aud=${SERVICE_DID}%23certified_group_service`
+
+    ctx.authVerifier = apiKeyAuth([wild], 'did:plc:admin')
+    const res = await request(app(auditQueryHandler)).get(
+      `/xrpc/app.certified.group.audit.query?repo=${GROUP}`,
+    )
+    expect(res.status).toBe(200)
+  })
+
+  it('wildcard: an owner-issued rpc:* key reaches audit.query and member.list (200)', async () => {
+    const wild = `rpc:*?aud=${SERVICE_DID}%23certified_group_service`
+
+    ctx.authVerifier = apiKeyAuth([wild], 'did:plc:owner')
+    const audit = await request(app(auditQueryHandler)).get(
+      `/xrpc/app.certified.group.audit.query?repo=${GROUP}`,
+    )
+    expect(audit.status).toBe(200)
+
+    ctx.authVerifier = apiKeyAuth([wild], 'did:plc:owner')
+    const members = await request(app(memberListHandler)).get(
+      `/xrpc/app.certified.group.member.list?repo=${GROUP}`,
+    )
+    expect(members.status).toBe(200)
+  })
+
   it('member.list: a removed issuer is denied even when the key scope covers the operation', async () => {
     ctx.authVerifier = apiKeyAuth([MEMBER_LIST_SCOPE], 'did:plc:removed')
     const res = await request(app(memberListHandler)).get(

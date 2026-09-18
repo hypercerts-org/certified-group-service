@@ -29,11 +29,22 @@ Full params:
 
 `app.certified.group.destroy` (owner-only, `repo` on querystring) drops CGS's
 stored credentials, membership, and per-group data. **Trap:** it does **not**
-delete the underlying PDS account — the DID/handle/repo persist and can be
-re-imported later. Destroy ≠ account deletion; tear the account down separately
-if that's the intent. Because the per-group DB (incl. its audit log) is dropped,
-the destroy is **not** in the group's audit log — only the service's operational
-log.
+delete the underlying PDS account — the DID/handle/records/blobs persist and stay
+publicly readable. Destroy ≠ account deletion; tear the account down separately
+if that's the intent.
+
+Destroy is **lossy and irreversible.** More traps:
+
+- **Audit log is dropped with the DB.** Readable via `audit.query` only while
+  the group lives; export it first if it matters. The destroy is **not** in the
+  group's audit log (deleted in the same step) — only the service's operational
+  log.
+- **Re-import ≠ resurrection.** The account can be re-imported, but authorship is
+  gone: surviving PDS records become unowned, so the first member to `putRecord`
+  a known `rkey` becomes its recorded author and can overwrite it.
+- **DID doc + app password linger.** For `register`ed groups the `certified_group`
+  DID-doc entry stays (route still points at CGS); the PDS app password is not
+  revoked (CGS can't). Both are the DID/account controller's job to clean up.
 
 Shape:
 [api-reference.md#group-lifecycle](https://github.com/hypercerts-org/certified-group-service/blob/main/docs/api-reference.md#group-lifecycle).

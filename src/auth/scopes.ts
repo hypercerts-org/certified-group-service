@@ -41,10 +41,20 @@ export function serviceScopeAud(serviceDid: string): string {
  * declared against. Only operations reachable by an API key need an entry; an
  * operation with no mapping is **not** key-accessible (the gate denies it for
  * key callers). Key-management operations intentionally have no mapping.
+ *
+ * `ownershipTransfer.accept` is deliberately absent: accepting must prove *live*
+ * control of the recipient DID, and an API key long outlives that control (see
+ * the handler's own guard in `src/api/ownershipTransfer/accept.ts`). The other
+ * three transfer operations are safe for keys — `propose` is owner-gated and
+ * reversible via `cancel`, `cancel` is fail-safe (declining never moves
+ * ownership), and `status` is read-only.
  */
 const OPERATION_LXM: Partial<Record<Operation, string>> = {
   'member.list': 'app.certified.group.member.list',
   'audit.query': 'app.certified.group.audit.query',
+  'ownershipTransfer.propose': 'app.certified.group.ownershipTransfer.propose',
+  'ownershipTransfer.cancel': 'app.certified.group.ownershipTransfer.cancel',
+  'ownershipTransfer.status': 'app.certified.group.ownershipTransfer.status',
 }
 
 /** The lxm an operation maps to, or undefined if it is not key-accessible. */
@@ -154,14 +164,25 @@ export type ScopeRoleValidation = { ok: true } | { ok: false; scope: string; rea
  * a member-issued `audit.query` RPC scope. `repo:` scopes are allowed for any
  * member because the scope language has no own-vs-any axis; the request-time
  * RBAC check still decides whether a concrete write is own-only or admin-any.
+ *
+ * A wildcard `rpc:*` is exempt: it names no operation, so there is no specific
+ * claim to reject, and it grants whatever the issuer's role permits at request
+ * time. Only enumerated scopes are role-checked here.
  */
 export function validateScopesAllowedForRole(scopes: string[], role: Role): ScopeRoleValidation {
   for (const scope of scopes) {
     const rpc = RpcPermission.fromString(scope)
     if (rpc !== null) {
-      const operations = rpc.lxm.includes('*')
-        ? (Object.keys(OPERATION_LXM) as Operation[])
-        : rpc.lxm.map((lxm) => operationForLxm(lxm))
+      // A wildcard names no operation: it asks for "whatever this role may do",
+      // so it cannot be an escalating grant and is always allowed. Request-time
+      // RBAC caps it at the issuer's *current* role, so the key widens or
+      // narrows automatically on promotion/demotion. Role-checking the whole
+      // OPERATION_LXM table here instead would reject the wildcard outright
+      // whenever any single entry outranks the caller — which made `rpc:*`
+      // unusable below owner once an owner-only operation joined the table.
+      if (rpc.lxm.includes('*')) continue
+
+      const operations = rpc.lxm.map((lxm) => operationForLxm(lxm))
 
       if (operations.includes(undefined)) {
         return { ok: false, scope, reason: 'scope names an operation that is not key-accessible' }
@@ -170,6 +191,8 @@ export function validateScopesAllowedForRole(scopes: string[], role: Role): Scop
       if (concreteOperations.length === 0) {
         return { ok: false, scope, reason: 'scope does not grant any key-accessible operation' }
       }
+      // Enumerated scopes still fail fast: the caller named a specific
+      // operation they cannot use, so minting a dead grant would be confusing.
       const denied = concreteOperations.find((operation) => !canPerform(role, operation))
       if (denied !== undefined) {
         return { ok: false, scope, reason: `role '${role}' cannot use scope for '${denied}'` }

@@ -4,13 +4,19 @@ An [AT Protocol](https://atproto.com/) service that adds **role-based access con
 
 ## How it works
 
-CGS acts as an authenticated proxy between clients and a group's PDS:
+CGS acts as a governance and proxy layer for a group's PDS. It supports three authentication modes:
 
-1. **Client sends a request** with a signed JWT (`Authorization: Bearer <token>`)
-2. **AuthVerifier** validates the JWT signature against the caller's DID document, checks the audience against the group registry, and enforces nonce-based replay prevention
-3. **RbacChecker** looks up the caller's role in the group and verifies they have permission for the requested operation
-4. **PDS proxy** forwards the request to the group's backing PDS using securely stored credentials
-5. **AuditLogger** records every action (permitted or denied) for compliance and debugging
+- **Service-auth JWTs** for service-level methods and normal member requests. JWTs are signed by the caller's DID and are single-use.
+- **Scoped API keys** for long-lived group-scoped backend access. Keys are sent in `X-API-Key` and are limited by both their scopes and the issuing member's current role.
+- **HTTP Basic auth** for operator-only admin methods when `CGS_ADMIN_PASSWORD` is configured.
+
+For a group-scoped JWT request, the supported form uses the service DID as `aud` and an explicit `repo` group selector. The deprecated group-DID `aud` form remains accepted during migration. CGS then:
+
+1. **Authenticates** the request and resolves the target group
+2. **Checks RBAC** against the caller's role in that group
+3. **Checks API-key scopes**, when the request uses an API key
+4. **Proxies repository writes and blob uploads** to the group's PDS using securely stored credentials
+5. **Records audited operations and authorization denials** in the per-group audit log
 
 ### Role hierarchy
 
@@ -18,12 +24,12 @@ CGS acts as an authenticated proxy between clients and a group's PDS:
 | ---------- | ----- | -------------------------------------------------------------------------------------------------------------- |
 | **member** | 0     | Create records, edit/delete own records, upload blobs, list members                                            |
 | **admin**  | 1     | All member permissions + edit/delete any member's records, edit group profile, manage members, query audit log |
-| **owner**  | 2     | All admin permissions + set member/admin roles (the owner role itself is immutable)                            |
+| **owner**  | 2     | All admin permissions + set member/admin roles and initiate ownership transfer                                 |
 
 ### Storage
 
-- **Global SQLite database** — group registry and nonce cache
-- **Per-group SQLite databases** — members, record authorship tracking, audit log
+- **Global SQLite database** — group registry, nonce cache, and reverse membership index
+- **Per-group SQLite databases** — members, record authorship, audit log, API keys, and pending ownership transfer
 - All databases use WAL mode for concurrent read performance
 
 ## Prerequisites

@@ -10,6 +10,8 @@ import type { RbacChecker } from './rbac/check.js'
 import type { PdsAgentPool } from './pds/agent.js'
 import type { AuditLogger } from './audit.js'
 import type { MemberIndexWriter } from './db/member-index.js'
+import type { PendingTransferStore } from './transfer/pending.js'
+import type { OwnershipLock } from './transfer/ownership-lock.js'
 
 export interface AppContext {
   config: Config
@@ -23,5 +25,7 @@ export interface AppContext {
   pdsAgents: PdsAgentPool
   audit: AuditLogger
   memberIndex: MemberIndexWriter
+  pendingTransfers: PendingTransferStore
+  ownershipLock: OwnershipLock
   logger: Logger
 }
