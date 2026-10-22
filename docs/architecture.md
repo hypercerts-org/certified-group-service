@@ -273,7 +273,7 @@ A single-row table holding the current pending ownership proposal. Expiry is laz
 The `PdsAgentPool` manages authenticated connections to each group's PDS:
 
 1. **Lookup**: When a request targets a group, the pool checks its cache for an existing agent
-2. **Credential decryption**: If no cached agent exists, the group's `encrypted_app_password` is decrypted from the database using the master encryption key
+2. **Credential decryption**: If no cached agent exists, the group's `encrypted_app_password` is decrypted from the database using the master encryption key (`ENCRYPTION_KEY`, or `ENCRYPTION_KEY_NEXT` during a [key rotation](deployment.md#rotating-encryption_key))
 3. **Login**: An `AtpAgent` is created and logs in with the group's DID and decrypted app password
 4. **Caching**: The authenticated agent is cached for subsequent requests
 5. **Auto-retry**: The `withAgent()` method wraps operations and automatically retries on `AuthenticationRequired` or `ExpiredToken` errors by invalidating the cache and re-authenticating
@@ -282,7 +282,7 @@ The `PdsAgentPool` manages authenticated connections to each group's PDS:
 
 App passwords are encrypted at rest using **AES-256-GCM**:
 
-- **Key**: 32-byte master key from the `ENCRYPTION_KEY` environment variable
+- **Key**: 32-byte master key from the `ENCRYPTION_KEY` environment variable. While `ENCRYPTION_KEY_NEXT` is set, startup re-encrypts every stored credential to it and it is used instead; see [Rotating `ENCRYPTION_KEY`](deployment.md#rotating-encryption_key)
 - **IV**: 12 random bytes generated per encryption
 - **Auth tag**: 16 bytes for integrity verification
 - **Storage format**: Base64 encoding of `IV || AuthTag || Ciphertext`
@@ -381,6 +381,7 @@ Destroy is lossy: the per-group DB — including the `group_record_authors` tabl
 2. Create structured logger (pino)
 3. Ensure `DATA_DIR` exists
 4. Open global SQLite database and run global migrations
+   - Then check the master key: re-encrypt the stored credentials to `ENCRYPTION_KEY_NEXT` if it is set, otherwise check that `ENCRYPTION_KEY` opens at least one stored app password ([details](deployment.md#rotating-encryption_key))
 5. Initialize the per-group database pool
 6. Create the DID resolver (`IdResolver` from `@atproto/identity`)
 7. Load all managed groups and run per-group migrations

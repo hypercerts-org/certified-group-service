@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync } from 'node:fs'
 import { createGroupServer } from './server.js'
-import { loadConfig } from './config.js'
+import { activeEncryptionKey, loadConfig } from './config.js'
 import { AuthVerifier } from './auth/verifier.js'
 import { PermissionSetResolver } from './auth/permission-set-resolver.js'
 import { NonceCache } from './auth/nonce.js'
@@ -20,6 +20,7 @@ import { openSqliteDb } from './db/sqlite.js'
 import { GroupDbPool } from './db/group-db-pool.js'
 import { MemberIndex, backfillMemberIndex } from './db/member-index.js'
 import { PdsAgentPool } from './pds/agent.js'
+import { assertSecretsReadable, rekeyGroupSecrets } from './pds/rekey.js'
 import { AuditLogger } from './audit.js'
 import { PendingTransferStore } from './transfer/pending.js'
 import { OwnershipLock } from './transfer/ownership-lock.js'
@@ -35,10 +36,29 @@ async function main() {
 
   // Global SQLite database
   const globalDbPath = join(config.dataDir, 'global.sqlite')
-  const { db: globalDb } = openSqliteDb<GlobalDatabase>(globalDbPath)
+  const { db: globalDb, raw: globalRaw } = openSqliteDb<GlobalDatabase>(globalDbPath)
 
   await runGlobalMigrations(globalDb)
   logger.info('Global migrations complete')
+
+  // Master-key check before anything reads the stored credentials. A rotation
+  // boot (ENCRYPTION_KEY_NEXT set) re-encrypts them to the new key. Any other
+  // boot confirms ENCRYPTION_KEY opens at least one stored app password, so a
+  // botched cut-over fails here instead of at every group's first PDS login.
+  // Either error rejects main(), so startup exits non-zero and the stored
+  // credentials are untouched.
+  if (config.encryptionKeyNext) {
+    const result = rekeyGroupSecrets(globalRaw, {
+      oldKey: Buffer.from(config.encryptionKey, 'hex'),
+      newKey: Buffer.from(config.encryptionKeyNext, 'hex'),
+    })
+    logger.warn(
+      result,
+      'Encryption key rotation complete. Set ENCRYPTION_KEY to the ENCRYPTION_KEY_NEXT value, remove ENCRYPTION_KEY_NEXT, and redeploy.',
+    )
+  } else {
+    assertSecretsReadable(globalRaw, activeEncryptionKey(config))
+  }
 
   // Per-group SQLite databases
   const groupDbs = new GroupDbPool(join(config.dataDir, 'groups'))
@@ -83,7 +103,7 @@ async function main() {
   app.use(pinoHttp({ logger }))
 
   // XRPC routes
-  const pdsAgents = new PdsAgentPool(globalDb, Buffer.from(config.encryptionKey, 'hex'))
+  const pdsAgents = new PdsAgentPool(globalDb, activeEncryptionKey(config))
   const audit = new AuditLogger()
   const memberIndex = new MemberIndex(globalDbPath)
   const pendingTransfers = new PendingTransferStore()

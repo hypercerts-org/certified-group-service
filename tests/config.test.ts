@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { configSchema } from '../src/config.js'
 
 const VALID_BASE = {
@@ -98,5 +98,77 @@ describe('configSchema', () => {
     expect(() => configSchema.parse({ ...VALID_BASE, adminPassword: '   short   ' })).toThrow(
       'at least 16',
     )
+  })
+
+  it('leaves encryptionKeyNext undefined by default', () => {
+    const config = configSchema.parse(VALID_BASE)
+    expect(config.encryptionKeyNext).toBeUndefined()
+  })
+
+  it('accepts an encryptionKeyNext that differs from encryptionKey', () => {
+    const config = configSchema.parse({ ...VALID_BASE, encryptionKeyNext: 'b'.repeat(64) })
+    expect(config.encryptionKeyNext).toBe('b'.repeat(64))
+  })
+
+  it.each([
+    ['empty', ''],
+    ['too short', 'abcd'],
+    ['not hex', 'g'.repeat(64)],
+  ])('rejects an encryptionKeyNext that is %s', (_label, encryptionKeyNext) => {
+    expect(() => configSchema.parse({ ...VALID_BASE, encryptionKeyNext })).toThrow('64 hex')
+  })
+
+  it('rejects an encryptionKeyNext equal to encryptionKey', () => {
+    expect(() =>
+      configSchema.parse({ ...VALID_BASE, encryptionKeyNext: VALID_BASE.encryptionKey }),
+    ).toThrow(
+      'ENCRYPTION_KEY_NEXT must differ from ENCRYPTION_KEY. If rotation is complete, remove ENCRYPTION_KEY_NEXT.',
+    )
+  })
+
+  it('rejects an encryptionKeyNext that differs from encryptionKey only by letter case', () => {
+    expect(() =>
+      configSchema.parse({
+        ...VALID_BASE,
+        encryptionKey: 'abcdef01'.repeat(8),
+        encryptionKeyNext: 'ABCDEF01'.repeat(8),
+      }),
+    ).toThrow('must differ')
+  })
+})
+
+// The other variables loadConfig reads. They are cleared so that a value from
+// the developer's shell or CI (LOG_LEVEL=verbose, a short CGS_ADMIN_PASSWORD)
+// cannot fail the test.
+const OTHER_ENV_VARS = [
+  'PORT',
+  'DATA_DIR',
+  'SERVICE_DID',
+  'ENCRYPTION_KEY_NEXT',
+  'GROUP_PDS_INVITE_CODE',
+  'CGS_ADMIN_PASSWORD',
+  'PLC_URL',
+  'DID_CACHE_TTL_MS',
+  'MAX_BLOB_SIZE',
+  'LOG_LEVEL',
+]
+
+describe('loadConfig', () => {
+  beforeEach(() => {
+    vi.resetModules() // loadConfig memoises its result at module level
+    for (const name of OTHER_ENV_VARS) vi.stubEnv(name, undefined)
+    vi.stubEnv('SERVICE_URL', VALID_BASE.serviceUrl)
+    vi.stubEnv('GROUP_PDS_URL', VALID_BASE.groupPdsUrl)
+    vi.stubEnv('ENCRYPTION_KEY', VALID_BASE.encryptionKey)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('reads encryptionKeyNext from ENCRYPTION_KEY_NEXT', async () => {
+    vi.stubEnv('ENCRYPTION_KEY_NEXT', 'b'.repeat(64))
+    const { loadConfig } = await import('../src/config.js')
+    expect(loadConfig().encryptionKeyNext).toBe('b'.repeat(64))
   })
 })
