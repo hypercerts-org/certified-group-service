@@ -34,6 +34,7 @@ and apply it, don't write a changeset from memory.
 
 - **Per-group databases**: each group DID is SHA256-hashed to a filename (`data/groups/{hash}.sqlite`). No reverse mapping exists — you must know the DID.
 - **PDS agent auto-retry**: `PdsAgentPool.withAgent()` silently re-authenticates on 401/expired token and retries once. Don't add your own retry around it.
+- **Master key**: every encrypt/decrypt uses `activeEncryptionKey(config)` (`ENCRYPTION_KEY_NEXT ?? ENCRYPTION_KEY`), never `config.encryptionKey` directly. Boot re-keys `groups.encrypted_*` via `src/pds/rekey.ts` when `ENCRYPTION_KEY_NEXT` is set, and otherwise asserts (`assertSecretsReadable`) that `ENCRYPTION_KEY` opens at least one stored app password. The only legitimate direct read of `config.encryptionKey` is the old-key argument in `src/index.ts`.
 - **Nonce TTL is 2 minutes**, hardcoded. JWTs with longer expiry can be replayed after the nonce window closes.
 - **Blob uploads** read the raw request stream into memory (not streamed to PDS). Route registration order matters: `registerRawRoutes` (uploadBlob) is mounted before `express.json()`, `registerJsonRoutes` after. New raw-stream routes go in `registerRawRoutes`.
 - **Owner is created only** at group bootstrap — `group.register` and `group.import` both seed it via the shared `finalizeGroup` (`memberIndex.add(..., 'owner', ...)`) — and is immutable through the member-facing API: `role.set` rejects both promoting to owner and modifying an existing owner, `member.remove` rejects removing an owner, and `member.add` caps at admin. The **one** exception is the operator-only `app.certified.group.admin.setOwner` (HTTP Basic auth, `CGS_ADMIN_PASSWORD`), which reassigns ownership in-process via `MemberIndex.transferOwner` (demotes the old owner to admin; promotes the new owner in place, or adds them as a new owner member if they aren't a member yet — the break-glass case where the incumbent owner is unavailable).
@@ -91,14 +92,14 @@ feature), add tests for other code to compensate.
 
 ## Coverage Summary
 
-Baseline as of this document (516 tests across 39 files):
+Baseline as of this document (561 tests across 42 files):
 
 | Metric     | Coverage | Threshold |
 | ---------- | -------- | --------- |
-| Statements | 95.11%   | 95        |
-| Branches   | 91.66%   | 91        |
-| Functions  | 93.51%   | 93        |
-| Lines      | 95.11%   | 95        |
+| Statements | 95.84%   | 95        |
+| Branches   | 91.60%   | 91        |
+| Functions  | 94.38%   | 94        |
+| Lines      | 95.84%   | 95        |
 
 ### Known gaps (highest impact first)
 
@@ -111,9 +112,6 @@ Baseline as of this document (516 tests across 39 files):
   registration glue that wires each handler into the XRPC server. Integration-
   level, not unit-level — cover it by booting the server in a supertest
   integration test rather than unit-testing the registrar.
-- **`src/config.ts` — 56%** (lines 29-45). Environment-variable parsing
-  branch. Unit-testable by setting `process.env` and asserting the parsed
-  `Config`.
 - **Migrations — 75-90%.** `down()` / index-drop paths in
   `group/002_audit_indexes.ts` and `group/001_initial.ts` are unexercised.
   Low priority unless rollback is part of the supported flow.
