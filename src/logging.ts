@@ -20,30 +20,30 @@ export const LOGGED_REQUEST_HEADERS: readonly string[] = [
  * headers of an outbound request). Path-based, so it only catches what is
  * listed — the access-log allowlist above is the primary control.
  */
-const REDACT_PATHS = [
-  'req.headers.authorization',
-  'req.headers["x-api-key"]',
-  'req.headers.cookie',
-  'req.headers["proxy-authorization"]',
-  '*.headers.authorization',
-  '*.headers["x-api-key"]',
-  '*.headers.cookie',
-  '*.headers["proxy-authorization"]',
-  '*.config.headers.authorization',
-]
+const CREDENTIAL_HEADERS = ['authorization', '["x-api-key"]', 'cookie', '["proxy-authorization"]']
+const header = (name: string) => (name.startsWith('[') ? name : `.${name}`)
+const REDACT_PATHS = ['headers', '*.headers', '*.config.headers'].flatMap((prefix) =>
+  CREDENTIAL_HEADERS.map((name) => `${prefix}${header(name)}`),
+)
 
 export function createLogger(level: string, destination?: DestinationStream): Logger {
   return pino({ level, redact: { paths: REDACT_PATHS, censor: '[Redacted]' } }, destination)
 }
 
-type SerializedReq = { headers?: Record<string, unknown> } & Record<string, unknown>
+type SerializedReq = { headers?: Record<string, unknown>; raw?: { ip?: string } } & Record<
+  string,
+  unknown
+>
 
 function allowlistHeaders(req: SerializedReq): SerializedReq {
   const headers: Record<string, unknown> = {}
   for (const name of LOGGED_REQUEST_HEADERS) {
     if (req.headers?.[name] !== undefined) headers[name] = req.headers[name]
   }
-  return { ...req, headers }
+  // remoteAddress is the socket peer (Railway's proxy). req.ip honours
+  // `trust proxy`, so it is the actual client; x-forwarded-for itself stays
+  // off the allowlist to avoid logging the full proxy chain.
+  return { ...req, headers, ip: req.raw?.ip }
 }
 
 export function createHttpLogger(logger: Logger): HttpLogger {

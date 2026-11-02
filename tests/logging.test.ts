@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Writable } from 'node:stream'
 import express from 'express'
 import request from 'supertest'
+import { createFallbackErrorHandler } from '../src/api/error-handler.js'
 import { createHttpLogger, createLogger, LOGGED_REQUEST_HEADERS } from '../src/logging.js'
 
 const SENTINELS = {
@@ -26,6 +27,7 @@ function capture() {
 
 function buildApp(logger: ReturnType<typeof createLogger>) {
   const app = express()
+  app.set('trust proxy', 1)
   app.use(createHttpLogger(logger))
   app.get('/ok', (_req, res) => {
     res.json({ ok: true })
@@ -33,6 +35,7 @@ function buildApp(logger: ReturnType<typeof createLogger>) {
   app.get('/boom', () => {
     throw new Error('boom')
   })
+  app.use(createFallbackErrorHandler(logger))
   return app
 }
 
@@ -46,6 +49,7 @@ describe.each([
       .get(path)
       .set(SENTINELS)
       .set('user-agent', 'sentinel-agent')
+      .set('x-forwarded-for', '203.0.113.7')
       .expect(status)
 
     const output = lines.join('')
@@ -57,12 +61,16 @@ describe.each([
       const names = Object.keys(line.req.headers)
       expect(names.every((n) => LOGGED_REQUEST_HEADERS.includes(n))).toBe(true)
       expect(line.req.headers['user-agent']).toBe('sentinel-agent')
+      expect(line.req.ip).toBe('203.0.113.7')
+    }
+    if (status === 500) {
+      expect(lines.some((l) => JSON.parse(l).msg === 'Unhandled error')).toBe(true)
     }
   })
 })
 
 describe('createLogger redaction backstop', () => {
-  it('censors listed credential headers one level below a logged field', () => {
+  it('censors listed credential headers at the top level and one level below', () => {
     const { lines, logger } = capture()
     logger.error(
       { err: { config: { headers: { authorization: 'Bearer SENTINEL_OUTBOUND' } } } },
@@ -70,6 +78,8 @@ describe('createLogger redaction backstop', () => {
     )
     logger.error({ err: { headers: SENTINELS } }, 'error with headers')
     logger.info({ req: { headers: SENTINELS } }, 'raw req')
+    logger.info({ headers: SENTINELS }, 'top-level headers')
+    logger.error({ err: { config: { headers: SENTINELS } } }, 'outbound with all headers')
     const output = lines.join('')
     for (const value of [
       'SENTINEL_OUTBOUND',
