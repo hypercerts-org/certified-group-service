@@ -1,5 +1,40 @@
 # group-service
 
+## 0.6.1
+
+### Who should read this release
+
+- **Client app developers:**
+  - [A request to change someone's role to something that is not a real role is now always refused.](#v0.6.1-a-request-to-change-someone-s-role-to-something-that-is-not)
+  - [Overlapping ownership changes on the same group can no longer undo one another.](#v0.6.1-overlapping-ownership-changes-on-the-same-group-can-no)
+- **Operators:**
+  - [Request logs no longer record credential-bearing headers such as `Authorization`, `X-API-Key` and `Cookie`.](#v0.6.1-request-logs-no-longer-record-credential-bearing-headers)
+  - [Overlapping ownership changes on the same group can no longer undo one another.](#v0.6.1-overlapping-ownership-changes-on-the-same-group-can-no)
+
+### Patch Changes
+
+- <a id="v0.6.1-request-logs-no-longer-record-credential-bearing-headers"></a> [#83](https://github.com/hypercerts-org/certified-group-service/pull/83) [`e61871f`](https://github.com/hypercerts-org/certified-group-service/commit/e61871f80971c4e38d1f1efae07baf2f954c95f9) Thanks [@Kzoeps](https://github.com/Kzoeps)! - Request logs no longer record credential-bearing headers such as `Authorization`, `X-API-Key` and `Cookie`.
+
+  **Affects:** Operators
+
+  **Operators:**
+  - Access logs now keep only `host`, `user-agent`, `content-type`, `content-length`, `atproto-proxy` and `x-request-id`. Other headers, including `x-forwarded-for`, are dropped. The client IP is logged as `req.ip`, resolved through the trusted proxy hop; `req.remoteAddress` is the proxy.
+  - Earlier logs may contain API keys and the `CGS_ADMIN_PASSWORD` Basic credential. If those logs were readable outside trusted operators, rotate both. Service-auth JWTs expire within 120 seconds and need no rotation.
+
+- <a id="v0.6.1-a-request-to-change-someone-s-role-to-something-that-is-not"></a> [#80](https://github.com/hypercerts-org/certified-group-service/pull/80) [`97b693e`](https://github.com/hypercerts-org/certified-group-service/commit/97b693ecd541163c97f436cc145af16a1908dece) Thanks [@Ashex](https://github.com/Ashex)! - A request to change someone's role to something that is not a real role is now always refused.
+
+  **Affects:** Client app developers
+
+  **Client app developers:** `app.certified.group.role.set` validated its `role` field with a JavaScript `in` check against the role table, which also matches inherited object keys. `role: "toString"` (and any other `Object.prototype` key) therefore passed validation and was written to the member row verbatim, leaving a member with a role no permission check recognises. Such a value is now rejected like any other unknown role, with `400 InvalidRole` and the message `Role must be one of: member, admin, owner`. Valid values (`member`, `admin`) are unaffected, and an existing group that was written a bogus role by the old code keeps it — re-set that member's role to repair the row.
+
+- <a id="v0.6.1-overlapping-ownership-changes-on-the-same-group-can-no"></a> [#80](https://github.com/hypercerts-org/certified-group-service/pull/80) [`140468a`](https://github.com/hypercerts-org/certified-group-service/commit/140468ab3d12f77bdc617bad8f805ddafda08dd9) Thanks [@Ashex](https://github.com/Ashex)! - Overlapping ownership changes on the same group can no longer undo one another.
+
+  **Affects:** Client app developers, Operators
+
+  **Client app developers:** `app.certified.group.ownershipTransfer.propose`, `accept` and `cancel`, and the operator endpoint `app.certified.group.admin.setOwner`, now run one at a time per group. Each validates and writes as a unit, so two requests that arrive together resolve in a defined order instead of one acting on state the other has already replaced. Two responses change in that race: a `propose` that loses the race to `admin.setOwner` is refused with `403` rather than recording a proposal signed by the demoted owner, and a `cancel` whose proposal was replaced while it ran returns `404 NoPendingTransfer` rather than cancelling the replacement. An `accept` whose recipient is removed from the group while it runs returns the same `404` instead of making that removed account the owner. Uncontended requests are unaffected, and no new error codes are introduced.
+
+  **Operators:** serialization is per group and in-process, so it holds for one service instance per group database — the arrangement the per-group SQLite files already assume. Running two instances against the same data directory does not serialize these flows.
+
 ## 0.6.0
 
 ### Who should read this release
