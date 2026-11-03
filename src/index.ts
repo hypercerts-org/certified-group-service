@@ -1,8 +1,7 @@
 import 'dotenv/config'
 import express from 'express'
 import { IdResolver, MemoryCache } from '@atproto/identity'
-import pino from 'pino'
-import { pinoHttp } from 'pino-http'
+import { createHttpLogger, createLogger } from './logging.js'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync } from 'node:fs'
@@ -29,7 +28,7 @@ import type { GlobalDatabase } from './db/schema.js'
 
 async function main() {
   const config = loadConfig()
-  const logger = pino({ level: config.logLevel })
+  const logger = createLogger(config.logLevel)
 
   mkdirSync(config.dataDir, { recursive: true })
 
@@ -80,7 +79,7 @@ async function main() {
   // Express app
   const app = express()
   app.set('trust proxy', 1)
-  app.use(pinoHttp({ logger }))
+  app.use(createHttpLogger(logger))
 
   // XRPC routes
   const pdsAgents = new PdsAgentPool(globalDb, Buffer.from(config.encryptionKey, 'hex'))
