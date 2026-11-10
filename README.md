@@ -121,4 +121,8 @@ See [docs/deployment.md](docs/deployment.md) for deployment guides, including Ra
 
 ## License
 
-MIT
+Licensed under the [Apache License, Version 2.0](LICENSE). If you redistribute this code or a modified version of it, keep the [NOTICE](NOTICE) file and include its text, as section 4(d) of the license requires.
+
+Versions released before November 2026 were licensed under MIT. The [NOTICE](NOTICE) file keeps the MIT terms for that earlier code.
+
+Lexicon schemas copied from other publishers (`com.atproto`, from Bluesky) keep their publishers' licenses.
