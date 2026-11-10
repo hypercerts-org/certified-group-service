@@ -495,12 +495,12 @@ The `role` field must be `"member"` or `"admin"`. The owner role cannot be assig
 
 **Errors:**
 
-| Code | Name                   | Description                     |
-| ---- | ---------------------- | ------------------------------- |
-| 400  | InvalidRole            | Role is not `member` or `admin` |
-| 401  | AuthenticationRequired | Missing or invalid JWT          |
-| 403  | Forbidden              | Caller lacks admin role         |
-| 409  | MemberAlreadyExists    | The DID is already a member     |
+| Code | Name                   | Description                                               |
+| ---- | ---------------------- | --------------------------------------------------------- |
+| 400  | InvalidRole            | Role is not `member` or `admin`                           |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                    |
+| 403  | Forbidden              | Caller lacks admin role, or authenticated with an API key |
+| 409  | MemberAlreadyExists    | The DID is already a member                               |
 
 **Example:**
 
@@ -521,7 +521,7 @@ curl -X POST https://group-service.example.com/xrpc/app.certified.group.member.a
 
 Remove a member from the group.
 
-**Required role:** admin (or any role for self-removal)
+**Required role:** admin (or any role for self-removal with a JWT). API keys are always refused.
 
 The target group is named by the optional `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
@@ -542,12 +542,12 @@ The target group is named by the optional `repo` body field (a handle or DID), w
 
 **Errors:**
 
-| Code | Name                   | Description                                                                                     |
-| ---- | ---------------------- | ----------------------------------------------------------------------------------------------- |
-| 400  | CannotRemoveOwner      | Cannot remove a member with the owner role                                                      |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                                                          |
-| 403  | Forbidden              | Caller lacks admin role, or target has equal/higher role than caller (and is not removing self) |
-| 404  | MemberNotFound         | Target is not a group member                                                                    |
+| Code | Name                   | Description                                                                                                                    |
+| ---- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 400  | CannotRemoveOwner      | Cannot remove a member with the owner role                                                                                     |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                                         |
+| 403  | Forbidden              | Caller lacks admin role, target has equal/higher role than caller (and is not removing self), or authenticated with an API key |
+| 404  | MemberNotFound         | Target is not a group member                                                                                                   |
 
 **Example:**
 
@@ -643,14 +643,14 @@ The `role` field can be `"member"` or `"admin"`. The owner role is immutable thr
 
 **Errors:**
 
-| Code | Name                   | Description                                                     |
-| ---- | ---------------------- | --------------------------------------------------------------- |
-| 400  | InvalidRole            | Role is not a recognized role (`member`, `admin`, or `owner`)   |
-| 400  | CannotModifyOwner      | Target already holds the owner role                             |
-| 400  | CannotPromoteToOwner   | Cannot promote a member to owner                                |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                          |
-| 403  | Forbidden              | Caller lacks owner role, or attempted to promote above own role |
-| 404  | MemberNotFound         | Target is not a group member                                    |
+| Code | Name                   | Description                                                                                    |
+| ---- | ---------------------- | ---------------------------------------------------------------------------------------------- |
+| 400  | InvalidRole            | Role is not a recognized role (`member`, `admin`, or `owner`)                                  |
+| 400  | CannotModifyOwner      | Target already holds the owner role                                                            |
+| 400  | CannotPromoteToOwner   | Cannot promote a member to owner                                                               |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                         |
+| 403  | Forbidden              | Caller lacks owner role, attempted to promote above own role, or authenticated with an API key |
+| 404  | MemberNotFound         | Target is not a group member                                                                   |
 
 **Example:**
 

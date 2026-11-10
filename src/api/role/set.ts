@@ -48,7 +48,7 @@ export default function (server: Server, ctx: AppContext) {
           groupDb,
           callerDid,
           'role.set',
-          { memberDid, role: newRole },
+          { memberDid, newRole },
           auth.credentials,
         ),
         groupDb

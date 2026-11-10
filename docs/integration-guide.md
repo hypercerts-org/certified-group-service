@@ -617,11 +617,12 @@ Key constraints:
 
 - Admins can add members at `member` or `admin` level — but not at or above their own role
 - Admins can remove members below their own role level
-- Any member can remove themselves (self-removal)
+- Any member can remove themselves (self-removal), using a JWT; API keys cannot
 - `member.remove` and `role.set` cannot remove, demote, or otherwise change an owner
 - `member.add` and `role.set` can only assign `member` or `admin`; the owner role cannot be assigned through those endpoints
 - Ownership transfer is a separate propose/accept flow; `accept` requires a DID-authenticated JWT, not an API key. The operator-only `admin.setOwner` endpoint can also reassign ownership, demoting the previous owner.
 - API-key-authenticated callers cannot create, list, or revoke API keys; JWT-authenticated members can use those endpoints
+- API-key-authenticated callers cannot call `member.add`, `member.remove` (including self-removal) or `role.set`, whatever scopes the key holds; use a JWT
 
 `*` Ownership-transfer `accept` and `cancel` have a member role floor, but their handlers apply additional identity checks: only the proposed owner can accept, and only the current owner or proposed owner can cancel.
 
