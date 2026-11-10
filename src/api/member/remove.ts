@@ -1,7 +1,7 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, resolveGroupDid } from '../util.js'
+import { registerAuthedMethod, assertCanWithAudit, jsonResponse, resolveGroupDid } from '../util.js'
 import { ForbiddenError } from '../../errors.js'
 import { ROLE_HIERARCHY, type Role } from '../../rbac/permissions.js'
 
@@ -21,8 +21,18 @@ export default function (server: Server, ctx: AppContext) {
           .select('role')
           .where('member_did', '=', memberDid)
           .executeTakeFirst(),
-        callerDid !== memberDid
-          ? ctx.rbac.assertCan(groupDb, callerDid, 'member.remove')
+        // Self-removal skips the role check so plain members can leave. An API
+        // key always goes through the gate: otherwise any key could remove the
+        // member who created it.
+        callerDid !== memberDid || auth.credentials.authKind === 'apiKey'
+          ? assertCanWithAudit(
+              ctx,
+              groupDb,
+              callerDid,
+              'member.remove',
+              { memberDid },
+              auth.credentials,
+            )
           : Promise.resolve(null),
       ])
 

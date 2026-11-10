@@ -13,6 +13,9 @@ import request from 'supertest'
 import { createTestContext, seedMember, createTestApp } from './helpers/mock-server.js'
 import memberListHandler from '../src/api/member/list.js'
 import auditQueryHandler from '../src/api/audit/query.js'
+import memberAddHandler from '../src/api/member/add.js'
+import memberRemoveHandler from '../src/api/member/remove.js'
+import roleSetHandler from '../src/api/role/set.js'
 import { scopeNeededFor } from '../src/auth/scopes.js'
 import type { AppContext } from '../src/context.js'
 import type { Kysely } from 'kysely'
@@ -167,5 +170,73 @@ describe('API-key scope enforcement at the handler layer', () => {
       `/xrpc/app.certified.group.member.list?repo=${GROUP}`,
     )
     expect(res.status).toBe(403)
+  })
+
+  // member.add, member.remove and role.set are not key-accessible (no
+  // OPERATION_LXM entry), so even an owner's wildcard key must be denied.
+  describe('membership mutations are denied to API keys', () => {
+    const WILDCARD = `rpc:*?aud=${SERVICE_DID}%23certified_group_service`
+
+    async function memberRole(did: string) {
+      const row = await groupDb
+        .selectFrom('group_members')
+        .select('role')
+        .where('member_did', '=', did)
+        .executeTakeFirst()
+      return row?.role
+    }
+
+    async function expectDeniedAudit(action: string) {
+      const audit = await groupDb
+        .selectFrom('group_audit_log')
+        .selectAll()
+        .orderBy('id', 'desc')
+        .executeTakeFirst()
+      expect(audit?.action).toBe(action)
+      expect(audit?.result).toBe('denied')
+      expect(JSON.parse(audit!.detail!).apiKeyRef).toBe('ref1')
+    }
+
+    beforeEach(async () => {
+      ctx.authVerifier = apiKeyAuth([WILDCARD])
+      await seedMember(groupDb, 'did:plc:member', 'member')
+    })
+
+    it('member.add: 403, member not added, denial audited', async () => {
+      const res = await request(app(memberAddHandler))
+        .post('/xrpc/app.certified.group.member.add')
+        .send({ repo: GROUP, memberDid: 'did:plc:newcomer', role: 'member' })
+      expect(res.status).toBe(403)
+      expect(await memberRole('did:plc:newcomer')).toBeUndefined()
+      await expectDeniedAudit('member.add')
+    })
+
+    it('role.set: 403, role unchanged, denial audited', async () => {
+      const res = await request(app(roleSetHandler))
+        .post('/xrpc/app.certified.group.role.set')
+        .send({ repo: GROUP, memberDid: 'did:plc:member', role: 'admin' })
+      expect(res.status).toBe(403)
+      expect(await memberRole('did:plc:member')).toBe('member')
+      await expectDeniedAudit('role.set')
+    })
+
+    it('member.remove: 403 for another member, who stays, denial audited', async () => {
+      const res = await request(app(memberRemoveHandler))
+        .post('/xrpc/app.certified.group.member.remove')
+        .send({ repo: GROUP, memberDid: 'did:plc:member' })
+      expect(res.status).toBe(403)
+      expect(await memberRole('did:plc:member')).toBe('member')
+      await expectDeniedAudit('member.remove')
+    })
+
+    it('member.remove: a key cannot remove the member who created it', async () => {
+      ctx.authVerifier = apiKeyAuth([WILDCARD], 'did:plc:member')
+      const res = await request(app(memberRemoveHandler))
+        .post('/xrpc/app.certified.group.member.remove')
+        .send({ repo: GROUP, memberDid: 'did:plc:member' })
+      expect(res.status).toBe(403)
+      expect(await memberRole('did:plc:member')).toBe('member')
+      await expectDeniedAudit('member.remove')
+    })
   })
 })
