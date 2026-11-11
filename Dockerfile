@@ -22,6 +22,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/.cgs-version ./
 COPY --from=builder /app/lexicons ./lexicons
+COPY --from=builder /app/LICENSE /app/NOTICE ./
 RUN mkdir -p /app/data/groups
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

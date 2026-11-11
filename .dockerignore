@@ -1,5 +1,4 @@
 .git/
-.beads/
 .ralph-logs/
 node_modules/
 dist/
