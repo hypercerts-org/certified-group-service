@@ -1,7 +1,13 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, assertCanWithAudit, jsonResponse, resolveGroupDid } from '../util.js'
+import {
+  registerAuthedMethod,
+  assertCanWithAudit,
+  jsonResponse,
+  rejectApiKey,
+  resolveGroupDid,
+} from '../util.js'
 import { ForbiddenError } from '../../errors.js'
 import { ROLE_HIERARCHY, type Role } from '../../rbac/permissions.js'
 
@@ -40,6 +46,12 @@ export default function (server: Server, ctx: AppContext) {
 
       const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
       const groupDb = ctx.groupDbs.get(groupDid)
+
+      // Role changes need a DID-authenticated request; refuse keys before the lookup.
+      await rejectApiKey(ctx, groupDb, callerDid, 'role.set', auth.credentials, {
+        memberDid,
+        newRole,
+      })
 
       // RBAC check and target lookup are independent — run in parallel
       const [callerRole, target] = await Promise.all([

@@ -5,6 +5,7 @@ import type { AppContext } from '../../context.js'
 import {
   registerAuthedMethod,
   assertCanWithAudit,
+  rejectApiKey,
   jsonResponse,
   sqliteToIso,
   resolveGroupDid,
@@ -36,8 +37,13 @@ export default function (server: Server, ctx: AppContext) {
       const groupDb = ctx.groupDbs.get(groupDid)
       const groupRaw = ctx.groupDbs.getRaw(groupDid)
 
-      // Passing the credentials applies the API-key scope check. member.add has no
-      // OPERATION_LXM entry, so every key is denied.
+      // Membership changes need a DID-authenticated request. Refuse keys
+      // explicitly rather than relying on member.add having no OPERATION_LXM entry.
+      await rejectApiKey(ctx, groupDb, callerDid, 'member.add', auth.credentials, {
+        memberDid,
+        role,
+      })
+
       const callerRole = await assertCanWithAudit(
         ctx,
         groupDb,

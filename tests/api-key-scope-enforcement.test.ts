@@ -186,6 +186,14 @@ describe('API-key scope enforcement at the handler layer', () => {
       return row?.role
     }
 
+    function expectApiKeyNotPermitted(res: request.Response, action: string) {
+      expect(res.status).toBe(403)
+      expect(res.body.error).toBe('ApiKeyNotPermitted')
+      expect(res.body.message).toBe(
+        `${action} requires a DID-authenticated request, not an API key`,
+      )
+    }
+
     async function expectDeniedAudit(action: string) {
       const audit = await groupDb
         .selectFrom('group_audit_log')
@@ -206,7 +214,7 @@ describe('API-key scope enforcement at the handler layer', () => {
       const res = await request(app(memberAddHandler))
         .post('/xrpc/app.certified.group.member.add')
         .send({ repo: GROUP, memberDid: 'did:plc:newcomer', role: 'member' })
-      expect(res.status).toBe(403)
+      expectApiKeyNotPermitted(res, 'member.add')
       expect(await memberRole('did:plc:newcomer')).toBeUndefined()
       await expectDeniedAudit('member.add')
     })
@@ -215,7 +223,7 @@ describe('API-key scope enforcement at the handler layer', () => {
       const res = await request(app(roleSetHandler))
         .post('/xrpc/app.certified.group.role.set')
         .send({ repo: GROUP, memberDid: 'did:plc:member', role: 'admin' })
-      expect(res.status).toBe(403)
+      expectApiKeyNotPermitted(res, 'role.set')
       expect(await memberRole('did:plc:member')).toBe('member')
       await expectDeniedAudit('role.set')
     })
@@ -224,7 +232,7 @@ describe('API-key scope enforcement at the handler layer', () => {
       const res = await request(app(memberRemoveHandler))
         .post('/xrpc/app.certified.group.member.remove')
         .send({ repo: GROUP, memberDid: 'did:plc:member' })
-      expect(res.status).toBe(403)
+      expectApiKeyNotPermitted(res, 'member.remove')
       expect(await memberRole('did:plc:member')).toBe('member')
       await expectDeniedAudit('member.remove')
     })
@@ -234,8 +242,16 @@ describe('API-key scope enforcement at the handler layer', () => {
       const res = await request(app(memberRemoveHandler))
         .post('/xrpc/app.certified.group.member.remove')
         .send({ repo: GROUP, memberDid: 'did:plc:member' })
-      expect(res.status).toBe(403)
+      expectApiKeyNotPermitted(res, 'member.remove')
       expect(await memberRole('did:plc:member')).toBe('member')
+      await expectDeniedAudit('member.remove')
+    })
+
+    it('member.remove: a non-member target gets the same 403, not a 404', async () => {
+      const res = await request(app(memberRemoveHandler))
+        .post('/xrpc/app.certified.group.member.remove')
+        .send({ repo: GROUP, memberDid: 'did:plc:nobody' })
+      expectApiKeyNotPermitted(res, 'member.remove')
       await expectDeniedAudit('member.remove')
     })
   })
