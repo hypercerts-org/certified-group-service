@@ -32,9 +32,8 @@ export default function (server: Server, ctx: AppContext) {
           .select('role')
           .where('member_did', '=', memberDid)
           .executeTakeFirst(),
-        // Self-removal skips the role check so plain members can leave. The
-        // apiKey clause is defence in depth behind rejectApiKey above.
-        callerDid !== memberDid || auth.credentials.authKind === 'apiKey'
+        // Self-removal skips the role check so plain members can leave.
+        callerDid !== memberDid
           ? assertCanWithAudit(
               ctx,
               groupDb,
