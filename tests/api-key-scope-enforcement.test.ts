@@ -214,6 +214,18 @@ describe('API-key scope enforcement at the handler layer', () => {
       expect(JSON.parse(rows[0].detail!).apiKeyRef).toBe('ref1')
     }
 
+    // A role denial must be told apart from a scope denial: the RBAC layer
+    // writes `Role '<role>' cannot perform '<op>'`, the scope gate writes
+    // `API key scopes do not permit '<op>'`.
+    async function expectLatestRoleDenial(action: string, role: string) {
+      const rows = await auditRows(action)
+      const last = rows[rows.length - 1]
+      expect(last?.result).toBe('denied')
+      const reason = JSON.parse(last!.detail!).reason as string
+      expect(reason).toBe(`Role '${role}' cannot perform '${action}'`)
+      expect(reason).not.toContain('API key scopes do not permit')
+    }
+
     const add = (body: object) =>
       request(app(memberAddHandler)).post('/xrpc/app.certified.group.member.add').send(body)
     const remove = (body: object) =>
@@ -306,6 +318,9 @@ describe('API-key scope enforcement at the handler layer', () => {
         ).toBe(403)
         expect(await memberRole('did:plc:newcomer')).toBeUndefined()
         expect(await memberRole('did:plc:other')).toBe('member')
+        await expectLatestRoleDenial('member.add', 'member')
+        await expectLatestRoleDenial('member.remove', 'member')
+        await expectLatestRoleDenial('role.set', 'member')
       })
 
       it('admin-issued: member.add works, role.set refused, adding an admin refused', async () => {
@@ -320,6 +335,9 @@ describe('API-key scope enforcement at the handler layer', () => {
         const adminAdd = await add({ repo: GROUP, memberDid: 'did:plc:newadmin', role: 'admin' })
         expect(adminAdd.status).toBe(403)
         expect(await memberRole('did:plc:newadmin')).toBeUndefined()
+        // role.set is the role-denied call (admin cannot perform it); the denied
+        // admin add is refused by the equal-or-higher rule, not the scope gate.
+        await expectLatestRoleDenial('role.set', 'admin')
       })
 
       it('owner-issued: reaches member.add, role.set and member.remove', async () => {
@@ -374,6 +392,17 @@ describe('API-key scope enforcement at the handler layer', () => {
     })
 
     describe('self-removal', () => {
+      // Self-removal skips the role check, so the issuer's role is irrelevant.
+      // The owner row is the one case where the owner-immutability rule must
+      // still win, so it is pinned separately from the member case below.
+      it('an owner-issued rpc:* key cannot remove its own issuer (CannotRemoveOwner)', async () => {
+        ctx.authVerifier = apiKeyAuth([WILDCARD], 'did:plc:owner')
+        const res = await remove({ repo: GROUP, memberDid: 'did:plc:owner' })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('CannotRemoveOwner')
+        expect(await memberRole('did:plc:owner')).toBe('owner')
+      })
+
       it('a member-issued rpc:* key can remove its own issuer (role check skipped)', async () => {
         ctx.authVerifier = apiKeyAuth([WILDCARD], 'did:plc:member')
         const res = await remove({ repo: GROUP, memberDid: 'did:plc:member' })
@@ -396,6 +425,20 @@ describe('API-key scope enforcement at the handler layer', () => {
       const res = await add({ repo: GROUP, memberDid: 'did:plc:newcomer', role: 'member' })
       expect(res.status).toBe(200)
       await expectLatestAudit('member.add', 'permitted')
+    })
+
+    it('a JWT caller permitted member.remove audit carries no apiKeyRef', async () => {
+      ctx.authVerifier = mockAuth('did:plc:owner')
+      const res = await remove({ repo: GROUP, memberDid: 'did:plc:member' })
+      expect(res.status).toBe(200)
+      await expectLatestAudit('member.remove', 'permitted')
+    })
+
+    it('a JWT caller permitted role.set audit carries no apiKeyRef', async () => {
+      ctx.authVerifier = mockAuth('did:plc:owner')
+      const res = await setRole({ repo: GROUP, memberDid: 'did:plc:member', role: 'admin' })
+      expect(res.status).toBe(200)
+      await expectLatestAudit('role.set', 'permitted')
     })
   })
 })

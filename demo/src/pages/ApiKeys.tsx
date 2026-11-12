@@ -23,11 +23,14 @@ const REPO_ACTIONS = ['create', 'update', 'delete'] as const
 type RepoAction = (typeof REPO_ACTIONS)[number]
 
 // --- "Use a key" method catalog ---------------------------------------------
-// The XRPC methods an API key can actually authenticate, with the form fields
-// each one needs. This is the *key-accessible* subset of the CGS surface:
+// The XRPC methods this demo offers for trying a key, with the form fields each
+// one needs. Every entry is key-accessible, but the catalog is not exhaustive:
+// member.add, member.remove, role.set and ownershipTransfer.propose/cancel/status
+// are also key-accessible yet are not offered here. Key-accessible methods fall
+// into two groups:
 //
-//   - `rpc:` methods (member.list, audit.query, member.add, member.remove,
-//     role.set, ownershipTransfer.propose/cancel/status) — gated by an rpc: scope.
+//   - `rpc:` methods (member.list, audit.query, plus the key-accessible but
+//     not-offered ones above) — gated by an rpc: scope.
 //   - `repo:` write procedures (create/put/deleteRecord) — gated by a
 //     repo:<collection>?action=… scope; the role still decides own-vs-any.
 //
