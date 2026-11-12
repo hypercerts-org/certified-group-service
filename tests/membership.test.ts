@@ -208,6 +208,23 @@ describe('member.remove', () => {
     expect(res.status).toBe(200)
   })
 
+  // A plain member lacks the admin role member.remove needs, so this fails if
+  // JWT self-removal is ever routed through the role check.
+  it('plain member can remove themselves with a JWT', async () => {
+    await seedMember(groupDb, 'did:plc:plain', 'member')
+    app = buildApp({ ...ctx, authVerifier: mockAuth('did:plc:plain') })
+    const res = await request(app)
+      .post('/xrpc/app.certified.group.member.remove')
+      .send({ memberDid: 'did:plc:plain' })
+    expect(res.status).toBe(200)
+    const row = await groupDb
+      .selectFrom('group_members')
+      .select('member_did')
+      .where('member_did', '=', 'did:plc:plain')
+      .executeTakeFirst()
+    expect(row).toBeUndefined()
+  })
+
   it('removing non-existent member returns 404', async () => {
     const res = await request(app)
       .post('/xrpc/app.certified.group.member.remove')

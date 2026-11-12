@@ -117,6 +117,29 @@ export function decodeCursor(cursor: string): string {
  * check applies. The specific key (`apiKeyRef`) is attached to the audit detail
  * so key-driven actions are attributable beyond the issuing member DID.
  */
+/**
+ * Refuse API-key callers outright for operations that require a DID-authenticated
+ * request, with a distinct `ApiKeyNotPermitted` error. Call it before any lookup so
+ * the response cannot reveal group state (e.g. whether a member exists).
+ */
+export async function rejectApiKey(
+  ctx: AppContext,
+  groupDb: Kysely<GroupDatabase>,
+  callerDid: string,
+  operation: Operation,
+  principal: GatePrincipal,
+  detail?: Omit<AuditEventDetail, 'reason' | 'apiKeyRef'>,
+): Promise<void> {
+  if (principal.authKind !== 'apiKey') return
+  const reason = `${operation} requires a DID-authenticated request, not an API key`
+  await ctx.audit.log(groupDb, callerDid, operation, 'denied', {
+    ...detail,
+    apiKeyRef: principal.apiKeyRef,
+    reason,
+  })
+  throw new XRPCError(403, reason, 'ApiKeyNotPermitted')
+}
+
 export async function assertCanWithAudit(
   ctx: AppContext,
   groupDb: Kysely<GroupDatabase>,

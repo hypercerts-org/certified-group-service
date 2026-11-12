@@ -1,7 +1,8 @@
 {
   "name": "group-service",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Group-governed PDS for atproto",
+  "license": "Apache-2.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.3.0",

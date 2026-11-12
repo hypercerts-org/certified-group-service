@@ -121,4 +121,6 @@ See [docs/deployment.md](docs/deployment.md) for deployment guides, including Ra
 
 ## License
 
-MIT
+Licensed under the [Apache License, Version 2.0](LICENSE). If you redistribute this code or a modified version of it, keep the text of the [NOTICE](NOTICE) file, as section 4(d) of the license requires.
+
+Version 0.6.1 and earlier, and any code committed before the change to Apache-2.0, were licensed under MIT. The [NOTICE](NOTICE) file keeps the MIT terms for that earlier code.

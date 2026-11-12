@@ -91,7 +91,7 @@ feature), add tests for other code to compensate.
 
 ## Coverage Summary
 
-Baseline as of this document (516 tests across 39 files):
+Thresholds and a reference snapshot below. Run `pnpm test:coverage` for the current test count and coverage:
 
 | Metric     | Coverage | Threshold |
 | ---------- | -------- | --------- |

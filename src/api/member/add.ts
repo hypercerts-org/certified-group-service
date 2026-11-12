@@ -2,7 +2,14 @@ import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import { ensureValidDid } from '@atproto/syntax'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, sqliteToIso, resolveGroupDid } from '../util.js'
+import {
+  registerAuthedMethod,
+  assertCanWithAudit,
+  rejectApiKey,
+  jsonResponse,
+  sqliteToIso,
+  resolveGroupDid,
+} from '../util.js'
 import { ConflictError, ForbiddenError } from '../../errors.js'
 import { ASSIGNABLE_ROLES, ROLE_HIERARCHY, type Role } from '../../rbac/permissions.js'
 
@@ -30,7 +37,21 @@ export default function (server: Server, ctx: AppContext) {
       const groupDb = ctx.groupDbs.get(groupDid)
       const groupRaw = ctx.groupDbs.getRaw(groupDid)
 
-      const callerRole = await ctx.rbac.assertCan(groupDb, callerDid, 'member.add')
+      // Membership changes need a DID-authenticated request. Refuse keys
+      // explicitly rather than relying on member.add having no OPERATION_LXM entry.
+      await rejectApiKey(ctx, groupDb, callerDid, 'member.add', auth.credentials, {
+        memberDid,
+        role,
+      })
+
+      const callerRole = await assertCanWithAudit(
+        ctx,
+        groupDb,
+        callerDid,
+        'member.add',
+        { memberDid, role },
+        auth.credentials,
+      )
 
       // Cannot assign equal or higher role
       if (ROLE_HIERARCHY[callerRole] <= ROLE_HIERARCHY[role]) {
