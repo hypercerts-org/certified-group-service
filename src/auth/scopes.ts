@@ -42,6 +42,12 @@ export function serviceScopeAud(serviceDid: string): string {
  * operation with no mapping is **not** key-accessible (the gate denies it for
  * key callers). Key-management operations intentionally have no mapping.
  *
+ * Membership administration (`member.add`, `member.remove`, `role.set`) is
+ * key-accessible: a key holding the matching `rpc:` scope may call each method,
+ * capped by its issuer's current role (scopes ∩ role). An `rpc:*` wildcard key
+ * therefore covers them too. Owner immutability and the equal-or-higher-role
+ * rules still apply to key callers, because the handlers enforce them.
+ *
  * `ownershipTransfer.accept` is deliberately absent: accepting must prove *live*
  * control of the recipient DID, and an API key long outlives that control (see
  * the handler's own guard in `src/api/ownershipTransfer/accept.ts`). The other
@@ -51,6 +57,9 @@ export function serviceScopeAud(serviceDid: string): string {
  */
 const OPERATION_LXM: Partial<Record<Operation, string>> = {
   'member.list': 'app.certified.group.member.list',
+  'member.add': 'app.certified.group.member.add',
+  'member.remove': 'app.certified.group.member.remove',
+  'role.set': 'app.certified.group.role.set',
   'audit.query': 'app.certified.group.audit.query',
   'ownershipTransfer.propose': 'app.certified.group.ownershipTransfer.propose',
   'ownershipTransfer.cancel': 'app.certified.group.ownershipTransfer.cancel',

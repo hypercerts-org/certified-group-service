@@ -468,6 +468,8 @@ Add a new member to the group.
 
 **Required role:** admin
 
+Callable by an [API key](#authenticating-with-an-api-key) holding `rpc:app.certified.group.member.add`, capped by the issuing member's current role. A key without the scope gets `403 Forbidden`. A key caller puts `repo` on the querystring.
+
 The target group is named by the optional `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
 **Request body:**
@@ -495,13 +497,12 @@ The `role` field must be `"member"` or `"admin"`. The owner role cannot be assig
 
 **Errors:**
 
-| Code | Name                   | Description                                                                          |
-| ---- | ---------------------- | ------------------------------------------------------------------------------------ |
-| 400  | InvalidRole            | Role is not `member` or `admin`                                                      |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                                               |
-| 403  | ApiKeyNotPermitted     | Request authenticated with an API key; `member.add` requires a DID-authenticated JWT |
-| 403  | Forbidden              | Caller lacks admin role                                                              |
-| 409  | MemberAlreadyExists    | The DID is already a member                                                          |
+| Code | Name                   | Description                                                         |
+| ---- | ---------------------- | ------------------------------------------------------------------- |
+| 400  | InvalidRole            | Role is not `member` or `admin`                                     |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                              |
+| 403  | Forbidden              | Caller lacks admin role, or an API key lacks the `member.add` scope |
+| 409  | MemberAlreadyExists    | The DID is already a member                                         |
 
 **Example:**
 
@@ -522,7 +523,9 @@ curl -X POST https://group-service.example.com/xrpc/app.certified.group.member.a
 
 Remove a member from the group.
 
-**Required role:** admin (or any role for self-removal with a JWT). API keys are always refused.
+**Required role:** admin (or any role for self-removal).
+
+Callable by an [API key](#authenticating-with-an-api-key) holding `rpc:app.certified.group.member.remove`, capped by the issuing member's current role. A key without the scope gets `403 Forbidden`, checked before the membership lookup, so it reveals nothing about the target. A key may remove its own issuer (self-removal) only if it holds the `member.remove` scope. A key caller puts `repo` on the querystring.
 
 The target group is named by the optional `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
@@ -543,13 +546,12 @@ The target group is named by the optional `repo` body field (a handle or DID), w
 
 **Errors:**
 
-| Code | Name                   | Description                                                                                                                                                 |
-| ---- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400  | CannotRemoveOwner      | Cannot remove a member with the owner role                                                                                                                  |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                                                                      |
-| 403  | ApiKeyNotPermitted     | Request authenticated with an API key (checked before membership, so it reveals nothing about the target); `member.remove` requires a DID-authenticated JWT |
-| 403  | Forbidden              | Caller lacks admin role, or target has equal/higher role than caller (and is not removing self)                                                             |
-| 404  | MemberNotFound         | Target is not a group member                                                                                                                                |
+| Code | Name                   | Description                                                                                                                                 |
+| ---- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | CannotRemoveOwner      | Cannot remove a member with the owner role                                                                                                  |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                                                      |
+| 403  | Forbidden              | Caller lacks admin role, target has equal/higher role than caller (and is not removing self), or an API key lacks the `member.remove` scope |
+| 404  | MemberNotFound         | Target is not a group member                                                                                                                |
 
 **Example:**
 
@@ -620,6 +622,8 @@ Change a member's role.
 
 **Required role:** owner
 
+Callable by an [API key](#authenticating-with-an-api-key) holding `rpc:app.certified.group.role.set`, capped by the issuing member's current role, so only an owner-issued key can use it. A key without the scope gets `403 Forbidden`. A key caller puts `repo` on the querystring.
+
 The target group is named by the optional `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
 **Request body:**
@@ -645,15 +649,14 @@ The `role` field can be `"member"` or `"admin"`. The owner role is immutable thr
 
 **Errors:**
 
-| Code | Name                   | Description                                                                        |
-| ---- | ---------------------- | ---------------------------------------------------------------------------------- |
-| 400  | InvalidRole            | Role is not a recognized role (`member`, `admin`, or `owner`)                      |
-| 400  | CannotModifyOwner      | Target already holds the owner role                                                |
-| 400  | CannotPromoteToOwner   | Cannot promote a member to owner                                                   |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                                             |
-| 403  | ApiKeyNotPermitted     | Request authenticated with an API key; `role.set` requires a DID-authenticated JWT |
-| 403  | Forbidden              | Caller lacks owner role, or attempted to promote above own role                    |
-| 404  | MemberNotFound         | Target is not a group member                                                       |
+| Code | Name                   | Description                                                                                            |
+| ---- | ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| 400  | InvalidRole            | Role is not a recognized role (`member`, `admin`, or `owner`)                                          |
+| 400  | CannotModifyOwner      | Target already holds the owner role                                                                    |
+| 400  | CannotPromoteToOwner   | Cannot promote a member to owner                                                                       |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                 |
+| 403  | Forbidden              | Caller lacks owner role, attempted to promote above own role, or an API key lacks the `role.set` scope |
+| 404  | MemberNotFound         | Target is not a group member                                                                           |
 
 **Example:**
 
@@ -876,7 +879,7 @@ identical; the audit log records the real outcome.
 
 ## API key management
 
-JWT-authenticated methods for issuing and revoking [API keys](#authenticating-with-an-api-key). Any group member can create, list, and revoke their own keys; owners can list and revoke all keys in the group. A member can only create keys with scopes their current role can use; for example, `audit.query` requires admin. The wildcard `rpc:*` is the exception: it names no operation, so it is accepted for any role and grants whatever that member's role permits **at request time** — a member's `rpc:*` key can call `member.list` but is still refused `audit.query` with a `403`. Because the cap follows the issuer's current role, promoting or demoting them widens or narrows an existing wildcard key with no re-issue. A key can never manage keys. These methods target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
+JWT-authenticated methods for issuing and revoking [API keys](#authenticating-with-an-api-key). Any group member can create, list, and revoke their own keys; owners can list and revoke all keys in the group. A member can only create keys with scopes their current role can use; for example, `audit.query` requires admin. The wildcard `rpc:*` is the exception: it names no operation, so it is accepted for any role and grants whatever that member's role permits **at request time** — a member's `rpc:*` key can call `member.list` but is still refused `audit.query` with a `403`. `rpc:*` also covers `member.add`, `member.remove` and `role.set`: an admin's `rpc:*` key can call the first two, and an owner's can call all three. Any member's `rpc:*` key can also remove its own issuer (self-removal), since the role check is skipped for that case; an owner's key still cannot, because owner removal is refused. Because the cap follows the issuer's current role, promoting or demoting them widens or narrows an existing wildcard key with no re-issue. A key can never manage keys, and can never call ownership-transfer `accept`. These methods target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
 
 ### `POST /xrpc/app.certified.group.keys.create`
 
@@ -894,11 +897,11 @@ Request body:
 
 **Scope kinds:**
 
-| kind    | form                                              | grants                                                                        |
-| ------- | ------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `rpc:`  | `rpc:<method>` (friendly)                         | a service read method (`member.list`, `audit.query`)                          |
-| `repo:` | `repo:<collection>?action=create\|update\|delete` | a PDS-repo write (createRecord / putRecord / deleteRecord) on that collection |
-| `blob:` | `blob:<accept>` (e.g. `blob:image/*`, `blob:*/*`) | `uploadBlob` of a matching content type                                       |
+| kind    | form                                              | grants                                                                                                                                     |
+| ------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `rpc:`  | `rpc:<method>` (friendly)                         | a service method (`member.list`, `audit.query`, `member.add`, `member.remove`, `role.set`, ownership-transfer `propose`/`cancel`/`status`) |
+| `repo:` | `repo:<collection>?action=create\|update\|delete` | a PDS-repo write (createRecord / putRecord / deleteRecord) on that collection                                                              |
+| `blob:` | `blob:<accept>` (e.g. `blob:image/*`, `blob:*/*`) | `uploadBlob` of a matching content type                                                                                                    |
 
 For `rpc:` scopes, pass the friendly `rpc:<method>` name — a key only ever calls the CGS it was minted on, so the service binds each scope to its own audience (`?aud=did:web:<host>%23certified_group_service`) before storing; you do **not** supply an `aud`, and the response echoes the stored **canonical** form. `repo:` and `blob:` scopes carry no `aud` and are stored as given. For a `repo:` write, the scope picks the collection + action; the caller's **role** still decides whose records may be touched (a member-issued key can only mutate records that member authored — `repo:` scopes have no own-vs-any axis).
 

@@ -23,15 +23,19 @@ const REPO_ACTIONS = ['create', 'update', 'delete'] as const
 type RepoAction = (typeof REPO_ACTIONS)[number]
 
 // --- "Use a key" method catalog ---------------------------------------------
-// The XRPC methods an API key can actually authenticate, with the form fields
-// each one needs. This is the *key-accessible* subset of the CGS surface:
+// The XRPC methods this demo offers for trying a key, with the form fields each
+// one needs. Every entry is key-accessible, but the catalog is not exhaustive:
+// member.add, member.remove, role.set and ownershipTransfer.propose/cancel/status
+// are also key-accessible yet are not offered here. Key-accessible methods fall
+// into two groups:
 //
-//   - `rpc:` query methods (member.list, audit.query) — gated by an rpc: scope.
+//   - `rpc:` methods (member.list, audit.query, plus the key-accessible but
+//     not-offered ones above) — gated by an rpc: scope.
 //   - `repo:` write procedures (create/put/deleteRecord) — gated by a
 //     repo:<collection>?action=… scope; the role still decides own-vs-any.
 //
-// Owner-only methods (keys.*, role.set, member.add/remove, group.register) have
-// no key scope and would always 403, so they are omitted. uploadBlob is omitted
+// Methods with no key scope (keys.*, ownershipTransfer.accept, group.register)
+// would always 403, so they are omitted. uploadBlob is omitted
 // too: it takes a raw binary stream, not a JSON body, so it can't be driven from
 // this form (the Upload page covers blobs).
 //
