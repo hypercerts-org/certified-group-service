@@ -1,7 +1,13 @@
 import type { Server } from '@atproto/xrpc-server'
 import { XRPCError } from '@atproto/xrpc-server'
 import type { AppContext } from '../../context.js'
-import { registerAuthedMethod, jsonResponse, resolveGroupDid } from '../util.js'
+import {
+  registerAuthedMethod,
+  assertCanWithAudit,
+  jsonResponse,
+  rejectApiKey,
+  resolveGroupDid,
+} from '../util.js'
 import { ForbiddenError } from '../../errors.js'
 import { ROLE_HIERARCHY, type Role } from '../../rbac/permissions.js'
 
@@ -14,6 +20,11 @@ export default function (server: Server, ctx: AppContext) {
       const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
       const groupDb = ctx.groupDbs.get(groupDid)
 
+      // Refuse keys before the membership lookup, so a key cannot learn whether
+      // memberDid is a member from a 403 vs 404. This also stops a key from
+      // removing the member who created it via the self-removal path.
+      await rejectApiKey(ctx, groupDb, callerDid, 'member.remove', auth.credentials, { memberDid })
+
       // Fetch target role and (for non-self removal) RBAC check in parallel
       const [target, callerRole] = await Promise.all([
         groupDb
@@ -21,8 +32,16 @@ export default function (server: Server, ctx: AppContext) {
           .select('role')
           .where('member_did', '=', memberDid)
           .executeTakeFirst(),
+        // Self-removal skips the role check so plain members can leave.
         callerDid !== memberDid
-          ? ctx.rbac.assertCan(groupDb, callerDid, 'member.remove')
+          ? assertCanWithAudit(
+              ctx,
+              groupDb,
+              callerDid,
+              'member.remove',
+              { memberDid },
+              auth.credentials,
+            )
           : Promise.resolve(null),
       ])
 
