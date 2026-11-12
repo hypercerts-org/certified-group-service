@@ -26,12 +26,13 @@ type RepoAction = (typeof REPO_ACTIONS)[number]
 // The XRPC methods an API key can actually authenticate, with the form fields
 // each one needs. This is the *key-accessible* subset of the CGS surface:
 //
-//   - `rpc:` query methods (member.list, audit.query) — gated by an rpc: scope.
+//   - `rpc:` methods (member.list, audit.query, member.add, member.remove,
+//     role.set, ownershipTransfer.propose/cancel/status) — gated by an rpc: scope.
 //   - `repo:` write procedures (create/put/deleteRecord) — gated by a
 //     repo:<collection>?action=… scope; the role still decides own-vs-any.
 //
-// Owner-only methods (keys.*, role.set, member.add/remove, group.register) have
-// no key scope and would always 403, so they are omitted. uploadBlob is omitted
+// Methods with no key scope (keys.*, ownershipTransfer.accept, group.register)
+// would always 403, so they are omitted. uploadBlob is omitted
 // too: it takes a raw binary stream, not a JSON body, so it can't be driven from
 // this form (the Upload page covers blobs).
 //
