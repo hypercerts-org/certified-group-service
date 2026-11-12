@@ -61,8 +61,13 @@ describe('lxmForOperation', () => {
     expect(lxmForOperation('audit.query')).toBe('app.certified.group.audit.query')
   })
 
+  it('maps the membership-administration operations', () => {
+    expect(lxmForOperation('member.add')).toBe('app.certified.group.member.add')
+    expect(lxmForOperation('member.remove')).toBe('app.certified.group.member.remove')
+    expect(lxmForOperation('role.set')).toBe('app.certified.group.role.set')
+  })
+
   it('returns undefined for operations not reachable by a key', () => {
-    expect(lxmForOperation('role.set')).toBeUndefined()
     expect(lxmForOperation('createRecord')).toBeUndefined()
     expect(lxmForOperation('group.destroy')).toBeUndefined()
   })
@@ -102,7 +107,7 @@ describe('scopeNeededFor', () => {
   })
 
   it('returns undefined for a non-key-accessible op', () => {
-    expect(scopeNeededFor('role.set', SERVICE_DID)).toBeUndefined()
+    expect(scopeNeededFor('group.destroy', SERVICE_DID)).toBeUndefined()
   })
 })
 
@@ -121,7 +126,7 @@ describe('scopesCoverOperation', () => {
 
   it('denies for an op with no lxm mapping even with a wildcard scope', () => {
     const wild = `rpc:*?aud=${serviceScopeAud(SERVICE_DID)}`
-    expect(scopesCoverOperation([wild], 'role.set', SERVICE_DID)).toBe(false)
+    expect(scopesCoverOperation([wild], 'group.destroy', SERVICE_DID)).toBe(false)
   })
 
   it('a wildcard rpc scope covers a mapped op', () => {

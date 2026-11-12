@@ -5,7 +5,7 @@ import {
   registerAuthedMethod,
   assertCanWithAudit,
   jsonResponse,
-  rejectApiKey,
+  assertKeyScopeWithAudit,
   resolveGroupDid,
 } from '../util.js'
 import { ForbiddenError } from '../../errors.js'
@@ -20,10 +20,18 @@ export default function (server: Server, ctx: AppContext) {
       const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
       const groupDb = ctx.groupDbs.get(groupDid)
 
-      // Refuse keys before the membership lookup, so a key cannot learn whether
-      // memberDid is a member from a 403 vs 404. This also stops a key from
-      // removing the member who created it via the self-removal path.
-      await rejectApiKey(ctx, groupDb, callerDid, 'member.remove', auth.credentials, { memberDid })
+      // Check the key's scope before the membership lookup, so a key without the
+      // `member.remove` scope always gets 403 and cannot learn whether memberDid
+      // is a member from a 403 vs 404. This also scope-gates the self-removal
+      // path (which skips the role check below) for a key.
+      await assertKeyScopeWithAudit(
+        ctx,
+        groupDb,
+        callerDid,
+        'member.remove',
+        { memberDid },
+        auth.credentials,
+      )
 
       // Fetch target role and (for non-self removal) RBAC check in parallel
       const [target, callerRole] = await Promise.all([
@@ -74,6 +82,9 @@ export default function (server: Server, ctx: AppContext) {
 
       await ctx.audit.log(groupDb, callerDid, 'member.remove', 'permitted', {
         memberDid,
+        ...(auth.credentials.authKind === 'apiKey'
+          ? { apiKeyRef: auth.credentials.apiKeyRef }
+          : {}),
       })
 
       return jsonResponse({})

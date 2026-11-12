@@ -5,7 +5,6 @@ import type { AppContext } from '../../context.js'
 import {
   registerAuthedMethod,
   assertCanWithAudit,
-  rejectApiKey,
   jsonResponse,
   sqliteToIso,
   resolveGroupDid,
@@ -36,13 +35,6 @@ export default function (server: Server, ctx: AppContext) {
       const groupDid = await resolveGroupDid(ctx, auth.credentials, repo)
       const groupDb = ctx.groupDbs.get(groupDid)
       const groupRaw = ctx.groupDbs.getRaw(groupDid)
-
-      // Membership changes need a DID-authenticated request. Refuse keys
-      // explicitly rather than relying on member.add having no OPERATION_LXM entry.
-      await rejectApiKey(ctx, groupDb, callerDid, 'member.add', auth.credentials, {
-        memberDid,
-        role,
-      })
 
       const callerRole = await assertCanWithAudit(
         ctx,
@@ -77,6 +69,9 @@ export default function (server: Server, ctx: AppContext) {
       await ctx.audit.log(groupDb, callerDid, 'member.add', 'permitted', {
         memberDid,
         role,
+        ...(auth.credentials.authKind === 'apiKey'
+          ? { apiKeyRef: auth.credentials.apiKeyRef }
+          : {}),
       })
 
       return jsonResponse({
