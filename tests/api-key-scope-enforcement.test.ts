@@ -202,7 +202,7 @@ describe('API-key scope enforcement at the handler layer', () => {
       const rows = await auditRows(action)
       const last = rows[rows.length - 1]
       expect(last?.result).toBe(result)
-      const detail = JSON.parse(last!.detail!)
+      const detail = JSON.parse(last.detail!)
       if (apiKeyRef === undefined) expect(detail).not.toHaveProperty('apiKeyRef')
       else expect(detail.apiKeyRef).toBe(apiKeyRef)
     }
@@ -221,7 +221,7 @@ describe('API-key scope enforcement at the handler layer', () => {
       const rows = await auditRows(action)
       const last = rows[rows.length - 1]
       expect(last?.result).toBe('denied')
-      const reason = JSON.parse(last!.detail!).reason as string
+      const reason = JSON.parse(last.detail!).reason as string
       expect(reason).toBe(`Role '${role}' cannot perform '${action}'`)
       expect(reason).not.toContain('API key scopes do not permit')
     }
