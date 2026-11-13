@@ -5,7 +5,7 @@
 ### Who should read this release
 
 - **Client app developers:**
-  - [API keys can no longer call `member.add`, `member.remove` or `role.set`. This capability is withdrawn, and there is no long-lived replacement.](#v0.6.2-api-keys-can-no-longer-call-or-this-capability-is-withdrawn)
+  - [Security fix: API keys could call `member.add`, `member.remove` and `role.set` without a scope check; these calls are now refused.](#v0.6.2-api-keys-can-no-longer-call-or-this-capability-is-withdrawn)
 - **Operators:**
   - [The group service is now licensed under Apache-2.0; version 0.6.1 and earlier remain available under MIT.](#v0.6.2-the-group-service-is-now-licensed-under-apache-2-0-version)
 
@@ -17,11 +17,11 @@
 
   **Operators:** the container image now carries `LICENSE` and `NOTICE` in `/app`. If you redistribute the service or a modified version of it, including a rebuilt or mirrored image, include `LICENSE`, keep the text of `NOTICE`, mark any files you changed, and meet the other conditions in section 4 of the Apache License. Running the service yourself needs no change.
 
-- <a id="v0.6.2-api-keys-can-no-longer-call-or-this-capability-is-withdrawn"></a> [#87](https://github.com/hypercerts-org/certified-group-service/pull/87) [`07cb803`](https://github.com/hypercerts-org/certified-group-service/commit/07cb8035cc337ae2aed0ddfd47ca4ec8ef78b270) Thanks [@Kzoeps](https://github.com/Kzoeps)! - API keys can no longer call `member.add`, `member.remove` or `role.set`. This capability is withdrawn, and there is no long-lived replacement.
+- <a id="v0.6.2-api-keys-can-no-longer-call-or-this-capability-is-withdrawn"></a> [#87](https://github.com/hypercerts-org/certified-group-service/pull/87) [`07cb803`](https://github.com/hypercerts-org/certified-group-service/commit/07cb8035cc337ae2aed0ddfd47ca4ec8ef78b270) Thanks [@Kzoeps](https://github.com/Kzoeps)! - Security fix: API keys could call `member.add`, `member.remove` and `role.set` without a scope check; these calls are now refused.
 
   **Affects:** Client app developers
 
-  **Client app developers:** `app.certified.group.member.add`, `app.certified.group.member.remove` and `app.certified.group.role.set` now return `403 ApiKeyNotPermitted` for any `X-API-Key` caller, whatever scopes the key holds (including `rpc:*`). Keys were never meant to manage membership; these three methods skipped the key's scope check by mistake. That gap also let any key remove the member who created it through the self-removal path, which is now closed. Each refused call is written to the audit log with the key's `apiKeyRef`. Automation that managed members with an API key must switch to a per-request service-auth JWT signed by a member with the required role.
+  **Client app developers:** these three methods skipped the API key's scope check, so any key could manage members with its creator's role, and any key could remove the member who created it. `app.certified.group.member.add`, `app.certified.group.member.remove` and `app.certified.group.role.set` now return `403 ApiKeyNotPermitted` for every `X-API-Key` caller, and each refused call is written to the audit log with the key's `apiKeyRef`. This closes a bug rather than removing a supported feature: no key could hold a valid scope for these methods. Scoped API-key access to them is planned in TECH-830. Until then, manage members with a per-request service-auth JWT signed by a member with the required role.
 
 ## 0.6.1
 
