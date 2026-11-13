@@ -158,10 +158,12 @@ CGS runs anywhere you can run a Docker container with persistent storage. Key co
 7. **Take a new backup and check it** opens and has the same `groups` row count as the live DB:
 
    ```bash
-   cd /app && node -e "console.log(require('better-sqlite3')('/app/data/global.sqlite.bak', { readonly: true }).prepare('SELECT count(*) AS n FROM groups').get())"
+   cd /app && node -e "require('better-sqlite3')('/app/data/global.sqlite').backup('/app/data/global.sqlite.post-rotation.bak').then(() => console.log('backup done'))"
+   cd /app && node -e "console.log(require('better-sqlite3')('/app/data/global.sqlite.post-rotation.bak', { readonly: true }).prepare('SELECT count(*) AS n FROM groups').get())"
+   cd /app && node -e "console.log(require('better-sqlite3')('/app/data/global.sqlite', { readonly: true }).prepare('SELECT count(*) AS n FROM groups').get())"
    ```
 
-8. **Delete backups taken before step 3**, including `global.sqlite.bak`. They can only be restored together with the retired key, so delete them once the step 7 backup is confirmed. Until then they are sensitive: everything except the credentials is plaintext.
+8. **Delete backups taken before step 7**, e.g. `global.sqlite.bak`. Keep `global.sqlite.post-rotation.bak`. The older backups can only be restored together with the retired key, and one taken after step 3 may hold credentials written under it (step 5), so delete them once the step 7 backup is confirmed. Until then they are sensitive: everything except the credentials is plaintext.
 
 `ENCRYPTION_KEY_NEXT` can stay set across redeploys until step 6; repeat boots log `rekeyed: 0` and change nothing. Setting it equal to `ENCRYPTION_KEY` fails startup with `ENCRYPTION_KEY_NEXT must differ from ENCRYPTION_KEY.`
 
