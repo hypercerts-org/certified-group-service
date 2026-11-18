@@ -1157,15 +1157,18 @@ behalf of its users in exactly the same way, so it adopts the same trust model:
 the CGS operator holds an administrative credential that can act on hosted
 groups, and is expected to use it only with the consent of, and for the benefit
 of, the groups it hosts. Crucially, this power is **accountable**: every admin
-action is recorded in the target group's audit log, attributed to actor `admin`,
-so its use is transparent and reviewable by the group. An ownership change via
+mutation is recorded in the target group's audit log, attributed to actor
+`admin`, so its use is transparent and reviewable by the group. The read-only
+[`listMembers`](#get-xrpcappcertifiedgroupadminlistmembers) is the exception:
+it writes no audit entry. An ownership change via
 `setOwner`, for example, is logged as an `admin.setOwner` entry capturing the
 new owner, the previous owner, and whether the new owner was added as a member —
 see [`setOwner`](#post-xrpcappcertifiedgroupadminsetowner) and the
 [audit-log action values](#action-values).
 
 If `CGS_ADMIN_PASSWORD` is not configured, **all** admin endpoints are disabled and
-every request to them is rejected with `401`. There is no insecure default. The
+every request to them with valid query/body parameters is rejected with `401`
+(a malformed request fails XRPC validation first, with `400 InvalidRequest`). There is no insecure default. The
 password must be at least 16 non-whitespace characters.
 
 ### `GET /xrpc/app.certified.group.admin.listMembers`

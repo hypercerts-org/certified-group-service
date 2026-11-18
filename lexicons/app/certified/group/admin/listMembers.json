@@ -41,7 +41,7 @@
         }
       },
       "errors": [
-        { "name": "Unauthorized" },
+        { "name": "AuthenticationRequired" },
         { "name": "InvalidCursor" },
         { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." }
       ]

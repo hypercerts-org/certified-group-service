@@ -10,7 +10,7 @@ import {
   seedMemberWithIndex,
   TEST_ADMIN_PASSWORD,
 } from './helpers/mock-server.js'
-import adminListMembersHandler from '../src/api/admin/listMembers.js'
+import { registerXrpcMethods } from '../src/api/index.js'
 
 const NSID = 'app.certified.group.admin.listMembers'
 const GROUP = 'did:plc:testgroup'
@@ -31,7 +31,7 @@ describe('admin.listMembers', () => {
     tc = await createTestContext()
     groupDb = tc.groupDb
     globalDb = tc.globalDb
-    app = createTestApp(tc.ctx, (server, ctx) => adminListMembersHandler(server, ctx))
+    app = createTestApp(tc.ctx, registerXrpcMethods)
     await seedMemberWithIndex(groupDb, globalDb, OWNER, GROUP, 'owner')
     await seedMemberWithIndex(groupDb, globalDb, ADMIN, GROUP, 'admin')
     await seedMemberWithIndex(groupDb, globalDb, MEMBER, GROUP, 'member')
@@ -91,11 +91,13 @@ describe('admin.listMembers', () => {
   it('rejects a request with no credentials', async () => {
     const res = await get({ repo: GROUP })
     expect(res.status).toBe(401)
+    expect(res.body.error).toBe('AuthenticationRequired')
   })
 
   it('rejects a wrong admin password', async () => {
     const res = await get({ repo: GROUP }, basic('admin', 'wrong-password'))
     expect(res.status).toBe(401)
+    expect(res.body.error).toBe('AuthenticationRequired')
   })
 
   it('is disabled when no admin password is configured', async () => {
@@ -105,13 +107,14 @@ describe('admin.listMembers', () => {
         ...tc.ctx,
         authVerifier: { ...tc.ctx.authVerifier, xrpcAdminAuth: () => real.xrpcAdminAuth() } as any,
       },
-      (server, ctx) => adminListMembersHandler(server, ctx),
+      registerXrpcMethods,
     )
     const res = await request(disabledApp)
       .get(`/xrpc/${NSID}`)
       .query({ repo: GROUP })
       .set('Authorization', basic('admin', TEST_ADMIN_PASSWORD))
     expect(res.status).toBe(401)
+    expect(res.body.error).toBe('AuthenticationRequired')
     expect(res.body.message).toMatch(/disabled/i)
   })
 })
