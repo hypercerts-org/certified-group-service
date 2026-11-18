@@ -1168,6 +1168,55 @@ If `CGS_ADMIN_PASSWORD` is not configured, **all** admin endpoints are disabled 
 every request to them is rejected with `401`. There is no insecure default. The
 password must be at least 16 non-whitespace characters.
 
+### `GET /xrpc/app.certified.group.admin.listMembers`
+
+List a group's members, owner included, without being a member of the group.
+Read-only; use it to find out who owns a group before calling `setOwner`.
+
+**Authentication:** HTTP Basic (`admin` / `CGS_ADMIN_PASSWORD`).
+
+**Query parameters:**
+
+| Parameter | Type   | Default | Description                                |
+| --------- | ------ | ------- | ------------------------------------------ |
+| `repo`    | string | —       | Target group (handle or DID), required     |
+| `limit`   | number | 50      | Results per page (1-100)                   |
+| `cursor`  | string | —       | Pagination cursor from a previous response |
+
+**Response (200):** same shape and ordering as [`member.list`](#get-xrpcappcertifiedgroupmemberlist).
+
+```json
+{
+  "members": [
+    {
+      "did": "did:plc:owner1",
+      "role": "owner",
+      "addedBy": "did:plc:owner1",
+      "addedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "cursor": "MjAyNi0wMS0wMSAwMDowMDowMDo6ZGlkOnBsYzpvd25lcjE="
+}
+```
+
+`cursor` is present only when more results remain.
+
+**Errors:**
+
+| Code | Name                   | Description                                                                              |
+| ---- | ---------------------- | ---------------------------------------------------------------------------------------- |
+| 400  | InvalidCursor          | `cursor` is malformed                                                                    |
+| 401  | AuthenticationRequired | Missing/invalid Basic credentials, or admin endpoints disabled (no `CGS_ADMIN_PASSWORD`) |
+| 404  | UnknownGroup           | `repo` does not resolve to a managed group                                               |
+
+**Example:**
+
+```bash
+curl -G https://group-service.example.com/xrpc/app.certified.group.admin.listMembers \
+  -u "admin:$CGS_ADMIN_PASSWORD" \
+  --data-urlencode "repo=did:plc:group123"
+```
+
 ### `POST /xrpc/app.certified.group.admin.setOwner`
 
 Reassign a group's owner. The previous owner (if any) is demoted to `admin`.

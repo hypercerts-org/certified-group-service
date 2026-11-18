@@ -29,7 +29,7 @@ The container expects a volume mounted at `/app/data` for database persistence.
 ## Admin endpoints
 
 CGS exposes operator-only admin endpoints under `app.certified.group.admin.*`
-(currently `setOwner`, which reassigns a group's owner). They are gated by
+(`setOwner`, which reassigns a group's owner, and `listMembers`, which lists a group's members). They are gated by
 **HTTP Basic auth** — username `admin`, password the `CGS_ADMIN_PASSWORD`
 environment variable — and are **disabled entirely when `CGS_ADMIN_PASSWORD` is
 unset** (every request returns `401`; there is no insecure default). When set,
