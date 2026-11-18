@@ -13,7 +13,17 @@
           "properties": {
             "repo": { "type": "string", "format": "at-identifier" },
             "collection": { "type": "string", "format": "nsid" },
-            "rkey": { "type": "string" }
+            "rkey": { "type": "string" },
+            "swapRecord": {
+              "type": "string",
+              "format": "cid",
+              "description": "Compare and swap with the previous record by CID."
+            },
+            "swapCommit": {
+              "type": "string",
+              "format": "cid",
+              "description": "Compare and swap with the previous commit by CID."
+            }
           }
         }
       },
@@ -23,7 +33,13 @@
           "type": "object",
           "properties": {}
         }
-      }
+      },
+      "errors": [
+        {
+          "name": "InvalidSwap",
+          "description": "A swapRecord or swapCommit CID did not match the current state, so the write was refused."
+        }
+      ]
     }
   }
 }
