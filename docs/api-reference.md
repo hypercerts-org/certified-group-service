@@ -252,6 +252,8 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 }
 ```
 
+Optional `swapCommit` (CID): the write is refused with `400 InvalidSwap` unless it equals the group repo's current commit. It is repo-wide, so any other member's write makes it stale; for per-record checks use `swapRecord` on `putRecord`/`deleteRecord`.
+
 **Response (200):**
 
 ```json
@@ -267,6 +269,7 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 | ---- | ---------------------- | ------------------------------------------------------ |
 | 401  | AuthenticationRequired | Missing or invalid JWT                                 |
 | 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
+| 400  | InvalidSwap            | `swapCommit` did not match the current commit          |
 | 403  | Forbidden              | Caller lacks member role                               |
 
 **Example:**
@@ -320,6 +323,8 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 }
 ```
 
+Optional `swapRecord` (CID, or `null` for create-only: refused if a record already exists at the key) and `swapCommit` (CID). A mismatch is refused with `400 InvalidSwap` and nothing is written. `swapCommit` is repo-wide, so any other member's write makes it stale.
+
 **Response (200):**
 
 ```json
@@ -331,11 +336,12 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 
 **Errors:**
 
-| Code | Name                   | Description                                            |
-| ---- | ---------------------- | ------------------------------------------------------ |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                 |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
-| 403  | Forbidden              | Caller lacks required role for this operation          |
+| Code | Name                   | Description                                                                                                     |
+| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                          |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)                                                          |
+| 400  | InvalidSwap            | `swapRecord` / `swapCommit` check failed (stale CID, or `swapRecord: null` on an existing key); nothing written |
+| 403  | Forbidden              | Caller lacks required role for this operation                                                                   |
 
 **Example:**
 
@@ -382,6 +388,8 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 }
 ```
 
+Optional `swapRecord` (CID) and `swapCommit` (CID). A mismatch is refused with `400 InvalidSwap` and the record is kept. `swapCommit` is repo-wide, so any other member's write makes it stale.
+
 **Response (200):**
 
 ```json
@@ -390,11 +398,12 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 
 **Errors:**
 
-| Code | Name                   | Description                                            |
-| ---- | ---------------------- | ------------------------------------------------------ |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                 |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
-| 403  | Forbidden              | Caller lacks required role                             |
+| Code | Name                   | Description                                                           |
+| ---- | ---------------------- | --------------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)                |
+| 400  | InvalidSwap            | `swapRecord` / `swapCommit` check failed (stale CID); nothing written |
+| 403  | Forbidden              | Caller lacks required role                                            |
 
 **Example:**
 
