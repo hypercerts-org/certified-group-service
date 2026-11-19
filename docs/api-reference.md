@@ -336,12 +336,12 @@ Optional `swapRecord` (CID, or `null` for create-only: refused if a record alrea
 
 **Errors:**
 
-| Code | Name                   | Description                                                 |
-| ---- | ---------------------- | ----------------------------------------------------------- |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                      |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)      |
-| 400  | InvalidSwap            | `swapRecord` / `swapCommit` did not match the current state |
-| 403  | Forbidden              | Caller lacks required role for this operation               |
+| Code | Name                   | Description                                                                                                     |
+| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                          |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)                                                          |
+| 400  | InvalidSwap            | `swapRecord` / `swapCommit` check failed (stale CID, or `swapRecord: null` on an existing key); nothing written |
+| 403  | Forbidden              | Caller lacks required role for this operation                                                                   |
 
 **Example:**
 
@@ -398,12 +398,12 @@ Optional `swapRecord` (CID) and `swapCommit` (CID). A mismatch is refused with `
 
 **Errors:**
 
-| Code | Name                   | Description                                                 |
-| ---- | ---------------------- | ----------------------------------------------------------- |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                      |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)      |
-| 400  | InvalidSwap            | `swapRecord` / `swapCommit` did not match the current state |
-| 403  | Forbidden              | Caller lacks required role                                  |
+| Code | Name                   | Description                                                                                                     |
+| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                          |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)                                                          |
+| 400  | InvalidSwap            | `swapRecord` / `swapCommit` check failed (stale CID, or `swapRecord: null` on an existing key); nothing written |
+| 403  | Forbidden              | Caller lacks required role                                                                                      |
 
 **Example:**
 

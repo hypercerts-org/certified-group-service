@@ -43,7 +43,7 @@
       "errors": [
         {
           "name": "InvalidSwap",
-          "description": "A swapRecord or swapCommit CID did not match the current state, so the write was refused."
+          "description": "A swapRecord or swapCommit check failed, so nothing was written: the CID did not match the current record or commit, or swapRecord was null and a record already exists at the key."
         }
       ]
     }
