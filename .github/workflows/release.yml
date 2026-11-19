@@ -5,23 +5,56 @@ on:
   # Auto-cut the tag + GitHub Release as soon as the "Version Packages"
   # PR is merged. Phase 1 (opening/updating that PR after a changeset
   # lands on main) is still triggered manually via workflow_dispatch.
-  pull_request:
-    types: [closed]
+  #
+  # This listens on push to main rather than `pull_request: closed`: the
+  # release job uses the `release` environment, whose deployment branch
+  # policy only admits `main`, and GitHub evaluates that policy against
+  # `refs/pull/<n>/merge` for pull_request events.
+  push:
     branches: [main]
 
 concurrency: ${{ github.workflow }}-main
 
 jobs:
-  release:
-    # Skip when a non-release PR is closed, and when a release PR is
-    # closed without being merged. The head ref of the release PR is
-    # the branch changesets/action pushes to (`changeset-release/main`).
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.merged == true &&
-       github.event.pull_request.head.ref == 'changeset-release/main')
+  # Decide whether a push to main is the merge of the release PR (head
+  # branch `changeset-release/main`, the branch changesets/action pushes
+  # to). Runs without the `release` environment, so it has no access to
+  # the release bot credentials.
+  detect:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      is_release: ${{ steps.check.outputs.is_release }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -o pipefail
+          heads=$(gh api "repos/${{ github.repository }}/commits/$SHA/pulls" \
+            --jq '[.[] | select(.merged_at != null and .base.ref == "main") | .head.ref] | join(" ")')
+          echo "Merged PR head refs for $SHA: ${heads:-<none>}"
+          if [[ " $heads " == *" changeset-release/main "* ]]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    needs: detect
+    # `always()` lets workflow_dispatch run even though `detect` is skipped
+    # for it; a push only proceeds when `detect` saw the release PR merge.
+    if: >-
+      always() &&
+      (github.event_name == 'workflow_dispatch' ||
+       (needs.detect.result == 'success' && needs.detect.outputs.is_release == 'true'))
+    runs-on: ubuntu-latest
+    # Release bot credentials live in this environment, restricted to main.
+    environment: release
     permissions:
       contents: write
       pull-requests: write
@@ -36,9 +69,8 @@ jobs:
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # On the pull_request trigger, github.ref points at the PR
-          # merge ref; check out main explicitly so changesets/action
-          # tags and pushes from the merged tip.
+          # Check out main explicitly so changesets/action tags and
+          # pushes from the merged tip.
           ref: main
           # Persist releasebot app credentials so the changesets/action push
           # can bypass branch protection rules on main.
@@ -47,8 +79,8 @@ jobs:
           fetch-depth: 0
 
       # workflow_dispatch is constrained to main here as a defence in
-      # depth — the pull_request trigger is already filtered to base
-      # main + head changeset-release/main in the job-level `if` above.
+      # depth — the push trigger is already filtered to main, and the
+      # `release` environment only admits main.
       - name: Validate branch
         if: github.event_name == 'workflow_dispatch'
         run: |
