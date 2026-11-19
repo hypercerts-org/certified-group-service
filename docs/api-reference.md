@@ -398,12 +398,12 @@ Optional `swapRecord` (CID) and `swapCommit` (CID). A mismatch is refused with `
 
 **Errors:**
 
-| Code | Name                   | Description                                                                                                     |
-| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                          |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)                                                          |
-| 400  | InvalidSwap            | `swapRecord` / `swapCommit` check failed (stale CID, or `swapRecord: null` on an existing key); nothing written |
-| 403  | Forbidden              | Caller lacks required role                                                                                      |
+| Code | Name                   | Description                                                           |
+| ---- | ---------------------- | --------------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)                |
+| 400  | InvalidSwap            | `swapRecord` / `swapCommit` check failed (stale CID); nothing written |
+| 403  | Forbidden              | Caller lacks required role                                            |
 
 **Example:**
 
