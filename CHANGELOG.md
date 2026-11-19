@@ -1,5 +1,43 @@
 # group-service
 
+## 0.7.0
+
+### Who should read this release
+
+- **Client app developers:**
+  - [API keys holding the matching `rpc:` scope can call `member.add`, `member.remove` and `role.set` again, capped by the issuing member's role; this reverses the 0.6.2 withdrawal.](#v0.7.0-api-keys-holding-the-matching-scope-can-call-and-again)
+- **Operators:**
+  - [API keys holding the matching `rpc:` scope can call `member.add`, `member.remove` and `role.set` again, capped by the issuing member's role; this reverses the 0.6.2 withdrawal.](#v0.7.0-api-keys-holding-the-matching-scope-can-call-and-again)
+  - [Operators can now rotate `ENCRYPTION_KEY` without needing to read the current key.](#v0.7.0-operators-can-now-rotate-without-needing-to-read-the)
+
+### Minor Changes
+
+- <a id="v0.7.0-api-keys-holding-the-matching-scope-can-call-and-again"></a> [#93](https://github.com/hypercerts-org/certified-group-service/pull/93) [`bbb7736`](https://github.com/hypercerts-org/certified-group-service/commit/bbb77360a5427bce0d0d997ad9d31d5b022f3b08) Thanks [@Ashex](https://github.com/Ashex)! - API keys holding the matching `rpc:` scope can call `member.add`, `member.remove` and `role.set` again, capped by the issuing member's role; this reverses the 0.6.2 withdrawal.
+
+  **Affects:** Client app developers, Operators
+
+  **Client app developers:**
+  - Scopes and the role each method needs: `rpc:app.certified.group.member.add` (admin), `rpc:app.certified.group.member.remove` (admin) and `rpc:app.certified.group.role.set` (owner). The key is capped by its issuing member's current role (scopes ∩ role). Owner immutability and the equal-or-higher-role rules apply to keys exactly as they do to JWT callers.
+  - Existing `rpc:*` keys gain these methods with no re-issue: an admin-issued `rpc:*` key can now call `member.add` and `member.remove`, and an owner-issued one can call all three. Have group owners review their keys with `app.certified.group.keys.list` and revoke or re-scope any `rpc:*` key that should not manage membership.
+  - A member-issued `rpc:*` key can now remove the member who issued it (self-removal), a path 0.6.2 had closed. Self-removal skips the role check, as it does for JWT callers, and an owner's key is still refused with `CannotRemoveOwner`.
+  - A key without the matching scope now gets `403 Forbidden` (`API key scopes do not permit '<operation>'`) instead of `403 ApiKeyNotPermitted`, including for `member.remove` on a non-member target, so it never learns whether the target exists. `ApiKeyNotPermitted` is still returned for `ownershipTransfer.accept`.
+  - Key callers must put `repo` on the querystring, even for these procedures.
+  - `member.add`, `member.remove` and `role.set` `permitted` audit entries now carry `apiKeyRef` when the caller is an API key. JWT callers' entries are unchanged.
+
+  **Operators:**
+  - After upgrading, existing `rpc:*` keys in every group gain these methods with no migration or config change, so you may want to tell group owners.
+  - Docs: see `docs/api-reference.md` (Member management and API key management).
+
+- <a id="v0.7.0-operators-can-now-rotate-without-needing-to-read-the"></a> [#82](https://github.com/hypercerts-org/certified-group-service/pull/82) [`653d4b6`](https://github.com/hypercerts-org/certified-group-service/commit/653d4b68dfb939df2dbb260d8d54e485a1c2b326) Thanks [@Kzoeps](https://github.com/Kzoeps)! - Operators can now rotate `ENCRYPTION_KEY` without needing to read the current key.
+
+  **Affects:** Operators
+
+  **Operators:**
+  - New optional env var `ENCRYPTION_KEY_NEXT` (64 hex characters, must differ from `ENCRYPTION_KEY`). When set, startup re-encrypts every stored app password and recovery key to it in one transaction, logs `Encryption key rotation complete`, and uses it from then on. Restarts with it still set are no-ops.
+  - To rotate: back up the volume, set `ENCRYPTION_KEY_NEXT` and redeploy, then move the value into `ENCRYPTION_KEY`, remove `ENCRYPTION_KEY_NEXT`, and redeploy. Do not roll back to an earlier build or the old key once the re-key has committed. Full runbook: `docs/deployment.md#rotating-encryption_key`.
+  - New startup check: with `ENCRYPTION_KEY_NEXT` unset, startup now fails if there are stored app passwords and `ENCRYPTION_KEY` can decrypt none of them (previously the service started and failed per group). To recover from a bad cut-over, put `ENCRYPTION_KEY_NEXT` back and redeploy.
+  - Rotation does not replace credentials that may already have been decrypted; if the old key and data were both exposed, rotate the groups' app passwords and recovery keys too.
+
 ## 0.6.2
 
 ### Who should read this release
