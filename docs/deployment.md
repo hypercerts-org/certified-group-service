@@ -29,10 +29,10 @@ The container expects a volume mounted at `/app/data` for database persistence.
 ## Admin endpoints
 
 CGS exposes operator-only admin endpoints under `app.certified.group.admin.*`
-(currently `setOwner`, which reassigns a group's owner). They are gated by
+(`setOwner`, which reassigns a group's owner, and `listMembers`, which lists a group's members). They are gated by
 **HTTP Basic auth** — username `admin`, password the `CGS_ADMIN_PASSWORD`
 environment variable — and are **disabled entirely when `CGS_ADMIN_PASSWORD` is
-unset** (every request returns `401`; there is no insecure default). When set,
+unset** (every request with valid query/body parameters returns `401`; there is no insecure default). When set,
 the password must be at least 16 non-whitespace characters.
 
 This is the same admin-password mechanism the upstream AT Protocol **reference
@@ -42,10 +42,10 @@ much of the data and accounts they host, and is expected to use that power only
 in ways their users have agreed to and that benefit them. CGS hosts groups on
 the same basis, so the operator holds an admin credential that can act on hosted
 groups and is expected to use it only with the consent of, and for the benefit
-of, those groups. This power is accountable: every admin action — including an
-ownership change via `setOwner` — is recorded in the target group's audit log,
-attributed to actor `admin`, so its use is transparent and reviewable by the
-group.
+of, those groups. This power is accountable for writes: every admin mutation —
+including an ownership change via `setOwner` — is recorded in the target group's
+audit log, attributed to actor `admin`, so its use is transparent and reviewable
+by the group. The read-only `listMembers` does **not** write an audit entry.
 
 Treat `CGS_ADMIN_PASSWORD` like any other high-value secret: set it only if you need
 the admin endpoints, store it in your platform's secret store (not in the

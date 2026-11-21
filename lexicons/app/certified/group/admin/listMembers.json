@@ -1,0 +1,50 @@
+{
+  "lexicon": 1,
+  "id": "app.certified.group.admin.listMembers",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "List a group's members, owner included. Operator-only: authenticated with HTTP Basic auth (username \"admin\") against the service CGS_ADMIN_PASSWORD, not group membership. Read-only.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "at-identifier",
+            "description": "The handle or DID of the target group."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["members"],
+          "properties": {
+            "cursor": { "type": "string" },
+            "members": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "app.certified.group.member.list#member"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "AuthenticationRequired" },
+        { "name": "InvalidCursor" },
+        { "name": "UnknownGroup", "description": "The repo does not resolve to a managed group." }
+      ]
+    }
+  }
+}

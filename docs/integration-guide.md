@@ -601,6 +601,7 @@ All error responses follow this shape:
 | `app.certified.group.keys.delete`               | procedure | member        | Revoke an API key                                                 |
 | `app.certified.groups.membership.list`          | query     | service auth  | List the caller's groups on this service                          |
 | `app.certified.group.admin.setOwner`            | procedure | HTTP Basic    | Operator ownership reassignment                                   |
+| `app.certified.group.admin.listMembers`         | query     | HTTP Basic    | Operator read of a group's members, owner included                |
 
 ## Role quick reference
 
