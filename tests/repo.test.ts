@@ -367,20 +367,22 @@ describe('putRecord', () => {
   it.each(['com.atproto.repo.putRecord', 'app.certified.group.repo.putRecord'])(
     'forces a create-only condition for untracked writes through %s',
     async (method) => {
+      const recordCid = 'bafyreiclp443lavogvhj3d2ob2cxbfuscni2k5jk7bebjzg7khl3esabwq'
+      const commitCid = 'bafyreibdrw2ps37hvyuahejlzuhe3zqcy4hpf7ark2fuyffglaqpr3ekxu'
       const { app: localApp, sentBodies } = appWithLocalPds()
       const res = await request(localApp).post(`/xrpc/${method}`).send({
         repo: 'did:plc:testgroup',
         collection: 'app.bsky.feed.post',
         rkey: 'untracked1',
         record: {},
-        swapRecord: 'bafy-caller-condition',
-        swapCommit: 'bafy-caller-commit',
+        swapRecord: recordCid,
+        swapCommit: commitCid,
       })
 
       expect(res.status).toBe(200)
       expect(sentBodies).toHaveLength(1)
       expect(sentBodies[0].swapRecord).toBeNull()
-      expect(sentBodies[0].swapCommit).toBe('bafy-caller-commit')
+      expect(sentBodies[0].swapCommit).toBe(commitCid)
     },
   )
 
