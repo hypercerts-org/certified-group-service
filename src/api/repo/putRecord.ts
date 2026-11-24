@@ -8,7 +8,8 @@ import {
   resolveGroupDid,
   type AuthedMethodConfig,
 } from '../util.js'
-import type { Operation } from '../../rbac/permissions.js'
+import { canPerform, type Operation } from '../../rbac/permissions.js'
+import { repoScopesCover } from '../../auth/scopes.js'
 
 export default function (server: Server, ctx: AppContext) {
   const config: AuthedMethodConfig = {
@@ -29,6 +30,7 @@ export default function (server: Server, ctx: AppContext) {
       const isProfileUpdate = input.collection === 'app.bsky.actor.profile' && input.rkey === 'self'
 
       let operation: Operation
+      let createOnly = false
       if (isProfileUpdate) {
         operation = 'putRecord:profile'
       } else {
@@ -47,7 +49,7 @@ export default function (server: Server, ctx: AppContext) {
       }
 
       // RBAC check with audit on denial
-      await assertCanWithAudit(
+      const callerRole = await assertCanWithAudit(
         ctx,
         groupDb,
         callerDid,
@@ -56,10 +58,29 @@ export default function (server: Server, ctx: AppContext) {
         auth.credentials,
       )
 
+      if (operation === 'createRecord') {
+        const hasPutAnyPermission = canPerform(callerRole, 'putAnyRecord')
+        const hasPutAnyScope =
+          auth.credentials.authKind !== 'apiKey' ||
+          repoScopesCover(auth.credentials.scopes ?? [], 'putAnyRecord', input.collection)
+
+        if (hasPutAnyPermission && hasPutAnyScope) {
+          operation = 'putAnyRecord'
+        } else {
+          createOnly = true
+        }
+      }
+
       // Forward to group's PDS. Send the resolved group DID as `repo` — the
-      // caller may have supplied a handle, which the PDS won't accept.
+      // caller may have supplied a handle, which the PDS won't accept. If the
+      // caller only passed the create permission, prevent replacement at the
+      // PDS rather than relying on the local authorship table being complete.
       const response = await proxyToPds(ctx.pdsAgents, groupDid, (agent) =>
-        agent.com.atproto.repo.putRecord({ ...input, repo: groupDid }),
+        agent.com.atproto.repo.putRecord({
+          ...input,
+          repo: groupDid,
+          ...(createOnly ? { swapRecord: null } : {}),
+        }),
       )
 
       const postOps: Promise<unknown>[] = [

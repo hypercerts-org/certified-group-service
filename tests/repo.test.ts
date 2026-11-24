@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { AtpAgent, type Agent } from '@atproto/api'
 import type { Express } from 'express'
 import request from 'supertest'
 import {
@@ -257,6 +258,41 @@ describe('putRecord', () => {
     await groupDb.destroy()
   })
 
+  function appWithLocalPds(
+    respond: (body: Record<string, unknown>) => Response = () =>
+      new Response(
+        JSON.stringify({
+          uri: 'at://did:plc:testgroup/app.bsky.feed.post/abc123',
+          cid: 'bafyreiclp443lavogvhj3d2ob2cxbfuscni2k5jk7bebjzg7khl3esabwq',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    appCtx: AppContext = ctx,
+  ) {
+    const sentBodies: Record<string, unknown>[] = []
+    const fetch: typeof globalThis.fetch = async (input, init) => {
+      const outgoingRequest = input instanceof Request ? input : new Request(input, init)
+      const body = JSON.parse(await outgoingRequest.clone().text()) as Record<string, unknown>
+      sentBodies.push(body)
+      return respond(body)
+    }
+    const agent = new AtpAgent({ service: 'https://pds.invalid', fetch })
+    const pdsAgents = {
+      withAgent: async <T>(_groupDid: string, run: (agent: Agent) => Promise<T>) => run(agent),
+    }
+    const testCtx = {
+      ...appCtx,
+      pdsAgents: pdsAgents as unknown as AppContext['pdsAgents'],
+    }
+
+    return {
+      app: createTestApp(testCtx, (server, registeredCtx) =>
+        putRecordHandler(server, registeredCtx),
+      ),
+      sentBodies,
+    }
+  }
+
   it('profile update requires admin — member gets 403', async () => {
     const res = await request(app).post('/xrpc/com.atproto.repo.putRecord').send({
       repo: 'did:plc:testgroup',
@@ -328,6 +364,115 @@ describe('putRecord', () => {
     expect(auditRows).toHaveLength(1)
   })
 
+  it.each(['com.atproto.repo.putRecord', 'app.certified.group.repo.putRecord'])(
+    'forces a create-only condition for untracked writes through %s',
+    async (method) => {
+      const { app: localApp, sentBodies } = appWithLocalPds()
+      const res = await request(localApp).post(`/xrpc/${method}`).send({
+        repo: 'did:plc:testgroup',
+        collection: 'app.bsky.feed.post',
+        rkey: 'untracked1',
+        record: {},
+        swapRecord: 'bafy-caller-condition',
+        swapCommit: 'bafy-caller-commit',
+      })
+
+      expect(res.status).toBe(200)
+      expect(sentBodies).toHaveLength(1)
+      expect(sentBodies[0].swapRecord).toBeNull()
+      expect(sentBodies[0].swapCommit).toBe('bafy-caller-commit')
+    },
+  )
+
+  it('does not track authorship or audit permission when the upstream conditional write fails', async () => {
+    const { app: localApp, sentBodies } = appWithLocalPds(
+      () =>
+        new Response(
+          JSON.stringify({ error: 'InvalidSwap', message: 'conditional write rejected' }),
+          {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+    )
+    const res = await request(localApp).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'untracked2',
+      record: {},
+      swapRecord: 'bafy-caller-condition',
+    })
+
+    expect(res.status).toBe(400)
+    expect(sentBodies[0].swapRecord).toBeNull()
+    expect(await groupDb.selectFrom('group_record_authors').selectAll().execute()).toEqual([])
+    expect(await groupDb.selectFrom('group_audit_log').selectAll().execute()).toEqual([])
+  })
+
+  it('preserves caller conditions for an untracked write authorized by putAnyRecord', async () => {
+    await seedMember(groupDb, 'did:plc:admin1', 'admin')
+    const adminCtx = { ...ctx, authVerifier: mockAuth('did:plc:admin1') }
+    const { app: localApp, sentBodies } = appWithLocalPds(undefined, adminCtx)
+    const res = await request(localApp).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'untracked3',
+      record: {},
+      swapRecord: 'bafy-caller-condition',
+      swapCommit: 'bafy-caller-commit',
+    })
+
+    expect(res.status).toBe(200)
+    expect(sentBodies[0].swapRecord).toBe('bafy-caller-condition')
+    expect(sentBodies[0].swapCommit).toBe('bafy-caller-commit')
+    const auditRows = await groupDb
+      .selectFrom('group_audit_log')
+      .select(['action', 'result'])
+      .where('actor_did', '=', 'did:plc:admin1')
+      .execute()
+    expect(auditRows).toEqual([{ action: 'putAnyRecord', result: 'permitted' }])
+  })
+
+  it('preserves caller conditions for a record authored by the caller', async () => {
+    await seedAuthorship(
+      groupDb,
+      'at://did:plc:testgroup/app.bsky.feed.post/owned1',
+      'did:plc:testuser',
+      'app.bsky.feed.post',
+    )
+    const { app: localApp, sentBodies } = appWithLocalPds()
+    const res = await request(localApp).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.feed.post',
+      rkey: 'owned1',
+      record: {},
+      swapRecord: 'bafy-caller-condition',
+      swapCommit: 'bafy-caller-commit',
+    })
+
+    expect(res.status).toBe(200)
+    expect(sentBodies[0].swapRecord).toBe('bafy-caller-condition')
+    expect(sentBodies[0].swapCommit).toBe('bafy-caller-commit')
+  })
+
+  it('preserves caller conditions for profile updates', async () => {
+    await seedMember(groupDb, 'did:plc:admin1', 'admin')
+    const adminCtx = { ...ctx, authVerifier: mockAuth('did:plc:admin1') }
+    const { app: localApp, sentBodies } = appWithLocalPds(undefined, adminCtx)
+    const res = await request(localApp).post('/xrpc/com.atproto.repo.putRecord').send({
+      repo: 'did:plc:testgroup',
+      collection: 'app.bsky.actor.profile',
+      rkey: 'self',
+      record: {},
+      swapRecord: 'bafy-caller-condition',
+      swapCommit: 'bafy-caller-commit',
+    })
+
+    expect(res.status).toBe(200)
+    expect(sentBodies[0].swapRecord).toBe('bafy-caller-condition')
+    expect(sentBodies[0].swapCommit).toBe('bafy-caller-commit')
+  })
+
   it('new record via putRecord treated as createRecord permission', async () => {
     const res = await request(app).post('/xrpc/com.atproto.repo.putRecord').send({
       repo: 'did:plc:testgroup',
@@ -337,7 +482,14 @@ describe('putRecord', () => {
     })
     expect(res.status).toBe(200)
     const authors = await groupDb.selectFrom('group_record_authors').selectAll().execute()
-    expect(authors).toHaveLength(1)
+    expect(authors).toMatchObject([
+      { author_did: 'did:plc:testuser', collection: 'app.bsky.feed.post' },
+    ])
+    const audits = await groupDb
+      .selectFrom('group_audit_log')
+      .select(['action', 'result'])
+      .execute()
+    expect(audits).toEqual([{ action: 'createRecord', result: 'permitted' }])
   })
 
   it('profile update skips authorship tracking', async () => {

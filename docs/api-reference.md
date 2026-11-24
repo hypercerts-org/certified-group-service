@@ -193,7 +193,7 @@ The service-level inverse of `register` / `import`: it removes the group's store
 
 Destroy is **lossy and irreversible.** The per-group database — the member roster, the record-authorship table, and the entire audit log — is deleted outright. Read the caveats below before calling it.
 
-- **Re-import works, but loses history.** Because the account survives, you can `app.certified.group.import` it again afterward — but the re-imported group starts with an empty authorship table. Records left on the PDS are then treated as unowned: the first member to `putRecord` a surviving `rkey` is recorded as its author and may overwrite it. Re-import resurrects the account, not the group's governance state.
+- **Re-import works, but loses history.** Because the account survives, you can `app.certified.group.import` it again afterward — but the re-imported group starts with an empty authorship table. Records left on the PDS have no authorship entry: a `putRecord` caller without `putAnyRecord` access can only create at an unused `rkey`, not replace a surviving record. A caller with `putAnyRecord` access may update an untracked record. Re-import resurrects the account, not the group's governance state.
 - **Export the audit log first.** The audit log is readable via `app.certified.group.audit.query` only while the group lives. Once destroyed it is gone, and the destroy itself is **not** written to it (the log is deleted in the same operation) — only to the service's operational log. If you need a durable governance record, export it before destroying.
 - **The DID document still advertises the service.** For groups created via `register`, the `certified_group` service entry added to the group's DID document is **not** removed by destroy. A client or PDS may still route requests to the service, which will answer that the group is unknown. Removing that entry is the DID controller's responsibility.
 - **The app password is not revoked.** Destroy deletes the service's encrypted copy of the group-service app password but does **not** revoke it at the PDS — the service intentionally lacks full account access and cannot. The credential stays valid until the account controller revokes it directly; do so if old copies or backups are a concern.
@@ -299,12 +299,15 @@ Update an existing record or create one at a specific key.
 
 **Required role:** Depends on context:
 
-| Scenario                                           | Operation           | Required role |
-| -------------------------------------------------- | ------------------- | ------------- |
-| Updating `app.bsky.actor.profile` with rkey `self` | `putRecord:profile` | admin         |
-| Updating a record you authored                     | `putOwnRecord`      | member        |
-| Updating another member's record                   | `putAnyRecord`      | admin         |
-| Creating a new record (no existing author)         | `createRecord`      | member        |
+| Scenario                                                                | Operation           | Required role |
+| ----------------------------------------------------------------------- | ------------------- | ------------- |
+| Updating `app.bsky.actor.profile` with rkey `self`                      | `putRecord:profile` | admin         |
+| Updating a record you authored                                          | `putOwnRecord`      | member        |
+| Updating another member's record                                        | `putAnyRecord`      | admin         |
+| Writing at an untracked key with `putAnyRecord` access                  | `putAnyRecord`      | admin         |
+| Writing at an untracked key without `putAnyRecord` access (create-only) | `createRecord`      | member        |
+
+A missing authorship entry does not prove that the PDS key is unused. On this path, CGS first requires `createRecord` access. It uses `putAnyRecord` only when the caller's role permits it and, for API keys, the key has a matching `repo:<collection>?action=update` scope; otherwise it sends `swapRecord: null`, making the write create-only. API keys need the collection's `create` scope on this path in either case.
 
 The target group is named by the `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
