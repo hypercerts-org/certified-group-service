@@ -1109,7 +1109,7 @@ Every audited operation produces one of the following `action` strings. Denied o
 | `keys.list`                 | Unauthorized key-list attempt                                     | `{ reason }`                                        |
 | `createRecord`              | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
 | `putOwnRecord`              | Caller updated a record they authored                             | `{ collection, rkey }`                              |
-| `putAnyRecord`              | Caller updated another member's record                            | `{ collection, rkey }`                              |
+| `putAnyRecord`              | Updated another member's record or wrote at an untracked key      | `{ collection, rkey }`                              |
 | `putRecord:profile`         | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                              |
 | `deleteOwnRecord`           | Caller deleted a record they authored                             | `{ collection, rkey }`                              |
 | `deleteAnyRecord`           | Caller deleted another member's record                            | `{ collection, rkey }`                              |
