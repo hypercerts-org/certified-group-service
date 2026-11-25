@@ -111,7 +111,7 @@ jobs:
       # Node 22.22.3 bundles npm 10, which predates npm Trusted Publishing (OIDC
       # provenance requires npm >= 11.5.1).
       - name: Upgrade npm for Trusted Publishing
-        run: npm install -g npm@11
+        run: npm install -g npm@11.21.2
 
       - run: pnpm install --frozen-lockfile
 
