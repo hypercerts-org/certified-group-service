@@ -193,7 +193,7 @@ The service-level inverse of `register` / `import`: it removes the group's store
 
 Destroy is **lossy and irreversible.** The per-group database — the member roster, the record-authorship table, and the entire audit log — is deleted outright. Read the caveats below before calling it.
 
-- **Re-import works, but loses history.** Because the account survives, you can `app.certified.group.import` it again afterward — but the re-imported group starts with an empty authorship table. Records left on the PDS are then treated as unowned: the first member to `putRecord` a surviving `rkey` is recorded as its author and may overwrite it. Re-import resurrects the account, not the group's governance state.
+- **Re-import works, but loses history.** Because the account survives, you can `app.certified.group.import` it again afterward — but the re-imported group starts with an empty authorship table. Records left on the PDS have no authorship entry: a `putRecord` caller without `putAnyRecord` access can only create at an unused `rkey`, not replace a surviving record. A caller with `putAnyRecord` access may update an untracked record. Re-import resurrects the account, not the group's governance state.
 - **Export the audit log first.** The audit log is readable via `app.certified.group.audit.query` only while the group lives. Once destroyed it is gone, and the destroy itself is **not** written to it (the log is deleted in the same operation) — only to the service's operational log. If you need a durable governance record, export it before destroying.
 - **The DID document still advertises the service.** For groups created via `register`, the `certified_group` service entry added to the group's DID document is **not** removed by destroy. A client or PDS may still route requests to the service, which will answer that the group is unknown. Removing that entry is the DID controller's responsibility.
 - **The app password is not revoked.** Destroy deletes the service's encrypted copy of the group-service app password but does **not** revoke it at the PDS — the service intentionally lacks full account access and cannot. The credential stays valid until the account controller revokes it directly; do so if old copies or backups are a concern.
@@ -252,6 +252,8 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 }
 ```
 
+Optional `swapCommit` (CID): the write is refused with `400 InvalidSwap` unless it equals the group repo's current commit. It is repo-wide, so any other member's write makes it stale; for per-record checks use `swapRecord` on `putRecord`/`deleteRecord`.
+
 **Response (200):**
 
 ```json
@@ -267,6 +269,7 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 | ---- | ---------------------- | ------------------------------------------------------ |
 | 401  | AuthenticationRequired | Missing or invalid JWT                                 |
 | 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
+| 400  | InvalidSwap            | `swapCommit` did not match the current commit          |
 | 403  | Forbidden              | Caller lacks member role                               |
 
 **Example:**
@@ -296,12 +299,15 @@ Update an existing record or create one at a specific key.
 
 **Required role:** Depends on context:
 
-| Scenario                                           | Operation           | Required role |
-| -------------------------------------------------- | ------------------- | ------------- |
-| Updating `app.bsky.actor.profile` with rkey `self` | `putRecord:profile` | admin         |
-| Updating a record you authored                     | `putOwnRecord`      | member        |
-| Updating another member's record                   | `putAnyRecord`      | admin         |
-| Creating a new record (no existing author)         | `createRecord`      | member        |
+| Scenario                                                                | Operation           | Required role |
+| ----------------------------------------------------------------------- | ------------------- | ------------- |
+| Updating `app.bsky.actor.profile` with rkey `self`                      | `putRecord:profile` | admin         |
+| Updating a record you authored                                          | `putOwnRecord`      | member        |
+| Updating another member's record                                        | `putAnyRecord`      | admin         |
+| Writing at an untracked key with `putAnyRecord` access                  | `putAnyRecord`      | admin         |
+| Writing at an untracked key without `putAnyRecord` access (create-only) | `createRecord`      | member        |
+
+A missing authorship entry does not prove that the PDS key is unused. On this path, CGS first requires `createRecord` access. It uses `putAnyRecord` only when the caller's role permits it and, for API keys, the key has a matching `repo:<collection>?action=update` scope; otherwise it sends `swapRecord: null`, making the write create-only. API keys need the collection's `create` scope on this path in either case.
 
 The target group is named by the `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
@@ -320,6 +326,8 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 }
 ```
 
+Optional `swapRecord` (CID, or `null` for create-only: refused if a record already exists at the key) and `swapCommit` (CID). A mismatch is refused with `400 InvalidSwap` and nothing is written. `swapCommit` is repo-wide, so any other member's write makes it stale.
+
 **Response (200):**
 
 ```json
@@ -331,11 +339,12 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 
 **Errors:**
 
-| Code | Name                   | Description                                            |
-| ---- | ---------------------- | ------------------------------------------------------ |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                 |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
-| 403  | Forbidden              | Caller lacks required role for this operation          |
+| Code | Name                   | Description                                                                                                     |
+| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                          |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)                                                          |
+| 400  | InvalidSwap            | `swapRecord` / `swapCommit` check failed (stale CID, or `swapRecord: null` on an existing key); nothing written |
+| 403  | Forbidden              | Caller lacks required role for this operation                                                                   |
 
 **Example:**
 
@@ -382,6 +391,8 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 }
 ```
 
+Optional `swapRecord` (CID) and `swapCommit` (CID). A mismatch is refused with `400 InvalidSwap` and the record is kept. `swapCommit` is repo-wide, so any other member's write makes it stale.
+
 **Response (200):**
 
 ```json
@@ -390,11 +401,12 @@ The target group is named by the `repo` body field (a handle or DID), with JWT `
 
 **Errors:**
 
-| Code | Name                   | Description                                            |
-| ---- | ---------------------- | ------------------------------------------------------ |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                 |
-| 401  | Unknown group          | `repo` names no registered group (or fails to resolve) |
-| 403  | Forbidden              | Caller lacks required role                             |
+| Code | Name                   | Description                                                           |
+| ---- | ---------------------- | --------------------------------------------------------------------- |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                |
+| 401  | Unknown group          | `repo` names no registered group (or fails to resolve)                |
+| 400  | InvalidSwap            | `swapRecord` / `swapCommit` check failed (stale CID); nothing written |
+| 403  | Forbidden              | Caller lacks required role                                            |
 
 **Example:**
 
@@ -468,6 +480,8 @@ Add a new member to the group.
 
 **Required role:** admin
 
+Callable by an [API key](#authenticating-with-an-api-key) holding `rpc:app.certified.group.member.add`, capped by the issuing member's current role. A key without the scope gets `403 Forbidden`. A key caller puts `repo` on the querystring.
+
 The target group is named by the optional `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
 **Request body:**
@@ -495,13 +509,12 @@ The `role` field must be `"member"` or `"admin"`. The owner role cannot be assig
 
 **Errors:**
 
-| Code | Name                   | Description                                                                          |
-| ---- | ---------------------- | ------------------------------------------------------------------------------------ |
-| 400  | InvalidRole            | Role is not `member` or `admin`                                                      |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                                               |
-| 403  | ApiKeyNotPermitted     | Request authenticated with an API key; `member.add` requires a DID-authenticated JWT |
-| 403  | Forbidden              | Caller lacks admin role                                                              |
-| 409  | MemberAlreadyExists    | The DID is already a member                                                          |
+| Code | Name                   | Description                                                         |
+| ---- | ---------------------- | ------------------------------------------------------------------- |
+| 400  | InvalidRole            | Role is not `member` or `admin`                                     |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                              |
+| 403  | Forbidden              | Caller lacks admin role, or an API key lacks the `member.add` scope |
+| 409  | MemberAlreadyExists    | The DID is already a member                                         |
 
 **Example:**
 
@@ -522,7 +535,9 @@ curl -X POST https://group-service.example.com/xrpc/app.certified.group.member.a
 
 Remove a member from the group.
 
-**Required role:** admin (or any role for self-removal with a JWT). API keys are always refused.
+**Required role:** admin (or any role for self-removal).
+
+Callable by an [API key](#authenticating-with-an-api-key) holding `rpc:app.certified.group.member.remove`, capped by the issuing member's current role. A key without the scope gets `403 Forbidden`, checked before the membership lookup, so it reveals nothing about the target. A key may remove its own issuer (self-removal) only if it holds the `member.remove` scope. A key caller puts `repo` on the querystring.
 
 The target group is named by the optional `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
@@ -543,13 +558,12 @@ The target group is named by the optional `repo` body field (a handle or DID), w
 
 **Errors:**
 
-| Code | Name                   | Description                                                                                                                                                 |
-| ---- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400  | CannotRemoveOwner      | Cannot remove a member with the owner role                                                                                                                  |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                                                                      |
-| 403  | ApiKeyNotPermitted     | Request authenticated with an API key (checked before membership, so it reveals nothing about the target); `member.remove` requires a DID-authenticated JWT |
-| 403  | Forbidden              | Caller lacks admin role, or target has equal/higher role than caller (and is not removing self)                                                             |
-| 404  | MemberNotFound         | Target is not a group member                                                                                                                                |
+| Code | Name                   | Description                                                                                                                                 |
+| ---- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400  | CannotRemoveOwner      | Cannot remove a member with the owner role                                                                                                  |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                                                      |
+| 403  | Forbidden              | Caller lacks admin role, target has equal/higher role than caller (and is not removing self), or an API key lacks the `member.remove` scope |
+| 404  | MemberNotFound         | Target is not a group member                                                                                                                |
 
 **Example:**
 
@@ -620,6 +634,8 @@ Change a member's role.
 
 **Required role:** owner
 
+Callable by an [API key](#authenticating-with-an-api-key) holding `rpc:app.certified.group.role.set`, capped by the issuing member's current role, so only an owner-issued key can use it. A key without the scope gets `403 Forbidden`. A key caller puts `repo` on the querystring.
+
 The target group is named by the optional `repo` body field (a handle or DID), with JWT `aud` = service DID. The legacy `aud` = group DID form (no `repo`) still works but is deprecated; see [Targeting a group](#targeting-a-group).
 
 **Request body:**
@@ -645,15 +661,14 @@ The `role` field can be `"member"` or `"admin"`. The owner role is immutable thr
 
 **Errors:**
 
-| Code | Name                   | Description                                                                        |
-| ---- | ---------------------- | ---------------------------------------------------------------------------------- |
-| 400  | InvalidRole            | Role is not a recognized role (`member`, `admin`, or `owner`)                      |
-| 400  | CannotModifyOwner      | Target already holds the owner role                                                |
-| 400  | CannotPromoteToOwner   | Cannot promote a member to owner                                                   |
-| 401  | AuthenticationRequired | Missing or invalid JWT                                                             |
-| 403  | ApiKeyNotPermitted     | Request authenticated with an API key; `role.set` requires a DID-authenticated JWT |
-| 403  | Forbidden              | Caller lacks owner role, or attempted to promote above own role                    |
-| 404  | MemberNotFound         | Target is not a group member                                                       |
+| Code | Name                   | Description                                                                                            |
+| ---- | ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| 400  | InvalidRole            | Role is not a recognized role (`member`, `admin`, or `owner`)                                          |
+| 400  | CannotModifyOwner      | Target already holds the owner role                                                                    |
+| 400  | CannotPromoteToOwner   | Cannot promote a member to owner                                                                       |
+| 401  | AuthenticationRequired | Missing or invalid JWT                                                                                 |
+| 403  | Forbidden              | Caller lacks owner role, attempted to promote above own role, or an API key lacks the `role.set` scope |
+| 404  | MemberNotFound         | Target is not a group member                                                                           |
 
 **Example:**
 
@@ -876,7 +891,7 @@ identical; the audit log records the real outcome.
 
 ## API key management
 
-JWT-authenticated methods for issuing and revoking [API keys](#authenticating-with-an-api-key). Any group member can create, list, and revoke their own keys; owners can list and revoke all keys in the group. A member can only create keys with scopes their current role can use; for example, `audit.query` requires admin. The wildcard `rpc:*` is the exception: it names no operation, so it is accepted for any role and grants whatever that member's role permits **at request time** — a member's `rpc:*` key can call `member.list` but is still refused `audit.query` with a `403`. Because the cap follows the issuer's current role, promoting or demoting them widens or narrows an existing wildcard key with no re-issue. A key can never manage keys. These methods target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
+JWT-authenticated methods for issuing and revoking [API keys](#authenticating-with-an-api-key). Any group member can create, list, and revoke their own keys; owners can list and revoke all keys in the group. A member can only create keys with scopes their current role can use; for example, `audit.query` requires admin. The wildcard `rpc:*` is the exception: it names no operation, so it is accepted for any role and grants whatever that member's role permits **at request time** — a member's `rpc:*` key can call `member.list` but is still refused `audit.query` with a `403`. `rpc:*` also covers `member.add`, `member.remove` and `role.set`: an admin's `rpc:*` key can call the first two, and an owner's can call all three. Any member's `rpc:*` key can also remove its own issuer (self-removal), since the role check is skipped for that case; an owner's key still cannot, because owner removal is refused. Because the cap follows the issuer's current role, promoting or demoting them widens or narrows an existing wildcard key with no re-issue. A key can never manage keys, and can never call ownership-transfer `accept`. These methods target a group the same way as other group-scoped methods (`repo` in the body for the procedures, on the querystring for the `list` query).
 
 ### `POST /xrpc/app.certified.group.keys.create`
 
@@ -894,11 +909,11 @@ Request body:
 
 **Scope kinds:**
 
-| kind    | form                                              | grants                                                                        |
-| ------- | ------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `rpc:`  | `rpc:<method>` (friendly)                         | a service read method (`member.list`, `audit.query`)                          |
-| `repo:` | `repo:<collection>?action=create\|update\|delete` | a PDS-repo write (createRecord / putRecord / deleteRecord) on that collection |
-| `blob:` | `blob:<accept>` (e.g. `blob:image/*`, `blob:*/*`) | `uploadBlob` of a matching content type                                       |
+| kind    | form                                              | grants                                                                                                                                     |
+| ------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `rpc:`  | `rpc:<method>` (friendly)                         | a service method (`member.list`, `audit.query`, `member.add`, `member.remove`, `role.set`, ownership-transfer `propose`/`cancel`/`status`) |
+| `repo:` | `repo:<collection>?action=create\|update\|delete` | a PDS-repo write (createRecord / putRecord / deleteRecord) on that collection                                                              |
+| `blob:` | `blob:<accept>` (e.g. `blob:image/*`, `blob:*/*`) | `uploadBlob` of a matching content type                                                                                                    |
 
 For `rpc:` scopes, pass the friendly `rpc:<method>` name — a key only ever calls the CGS it was minted on, so the service binds each scope to its own audience (`?aud=did:web:<host>%23certified_group_service`) before storing; you do **not** supply an `aud`, and the response echoes the stored **canonical** form. `repo:` and `blob:` scopes carry no `aud` and are stored as given. For a `repo:` write, the scope picks the collection + action; the caller's **role** still decides whose records may be touched (a member-issued key can only mutate records that member authored — `repo:` scopes have no own-vs-any axis).
 
@@ -1094,7 +1109,7 @@ Every audited operation produces one of the following `action` strings. Denied o
 | `keys.list`                 | Unauthorized key-list attempt                                     | `{ reason }`                                        |
 | `createRecord`              | Record created (via `createRecord` or `putRecord` for a new rkey) | `{ collection, rkey }`                              |
 | `putOwnRecord`              | Caller updated a record they authored                             | `{ collection, rkey }`                              |
-| `putAnyRecord`              | Caller updated another member's record                            | `{ collection, rkey }`                              |
+| `putAnyRecord`              | Updated another member's record or wrote at an untracked key      | `{ collection, rkey }`                              |
 | `putRecord:profile`         | Group profile updated (`app.bsky.actor.profile` rkey `self`)      | `{ collection, rkey }`                              |
 | `deleteOwnRecord`           | Caller deleted a record they authored                             | `{ collection, rkey }`                              |
 | `deleteAnyRecord`           | Caller deleted another member's record                            | `{ collection, rkey }`                              |

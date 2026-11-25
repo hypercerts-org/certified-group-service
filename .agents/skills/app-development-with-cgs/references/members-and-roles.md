@@ -23,8 +23,11 @@ Every check is scoped to the group named by `repo`.
   `admin.setOwner` break-glass endpoint.
 - `member.add` / `role.set` assign only `member` or `admin`. Admins can't add at
   or above their own level.
-- Any **non-owner** member can **self-remove** with a JWT; removing others needs admin.
-  API keys can't call `member.add`, `member.remove` or `role.set` at all.
+- Any **non-owner** member can **self-remove**; removing others needs admin.
+  An API key can call `member.add`, `member.remove` and `role.set` only with the
+  matching `rpc:` scope, capped by its issuer's role (`rpc:*` covers all three).
+  A key without the scope gets `403 Forbidden`; key callers put `repo` on the
+  querystring. A key may self-remove its issuer only with the `member.remove` scope.
   The owner cannot self-remove — `member.remove` rejects removing an owner
   (`CannotRemoveOwner`); transfer ownership away first.
 - **Authorship is immutable** — preserved across `putRecord`. A member edits/deletes

@@ -133,6 +133,45 @@ describe('keys.create', () => {
     expect(row.scopes).toBe(JSON.stringify([AUDIT_QUERY_SCOPE]))
   })
 
+  describe('membership-administration scopes are capped by the minter role', () => {
+    const MEMBER_ADD = scopeNeededFor('member.add', SERVICE_DID)!
+    const MEMBER_REMOVE = scopeNeededFor('member.remove', SERVICE_DID)!
+    const ROLE_SET = scopeNeededFor('role.set', SERVICE_DID)!
+
+    async function mint(scope: string) {
+      return request(app)
+        .post('/xrpc/app.certified.group.keys.create')
+        .send({ name: 'membership', scopes: [scope] })
+    }
+
+    it('admin can mint member.add and member.remove but not role.set', async () => {
+      await seedMember(groupDb, 'did:plc:testuser', 'admin')
+      const add = await mint(MEMBER_ADD)
+      expect(add.status).toBe(200)
+      expect(add.body.scopes).toEqual([MEMBER_ADD])
+      const remove = await mint(MEMBER_REMOVE)
+      expect(remove.status).toBe(200)
+      expect(remove.body.scopes).toEqual([MEMBER_REMOVE])
+      expect((await mint(ROLE_SET)).status).toBe(403)
+    })
+
+    it('owner can mint all three', async () => {
+      await seedMember(groupDb, 'did:plc:testuser', 'owner')
+      for (const scope of [MEMBER_ADD, MEMBER_REMOVE, ROLE_SET]) {
+        const res = await mint(scope)
+        expect(res.status).toBe(200)
+        expect(res.body.scopes).toEqual([scope])
+      }
+    })
+
+    it('member cannot mint any of them', async () => {
+      await seedMember(groupDb, 'did:plc:testuser', 'member')
+      for (const scope of [MEMBER_ADD, MEMBER_REMOVE, ROLE_SET]) {
+        expect((await mint(scope)).status).toBe(403)
+      }
+    })
+  })
+
   it('rejects an invalid scope string with InvalidScope', async () => {
     await seedMember(groupDb, 'did:plc:testuser', 'owner')
     const res = await request(app)

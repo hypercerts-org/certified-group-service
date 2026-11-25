@@ -107,39 +107,64 @@ export function decodeCursor(cursor: string): string {
 }
 
 /**
- * Authorize an operation and audit a denial.
+ * The scope half of the gate: for an `apiKey` principal, check that the key's
+ * granted scopes cover `operation` (delegated to `@atproto/oauth-scopes`). On a
+ * miss, write exactly one `denied` audit entry (attributed to the key via
+ * `apiKeyRef`) and throw `ForbiddenError`. A no-op for non-key principals.
  *
- * For an `apiKey` principal two checks must BOTH pass (design: scopes ∩
- * role-perms): first the scope check (does the key's granted scope set cover
- * this operation, delegated to `@atproto/oauth-scopes`), then the existing role
- * check (the key acts as its issuing member, so the role check naturally caps the
- * key at its issuer's role). A JWT principal is scope-unlimited — only the role
- * check applies. The specific key (`apiKeyRef`) is attached to the audit detail
- * so key-driven actions are attributable beyond the issuing member DID.
+ * Handlers that must refuse an unscoped key before any group-state lookup (so a
+ * 403 cannot be told apart from a 404) call this directly.
  */
-/**
- * Refuse API-key callers outright for operations that require a DID-authenticated
- * request, with a distinct `ApiKeyNotPermitted` error. Call it before any lookup so
- * the response cannot reveal group state (e.g. whether a member exists).
- */
-export async function rejectApiKey(
+export async function assertKeyScopeWithAudit(
   ctx: AppContext,
   groupDb: Kysely<GroupDatabase>,
   callerDid: string,
   operation: Operation,
-  principal: GatePrincipal,
-  detail?: Omit<AuditEventDetail, 'reason' | 'apiKeyRef'>,
+  detail?: Omit<AuditEventDetail, 'reason'>,
+  principal?: GatePrincipal,
 ): Promise<void> {
-  if (principal.authKind !== 'apiKey') return
-  const reason = `${operation} requires a DID-authenticated request, not an API key`
+  if (principal?.authKind !== 'apiKey') return
+
+  const scopes = principal.scopes ?? []
+  const repoAction = repoActionForOperation(operation)
+  let covered: boolean
+  if (operation === 'uploadBlob') {
+    // Blob upload: gated by a `blob:<mime>` scope against the upload's
+    // Content-Type (carried in the audit detail). No mime -> deny.
+    const mime = typeof detail?.mime === 'string' ? detail.mime : undefined
+    covered = mime !== undefined && blobScopesCover(scopes, mime)
+  } else if (repoAction !== undefined) {
+    // PDS-repo write op: gated by a `repo:<collection>?action=…` scope. The
+    // collection comes from the request (carried in the audit detail by the
+    // handler). With no collection we cannot match a scope, so deny.
+    const collection = typeof detail?.collection === 'string' ? detail.collection : undefined
+    covered = collection !== undefined && repoScopesCover(scopes, operation, collection)
+  } else {
+    // Service method: gated by an `rpc:` scope.
+    covered = scopesCoverOperation(scopes, operation, ctx.config.serviceDid)
+  }
+  if (covered) return
+
+  const reason = `API key scopes do not permit '${operation}'`
   await ctx.audit.log(groupDb, callerDid, operation, 'denied', {
     ...detail,
-    apiKeyRef: principal.apiKeyRef,
+    ...(principal.apiKeyRef ? { apiKeyRef: principal.apiKeyRef } : {}),
     reason,
   })
-  throw new XRPCError(403, reason, 'ApiKeyNotPermitted')
+  throw new ForbiddenError(reason)
 }
 
+/**
+ * Authorize an operation and audit a denial.
+ *
+ * For an `apiKey` principal two checks must BOTH pass (design: scopes ∩
+ * role-perms): first the scope check (`assertKeyScopeWithAudit`), then the
+ * existing role check (the key acts as its issuing member, so the role check
+ * naturally caps the key at its issuer's role). A JWT principal is
+ * scope-unlimited — only the role check applies. The specific key
+ * (`apiKeyRef`) is attached to the audit detail so key-driven actions are
+ * attributable beyond the issuing member DID.
+ */
 export async function assertCanWithAudit(
   ctx: AppContext,
   groupDb: Kysely<GroupDatabase>,
@@ -153,34 +178,7 @@ export async function assertCanWithAudit(
       ? { ...detail, apiKeyRef: principal.apiKeyRef }
       : detail
 
-  const denied = async (reason: string): Promise<never> => {
-    await ctx.audit.log(groupDb, callerDid, operation, 'denied', { ...auditDetail, reason })
-    throw new ForbiddenError(reason)
-  }
-
-  if (principal?.authKind === 'apiKey') {
-    const scopes = principal.scopes ?? []
-    const repoAction = repoActionForOperation(operation)
-    let covered: boolean
-    if (operation === 'uploadBlob') {
-      // Blob upload: gated by a `blob:<mime>` scope against the upload's
-      // Content-Type (carried in the audit detail). No mime -> deny.
-      const mime = typeof detail?.mime === 'string' ? detail.mime : undefined
-      covered = mime !== undefined && blobScopesCover(scopes, mime)
-    } else if (repoAction !== undefined) {
-      // PDS-repo write op: gated by a `repo:<collection>?action=…` scope. The
-      // collection comes from the request (carried in the audit detail by the
-      // handler). With no collection we cannot match a scope, so deny.
-      const collection = typeof detail?.collection === 'string' ? detail.collection : undefined
-      covered = collection !== undefined && repoScopesCover(scopes, operation, collection)
-    } else {
-      // Service method: gated by an `rpc:` scope.
-      covered = scopesCoverOperation(scopes, operation, ctx.config.serviceDid)
-    }
-    if (!covered) {
-      await denied(`API key scopes do not permit '${operation}'`)
-    }
-  }
+  await assertKeyScopeWithAudit(ctx, groupDb, callerDid, operation, detail, principal)
 
   try {
     return await ctx.rbac.assertCan(groupDb, callerDid, operation)

@@ -166,15 +166,18 @@ which set or scopes a key holds, a key's reachable operations are **floor-capped
 by CGS code**: the authz gate (`src/api/util.ts`) only consults a scope for ops
 present in `OPERATION_LXM` / `OPERATION_REPO_ACTION` (`src/auth/scopes.ts`); any
 op absent from both is denied to a key caller **regardless of scopes**. Today
-that surface is exactly: `member.list`, `audit.query` (rpc), the `repo:` write
-actions, and `uploadBlob` (blob).
+that surface is exactly: `member.list`, `audit.query`, `member.add`,
+`member.remove`, `role.set`, `ownershipTransfer.propose`,
+`ownershipTransfer.cancel` and `ownershipTransfer.status` (rpc), the `repo:`
+write actions, and `uploadBlob` (blob).
 
 Consequently **no scope or set** can grant key administration (`keys.create`,
-`keys.list`, `keys.delete`) or membership administration (`member.add`,
-`member.remove`, `role.set`) — deliberately not key-accessible (see the
-`keys.create` handler comment "a long-lived key cannot mint more keys"). An
-`include:`-minted key is bounded by this just like an explicitly-scoped one: it
-cannot escalate by minting more keys nor alter the member roster.
+`keys.list`, `keys.delete`) or `ownershipTransfer.accept` — deliberately not
+key-accessible (see the `keys.create` handler comment "a long-lived key cannot
+mint more keys"). Membership administration (`member.add`, `member.remove`,
+`role.set`) is key-accessible, but each needs its own `rpc:` scope and is capped
+by the issuer's role. An `include:`-minted key is bounded by this just like an
+explicitly-scoped one: it cannot escalate by minting more keys.
 
 Also CGS-specific: a key is bound to **one group** by storage (minted against the
 request's `repo`, stored in that group's per-group DB, only resolved under that
