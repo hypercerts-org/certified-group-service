@@ -140,7 +140,7 @@ jobs:
           fi
 
       # Changesets tracks both the private root `group-service` package and
-      # public workspace packages under `packages/` (such as `@hypercerts-org/cgs`).
+      # public workspace packages under `packages/` (such as `@hypercerts-org/certified-group-service`).
       #
       # On each run:
       #   1. If pending changesets exist, opens/updates a Release PR that bumps
@@ -148,7 +148,7 @@ jobs:
       #   2. If the Release PR has been merged, runs `pnpm release`
       #      (`changeset publish`), which publishes public packages to npm with
       #      Trusted Publishing + provenance and creates per-package git tags
-      #      and GitHub Releases (`group-service@X.Y.Z`, `@hypercerts-org/cgs@X.Y.Z`).
+      #      and GitHub Releases (`group-service@X.Y.Z`, `@hypercerts-org/certified-group-service@X.Y.Z`).
       - name: Create Release Pull Request or Publish Releases
         id: changesets
         uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
@@ -173,7 +173,7 @@ jobs:
         run: |
           set -o pipefail
           BUMPED=()
-          for manifest in package.json packages/cgs/package.json; do
+          for manifest in package.json packages/certified-group-service/package.json; do
             BASE_VER=$(node -p "JSON.parse(require('node:fs').readFileSync('$manifest', 'utf8')).version")
             HEAD_JSON=$(gh api \
               "repos/${{ github.repository }}/contents/${manifest}?ref=changeset-release/main" \

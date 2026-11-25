@@ -1,7 +1,7 @@
 // Type-level tests for the built package: compiled by `pnpm test`
 // (tsconfig.test.json), never run. Each @ts-expect-error must stay an error.
 import { Client } from '@atproto/lex'
-import { app } from '@hypercerts-org/cgs'
+import { app } from '@hypercerts-org/certified-group-service'
 
 const cgs = new Client('https://groups.example')
 const groupDid = 'did:plc:aaaaaaaaaaaaaaaaaaaaaaaa' as const

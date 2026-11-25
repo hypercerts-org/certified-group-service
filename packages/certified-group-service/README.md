@@ -1,14 +1,14 @@
-# @hypercerts-org/cgs
+# @hypercerts-org/certified-group-service
 
 TypeScript XRPC definitions and types for the Certified Group Service (CGS), for use with [`@atproto/lex`](https://www.npmjs.com/package/@atproto/lex). Install it with its peer dependency:
 
 ```sh
-npm install @hypercerts-org/cgs @atproto/lex
+npm install @hypercerts-org/certified-group-service @atproto/lex
 ```
 
 ```ts
 import { Client } from '@atproto/lex'
-import { app } from '@hypercerts-org/cgs'
+import { app } from '@hypercerts-org/certified-group-service'
 
 const cgs = new Client('https://groups.certified.app')
 
@@ -53,7 +53,7 @@ Regenerate whenever a Lexicon under `lexicons/app/` or the `@atproto/lex` genera
 
 ## Commands
 
-Run from `packages/cgs/`:
+Run from `packages/certified-group-service/`:
 
 | Command              | What it does                                                                                                                       |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
@@ -66,9 +66,9 @@ Run from `packages/cgs/`:
 
 ## Versioning and releases
 
-The package is versioned with Changesets independently of `group-service`. The release workflow publishes it to npm with [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) and provenance, and creates an `@hypercerts-org/cgs@X.Y.Z` tag and GitHub Release when a Release PR that bumps it is merged.
+The package is versioned with Changesets independently of `group-service`. The release workflow publishes it to npm with [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) and provenance, and creates an `@hypercerts-org/certified-group-service@X.Y.Z` tag and GitHub Release when a Release PR that bumps it is merged.
 
-The first release needs a Trusted Publisher for `@hypercerts-org/cgs` on npmjs.com (repository `hypercerts-org/certified-group-service`, workflow `release.yml`). If npm requires the package to exist before one can be configured, an owner of the `@hypercerts-org` npm scope publishes the first version by hand.
+The first release needs a Trusted Publisher for `@hypercerts-org/certified-group-service` on npmjs.com (repository `hypercerts-org/certified-group-service`, workflow `release.yml`). If npm requires the package to exist before one can be configured, an owner of the `@hypercerts-org` npm scope publishes the first version by hand.
 
 ## License
 

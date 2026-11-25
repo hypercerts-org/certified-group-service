@@ -14,7 +14,7 @@ export default tseslint.config(
       // demo/ is a standalone Vite + BFF subproject with its own
       // package.json and tsconfig; it is not linted by the root config.
       'demo/',
-      // packages/ holds publishable workspace packages (e.g. @hypercerts-org/cgs)
+      // packages/ holds publishable workspace packages (e.g. @hypercerts-org/certified-group-service)
       // with generated TypeScript sources and their own tsconfig/test suites.
       'packages/',
       // Claude Code creates sibling worktrees here, each a full checkout

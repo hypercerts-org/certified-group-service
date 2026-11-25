@@ -1,4 +1,4 @@
-// Generates src/ for @hypercerts-org/cgs from the CGS-owned Lexicons under
+// Generates src/ for @hypercerts-org/certified-group-service from the CGS-owned Lexicons under
 // lexicons/app/ in the repository root, in lex's own layout: the package
 // exports lex's NSID namespace tree (`app`), as in the @atproto/lex
 // documentation. The deprecated proxy stubs under lexicons/com/atproto/repo/
@@ -158,7 +158,7 @@ async function main() {
 
   if (!check) {
     const count = await generate(srcDir)
-    console.log(`Generated @hypercerts-org/cgs from ${count} CGS Lexicons.`)
+    console.log(`Generated @hypercerts-org/certified-group-service from ${count} CGS Lexicons.`)
     return
   }
 

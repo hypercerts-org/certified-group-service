@@ -5,7 +5,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { Client, XrpcResponseValidationError } from '@atproto/lex'
-import * as cgs from '@hypercerts-org/cgs'
+import * as cgs from '@hypercerts-org/certified-group-service'
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const cgsLexiconsRoot = path.resolve(packageRoot, '../../lexicons/app')

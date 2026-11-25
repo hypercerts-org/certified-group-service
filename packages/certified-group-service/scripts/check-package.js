@@ -1,4 +1,4 @@
-// Packs @hypercerts-org/cgs and installs the tarball, with @atproto/lex, into
+// Packs @hypercerts-org/certified-group-service and installs the tarball, with @atproto/lex, into
 // a consumer project outside the workspace, then checks that Node imports it,
 // a TypeScript consumer typechecks, and Vite bundles it for the browser. This
 // catches packaging errors (bad exports, missing files, workspace: specifiers)
@@ -39,8 +39,13 @@ try {
 /** @param {string} dest */
 function packPackage(dest) {
   run('pnpm', ['pack', '--pack-destination', dest], packageRoot)
-  const tarball = readdirSync(dest).find((file) => /^hypercerts-org-cgs-.*\.tgz$/.test(file))
-  if (!tarball) throw new Error('check-package: no tarball produced for @hypercerts-org/cgs')
+  const tarball = readdirSync(dest).find((file) =>
+    /^hypercerts-org-certified-group-service-.*\.tgz$/.test(file),
+  )
+  if (!tarball)
+    throw new Error(
+      'check-package: no tarball produced for @hypercerts-org/certified-group-service',
+    )
 
   const extracted = path.join(dest, 'extracted')
   mkdirSync(extracted)
@@ -61,7 +66,7 @@ function createConsumer(dir, tarball) {
     private: true,
     type: 'module',
     dependencies: {
-      '@hypercerts-org/cgs': `file:${tarball}`,
+      '@hypercerts-org/certified-group-service': `file:${tarball}`,
       '@atproto/lex': pinned('@atproto/lex'),
     },
     devDependencies: { typescript: pinned('typescript'), vite: pinned('vite') },
@@ -89,7 +94,7 @@ function createConsumer(dir, tarball) {
 
 /** @param {string} consumer */
 function checkNode(consumer) {
-  const script = `import { app } from "@hypercerts-org/cgs";
+  const script = `import { app } from "@hypercerts-org/certified-group-service";
 if (app.certified.groups.membership.list.main.nsid !== "app.certified.groups.membership.list") throw new Error("membership.list");
 if (app.certified.group.repo.putRecord.main.nsid !== "app.certified.group.repo.putRecord") throw new Error("repo.putRecord");`
   run('node', ['--input-type=module', '-e', script], consumer)
@@ -101,7 +106,7 @@ function checkTypes(consumer) {
   writeFileSync(
     path.join(consumer, 'src', 'types.ts'),
     `import { Client } from "@atproto/lex";
-import { app } from "@hypercerts-org/cgs";
+import { app } from "@hypercerts-org/certified-group-service";
 const cgs = new Client("https://groups.example");
 export async function memberships(): Promise<app.certified.groups.membership.list.GroupMembership[]> {
   const { groups } = await cgs.call(app.certified.groups.membership.list, { limit: 50 });
@@ -129,7 +134,7 @@ function checkBrowserBuild(consumer) {
   writeFileSync(
     path.join(consumer, 'src', 'main.ts'),
     `import { Client } from "@atproto/lex";
-import { app } from "@hypercerts-org/cgs";
+import { app } from "@hypercerts-org/certified-group-service";
 const cgs = new Client("https://groups.example");
 cgs.call(app.certified.groups.membership.list, { limit: 10 })
   .then(({ groups }) => console.log(groups.length), console.error);

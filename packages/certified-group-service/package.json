@@ -1,12 +1,12 @@
 {
-  "name": "@hypercerts-org/cgs",
+  "name": "@hypercerts-org/certified-group-service",
   "version": "0.0.0",
   "description": "TypeScript XRPC definitions and types for the Certified Group Service (CGS), for use with @atproto/lex",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hypercerts-org/certified-group-service.git",
-    "directory": "packages/cgs"
+    "directory": "packages/certified-group-service"
   },
   "type": "module",
   "sideEffects": false,

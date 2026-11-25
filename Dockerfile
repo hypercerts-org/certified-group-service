@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY packages/cgs/package.json ./packages/cgs/package.json
+COPY packages/certified-group-service/package.json ./packages/certified-group-service/package.json
 RUN pnpm install --frozen-lockfile --filter .
 COPY . .
 # Stamp the group service version into .cgs-version. Railway injects
@@ -14,7 +14,7 @@ COPY . .
 ARG RAILWAY_GIT_COMMIT_SHA
 RUN ./scripts/resolve-version.sh
 RUN pnpm build
-RUN pnpm prune --prod
+RUN CI=true pnpm install --prod --frozen-lockfile --filter .
 
 FROM node:22-slim
 WORKDIR /app
