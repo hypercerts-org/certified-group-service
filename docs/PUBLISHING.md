@@ -125,12 +125,12 @@ Releases happen in two phases:
 
 1. **Prerequisites (one-time setup):**
    - A release-bot GitHub App must be installed on this repository
-     with Contents and Pull requests read/write permissions. Its
-     App ID and private key must be stored in the
-     `RELEASE_BOT_APP_ID` and `RELEASE_BOT_APP_PRIVATE_KEY`
-     repository secrets. This bot is used by the release workflow so
-     that its automated "Version Packages" PR can bypass branch
-     protection on `main`.
+     with Contents and Pull requests read/write permissions. In the
+     GitHub Actions **Release** environment, store the App ID as the
+     `RELEASE_BOT_APP_ID` environment variable and the private key as
+     the `RELEASE_BOT_APP_PRIVATE_KEY` environment secret.
+     The release workflow uses this bot so its automated
+     "Version Packages" PR can bypass branch protection on `main`.
 2. **Run the workflow (phase 1 — open the Release PR):**
    - Navigate to the **Release** workflow in the repository's
      Actions tab.

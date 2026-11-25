@@ -552,7 +552,7 @@ This is the service-level inverse of `register` / `import`: it drops the group's
 Destroy is **lossy and irreversible** — plan for it before calling:
 
 - **Export the audit log first if you need it.** `app.certified.group.audit.query` works only while the group lives; destroy deletes the audit log along with the rest of the per-group data. The destroy itself is not written to that log (it is deleted in the same step) — only to the service's operational log.
-- **Re-import resurrects the account, not the group's history.** Because the account survives, you can `app.certified.group.import` it later, but the re-imported group starts with an empty authorship table. Records still on the PDS become unowned, so the first member to `putRecord` a surviving `rkey` is recorded as its author and can overwrite it.
+- **Re-import resurrects the account, not the group's history.** You can `app.certified.group.import` the surviving account, but the group starts with no authorship history. Records still on the group's PDS are untracked. A `putRecord` caller with create access but without `putAnyRecord` access can only write at an unused key. Updating a surviving record requires both permissions.
 - **Clean up the DID document and app password yourself.** For `register`-created groups the `certified_group` entry in the DID document is left in place — remove it as the DID controller if you no longer want requests routed to the service. The stored app password is likewise not revoked at the PDS (the service cannot); revoke it directly against the account if that matters.
 
 ## Error handling
@@ -617,12 +617,12 @@ Key constraints:
 
 - Admins can add members at `member` or `admin` level — but not at or above their own role
 - Admins can remove members below their own role level
-- Any member can remove themselves (self-removal), using a JWT; API keys cannot
+- Any member can remove themselves (self-removal), using a JWT or a key with the `member.remove` scope
 - `member.remove` and `role.set` cannot remove, demote, or otherwise change an owner
 - `member.add` and `role.set` can only assign `member` or `admin`; the owner role cannot be assigned through those endpoints
 - Ownership transfer is a separate propose/accept flow; `accept` requires a DID-authenticated JWT, not an API key. The operator-only `admin.setOwner` endpoint can also reassign ownership, demoting the previous owner.
 - API-key-authenticated callers cannot create, list, or revoke API keys; JWT-authenticated members can use those endpoints
-- API-key-authenticated callers cannot call `member.add`, `member.remove` (including self-removal) or `role.set`, whatever scopes the key holds; use a JWT
+- API-key-authenticated callers can call `member.add`, `member.remove` (including self-removal) and `role.set` only with the matching `rpc:` scope, and only as far as the issuing member's role allows. A key without the scope gets `403 Forbidden`. Key callers put `repo` on the querystring. An `rpc:*` key covers all three.
 
 `*` Ownership-transfer `accept` and `cancel` have a member role floor, but their handlers apply additional identity checks: only the proposed owner can accept, and only the current owner or proposed owner can cancel.
 

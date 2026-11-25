@@ -1,11 +1,74 @@
 # group-service
 
+## 0.7.0
+
+### Who should read this release
+
+- **End users:**
+  - [Untracked record writes now need explicit update access to replace an existing record.](#v0.7.0-untracked-record-writes-now-need-explicit-update-access-to)
+- **Client app developers:**
+  - [API keys holding the matching `rpc:` scope can call `member.add`, `member.remove` and `role.set` again, capped by the issuing member's role; this reverses the 0.6.2 withdrawal.](#v0.7.0-api-keys-holding-the-matching-scope-can-call-and-again)
+  - [`app.certified.group.repo.{createRecord,putRecord,deleteRecord}` now declare the optional compare-and-swap fields `swapRecord` / `swapCommit` and the `InvalidSwap` error in their lexicons.](#v0.7.0-now-declare-the-optional-compare-and-swap-fields-and-the)
+  - [Untracked record writes now need explicit update access to replace an existing record.](#v0.7.0-untracked-record-writes-now-need-explicit-update-access-to)
+- **Operators:**
+  - [API keys holding the matching `rpc:` scope can call `member.add`, `member.remove` and `role.set` again, capped by the issuing member's role; this reverses the 0.6.2 withdrawal.](#v0.7.0-api-keys-holding-the-matching-scope-can-call-and-again)
+  - [Operators can now rotate `ENCRYPTION_KEY` without needing to read the current key.](#v0.7.0-operators-can-now-rotate-without-needing-to-read-the)
+
+### Minor Changes
+
+- <a id="v0.7.0-api-keys-holding-the-matching-scope-can-call-and-again"></a> [#93](https://github.com/hypercerts-org/certified-group-service/pull/93) [`bbb7736`](https://github.com/hypercerts-org/certified-group-service/commit/bbb77360a5427bce0d0d997ad9d31d5b022f3b08) Thanks [@Ashex](https://github.com/Ashex)! - API keys holding the matching `rpc:` scope can call `member.add`, `member.remove` and `role.set` again, capped by the issuing member's role; this reverses the 0.6.2 withdrawal.
+
+  **Affects:** Client app developers, Operators
+
+  **Client app developers:**
+  - Scopes and the role each method needs: `rpc:app.certified.group.member.add` (admin), `rpc:app.certified.group.member.remove` (admin) and `rpc:app.certified.group.role.set` (owner). The key is capped by its issuing member's current role (scopes ∩ role). Owner immutability and the equal-or-higher-role rules apply to keys exactly as they do to JWT callers.
+  - Existing `rpc:*` keys gain these methods with no re-issue: an admin-issued `rpc:*` key can now call `member.add` and `member.remove`, and an owner-issued one can call all three. Have group owners review their keys with `app.certified.group.keys.list` and revoke or re-scope any `rpc:*` key that should not manage membership.
+  - A member-issued `rpc:*` key can now remove the member who issued it (self-removal), a path 0.6.2 had closed. Self-removal skips the role check, as it does for JWT callers, and an owner's key is still refused with `CannotRemoveOwner`.
+  - A key without the matching scope now gets `403 Forbidden` (`API key scopes do not permit '<operation>'`) instead of `403 ApiKeyNotPermitted`, including for `member.remove` on a non-member target, so it never learns whether the target exists. `ApiKeyNotPermitted` is still returned for `ownershipTransfer.accept`.
+  - Key callers must put `repo` on the querystring, even for these procedures.
+  - `member.add`, `member.remove` and `role.set` `permitted` audit entries now carry `apiKeyRef` when the caller is an API key. JWT callers' entries are unchanged.
+
+  **Operators:**
+  - After upgrading, existing `rpc:*` keys in every group gain these methods with no migration or config change, so you may want to tell group owners.
+  - Docs: see `docs/api-reference.md` (Member management and API key management).
+
+- <a id="v0.7.0-operators-can-now-rotate-without-needing-to-read-the"></a> [#82](https://github.com/hypercerts-org/certified-group-service/pull/82) [`653d4b6`](https://github.com/hypercerts-org/certified-group-service/commit/653d4b68dfb939df2dbb260d8d54e485a1c2b326) Thanks [@Kzoeps](https://github.com/Kzoeps)! - Operators can now rotate `ENCRYPTION_KEY` without needing to read the current key.
+
+  **Affects:** Operators
+
+  **Operators:**
+  - New optional env var `ENCRYPTION_KEY_NEXT` (64 hex characters, must differ from `ENCRYPTION_KEY`). When set, startup re-encrypts every stored app password and recovery key to it in one transaction, logs `Encryption key rotation complete`, and uses it from then on. Restarts with it still set are no-ops.
+  - To rotate: back up the volume, set `ENCRYPTION_KEY_NEXT` and redeploy, then move the value into `ENCRYPTION_KEY`, remove `ENCRYPTION_KEY_NEXT`, and redeploy. Do not roll back to an earlier build or the old key once the re-key has committed. Full runbook: `docs/deployment.md#rotating-encryption_key`.
+  - New startup check: with `ENCRYPTION_KEY_NEXT` unset, startup now fails if there are stored app passwords and `ENCRYPTION_KEY` can decrypt none of them (previously the service started and failed per group). To recover from a bad cut-over, put `ENCRYPTION_KEY_NEXT` back and redeploy.
+  - Rotation does not replace credentials that may already have been decrypted; if the old key and data were both exposed, rotate the groups' app passwords and recovery keys too.
+
+- <a id="v0.7.0-now-declare-the-optional-compare-and-swap-fields-and-the"></a> [#97](https://github.com/hypercerts-org/certified-group-service/pull/97) [`e4918ce`](https://github.com/hypercerts-org/certified-group-service/commit/e4918cec968401838feecb5ec80fcb3c74a18a44) Thanks [@Kzoeps](https://github.com/Kzoeps)! - `app.certified.group.repo.{createRecord,putRecord,deleteRecord}` now declare the optional compare-and-swap fields `swapRecord` / `swapCommit` and the `InvalidSwap` error in their lexicons.
+
+  **Affects:** Client app developers
+
+  **Client app developers:**
+  - Fields: `createRecord` takes `swapCommit`; `putRecord` takes `swapRecord` (a CID, or `null` for create-only) and `swapCommit`; `deleteRecord` takes `swapRecord` and `swapCommit`.
+  - These were already forwarded to the group's PDS and enforced there; the service now declares them. A stale value returns `400 InvalidSwap` and nothing is written.
+  - A swap value that is not a valid CID is now rejected with `400 InvalidRequest` by the service before reaching the PDS (previously by the PDS).
+  - `swapCommit` is repo-wide, so any other member's write makes it stale; use `swapRecord` for per-record checks.
+  - Docs: see `docs/api-reference.md` (Record operations).
+
+### Patch Changes
+
+- <a id="v0.7.0-untracked-record-writes-now-need-explicit-update-access-to"></a> [#102](https://github.com/hypercerts-org/certified-group-service/pull/102) [`f3a4a2c`](https://github.com/hypercerts-org/certified-group-service/commit/f3a4a2cf00f1aa7f0e01cbd186f047019a0ffbc0) Thanks [@Kzoeps](https://github.com/Kzoeps)! - Untracked record writes now need explicit update access to replace an existing record.
+
+  **Affects:** End users, Client app developers
+
+  **End users:** A `putRecord` request without `putAnyRecord` access is now create-only when the group service has no authorship entry for the key. This can happen after re-import; an existing record will not be replaced by create-only access.
+
+  **Client app developers:** Both `com.atproto.repo.putRecord` and `app.certified.group.repo.putRecord` continue to require create access on the untracked-record path. The group service uses `putAnyRecord` only when the caller's role permits it and, for API keys, the key has a matching `repo:<collection>?action=update` scope. Otherwise it sends `swapRecord: null`, overriding any caller-supplied value. See `docs/api-reference.md`.
+
 ## 0.6.2
 
 ### Who should read this release
 
 - **Client app developers:**
-  - [API keys can no longer call `member.add`, `member.remove` or `role.set`. This capability is withdrawn, and there is no long-lived replacement.](#v0.6.2-api-keys-can-no-longer-call-or-this-capability-is-withdrawn)
+  - [Security fix: API keys could call `member.add`, `member.remove` and `role.set` without a scope check; these calls are now refused.](#v0.6.2-api-keys-can-no-longer-call-or-this-capability-is-withdrawn)
 - **Operators:**
   - [The group service is now licensed under Apache-2.0; version 0.6.1 and earlier remain available under MIT.](#v0.6.2-the-group-service-is-now-licensed-under-apache-2-0-version)
 
@@ -17,11 +80,11 @@
 
   **Operators:** the container image now carries `LICENSE` and `NOTICE` in `/app`. If you redistribute the service or a modified version of it, including a rebuilt or mirrored image, include `LICENSE`, keep the text of `NOTICE`, mark any files you changed, and meet the other conditions in section 4 of the Apache License. Running the service yourself needs no change.
 
-- <a id="v0.6.2-api-keys-can-no-longer-call-or-this-capability-is-withdrawn"></a> [#87](https://github.com/hypercerts-org/certified-group-service/pull/87) [`07cb803`](https://github.com/hypercerts-org/certified-group-service/commit/07cb8035cc337ae2aed0ddfd47ca4ec8ef78b270) Thanks [@Kzoeps](https://github.com/Kzoeps)! - API keys can no longer call `member.add`, `member.remove` or `role.set`. This capability is withdrawn, and there is no long-lived replacement.
+- <a id="v0.6.2-api-keys-can-no-longer-call-or-this-capability-is-withdrawn"></a> [#87](https://github.com/hypercerts-org/certified-group-service/pull/87) [`07cb803`](https://github.com/hypercerts-org/certified-group-service/commit/07cb8035cc337ae2aed0ddfd47ca4ec8ef78b270) Thanks [@Kzoeps](https://github.com/Kzoeps)! - Security fix: API keys could call `member.add`, `member.remove` and `role.set` without a scope check; these calls are now refused.
 
   **Affects:** Client app developers
 
-  **Client app developers:** `app.certified.group.member.add`, `app.certified.group.member.remove` and `app.certified.group.role.set` now return `403 ApiKeyNotPermitted` for any `X-API-Key` caller, whatever scopes the key holds (including `rpc:*`). Keys were never meant to manage membership; these three methods skipped the key's scope check by mistake. That gap also let any key remove the member who created it through the self-removal path, which is now closed. Each refused call is written to the audit log with the key's `apiKeyRef`. Automation that managed members with an API key must switch to a per-request service-auth JWT signed by a member with the required role.
+  **Client app developers:** these three methods skipped the API key's scope check, so any key could manage members with its creator's role, and any key could remove the member who created it. `app.certified.group.member.add`, `app.certified.group.member.remove` and `app.certified.group.role.set` now return `403 ApiKeyNotPermitted` for every `X-API-Key` caller, and each refused call is written to the audit log with the key's `apiKeyRef`. This closes a bug rather than removing a supported feature: no key could hold a valid scope for these methods. Scoped API-key access to them is planned in TECH-830. Until then, manage members with a per-request service-auth JWT signed by a member with the required role.
 
 ## 0.6.1
 

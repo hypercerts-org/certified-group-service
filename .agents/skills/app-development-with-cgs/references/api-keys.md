@@ -20,6 +20,9 @@ returns the secret. `keys.delete` — members revoke their own keys, owners revo
 any; soft-revoke by `keyRef`, idempotent. The key acts on behalf of the
 **member that issued it**, narrowed by its scopes (a member-issued `repo:` key
 can only mutate records that member authored; an admin-issued one can touch any).
+A key can also call `member.add`, `member.remove` and `role.set` with the matching
+`rpc:` scope, still capped by the issuer's role; `rpc:*` covers all three. It
+cannot call `ownershipTransfer.accept` or manage keys.
 Scope grammar (`rpc:` / `repo:` / `blob:`), the role-vs-scope axes, and shapes:
 [design/api-keys.md](https://github.com/hypercerts-org/certified-group-service/blob/main/docs/design/api-keys.md)
 and

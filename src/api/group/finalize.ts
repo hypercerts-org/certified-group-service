@@ -1,4 +1,5 @@
 import type { AppContext } from '../../context.js'
+import { activeEncryptionKey } from '../../config.js'
 import { ConflictError } from '../../errors.js'
 import { encrypt } from '../../pds/credentials.js'
 
@@ -37,7 +38,7 @@ export interface FinalizeGroupParams {
 export async function finalizeGroup(ctx: AppContext, params: FinalizeGroupParams): Promise<void> {
   const { groupDid, pdsUrl, appPassword, ownerDid, recoveryKeyMaterial, action, handle } = params
 
-  const encryptionKey = Buffer.from(ctx.config.encryptionKey, 'hex')
+  const encryptionKey = activeEncryptionKey(ctx.config)
   const encryptedAppPassword = encrypt(appPassword, encryptionKey)
   const encryptedRecoveryKey =
     recoveryKeyMaterial === null ? null : encrypt(recoveryKeyMaterial, encryptionKey)

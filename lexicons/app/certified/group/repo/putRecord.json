@@ -10,11 +10,22 @@
         "schema": {
           "type": "object",
           "required": ["repo", "collection", "rkey", "record"],
+          "nullable": ["swapRecord"],
           "properties": {
             "repo": { "type": "string", "format": "at-identifier" },
             "collection": { "type": "string", "format": "nsid" },
             "rkey": { "type": "string" },
-            "record": { "type": "unknown" }
+            "record": { "type": "unknown" },
+            "swapRecord": {
+              "type": "string",
+              "format": "cid",
+              "description": "Compare and swap with the previous record by CID. Set to null to require that no record exists at the key (create-only)."
+            },
+            "swapCommit": {
+              "type": "string",
+              "format": "cid",
+              "description": "Compare and swap with the previous commit by CID."
+            }
           }
         }
       },
@@ -28,7 +39,13 @@
             "cid": { "type": "string" }
           }
         }
-      }
+      },
+      "errors": [
+        {
+          "name": "InvalidSwap",
+          "description": "A swapRecord or swapCommit check failed, so nothing was written: the CID did not match the current record or commit, or swapRecord was null and a record already exists at the key."
+        }
+      ]
     }
   }
 }

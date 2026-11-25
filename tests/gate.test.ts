@@ -71,7 +71,7 @@ describe('assertCanWithAudit — API-key scope gate', () => {
         ctx,
         groupDb,
         'did:plc:owner',
-        'role.set',
+        'group.destroy',
         undefined,
         apiKeyPrincipal([wild]),
       ),
@@ -79,10 +79,8 @@ describe('assertCanWithAudit — API-key scope gate', () => {
   })
 
   it('denies (and audits) when the scope passes but the issuer role is insufficient', async () => {
-    // A member-role issuer holds the member.list scope but member.add needs admin.
-    // member.add is not key-accessible (no lxm), so scope check fails first —
-    // assert the role path instead with an op the key *can* reach but the role
-    // cannot. Demote: seed a non-owner issuer with only member.list scope.
+    // Scope passes but the issuer's role is too low: a member-role issuer holds
+    // the audit.query scope, which needs admin. The role check then caps the key.
     await seedMember(groupDb, 'did:plc:member', 'member')
     // audit.query is key-accessible (has an lxm) but needs admin role.
     const auditScope = scopeNeededFor('audit.query', SERVICE_DID)!
