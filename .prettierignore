@@ -1,4 +1,6 @@
 dist/
+packages/*/dist/
+packages/certified-group-service/src/
 node_modules/
 *.sqlite
 pnpm-lock.yaml

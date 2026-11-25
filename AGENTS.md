@@ -14,14 +14,18 @@ contributor-facing.
 
 - `pnpm test` — vitest (fork-isolated per file, in-memory SQLite)
 - `pnpm dev` — tsx watch
+- `pnpm client:generate` — regenerate `packages/certified-group-service/src/` from `lexicons/app/`
+- `pnpm client:check` — verify generated bindings freshness, types, build, and tests
 - Conventional commits: `feat|fix|chore|refactor|test|docs(scope): message`
 
 ## Changesets
 
 Any change a downstream consumer must adapt to — XRPC endpoint/lexicon/shape,
 RBAC/auth rule, env var, migration or per-group DB behaviour — **requires a
-changeset** (`.changeset/<kebab-name>.md`). Skip only for internal refactors,
-tests-only, CI/tooling, and docs-only changes. Follow the
+changeset** (`.changeset/<kebab-name>.md`). Target `'group-service'` for server
+changes, `'@hypercerts-org/certified-group-service'` for bindings-package
+changes, and both when a lexicon or public XRPC contract changes. Skip only for
+internal refactors, tests-only, CI/tooling, and docs-only changes. Follow the
 [writing-changesets skill](.claude/skills/writing-changesets/SKILL.md) — read
 and apply it, don't write a changeset from memory.
 

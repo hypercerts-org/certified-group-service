@@ -14,6 +14,11 @@ export default tseslint.config(
       // demo/ is a standalone Vite + BFF subproject with its own
       // package.json and tsconfig; it is not linted by the root config.
       'demo/',
+      // Publishable workspace packages under packages/ commit generated
+      // sources (e.g. @hypercerts-org/certified-group-service's src/) that
+      // must not be edited by hand; their scripts and tests are linted below.
+      'packages/*/src/',
+      'packages/*/dist/',
       // Claude Code creates sibling worktrees here, each a full checkout
       // with its own node_modules and tsconfig. Without this ignore,
       // eslint's projectService discovers every tsconfig in every worktree
@@ -82,6 +87,22 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/require-await': 'off',
+    },
+  },
+
+  // Workspace package scripts and tests have their own tsconfigs, outside
+  // tsconfig.eslint.json, so they get the untyped rule set.
+  {
+    files: ['packages/**'],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: {
+      ...tseslint.configs.disableTypeChecked.languageOptions,
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        Request: 'readonly',
+        Response: 'readonly',
+      },
     },
   },
 

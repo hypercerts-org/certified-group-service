@@ -60,6 +60,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # npm Trusted Publishing: npm exchanges the workflow's OIDC token for a
+      # short-lived publish token, so the repository holds no npm token.
+      id-token: write
 
     steps:
       - name: Generate Release Bot App Token
@@ -103,6 +106,12 @@ jobs:
           # 22.23.x ships.
           node-version: 22.22.3
           cache: 'pnpm'
+          registry-url: https://registry.npmjs.org
+
+      # Node 22.22.3 bundles npm 10, which predates npm Trusted Publishing (OIDC
+      # provenance requires npm >= 11.5.1).
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@11.21.2
 
       - run: pnpm install --frozen-lockfile
 
@@ -112,6 +121,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm client:check
+      - run: pnpm client:build
 
       # Guard: no prerelease mode should be active on main.
       - name: Verify no active prerelease mode
@@ -128,19 +139,17 @@ jobs:
             echo "No prerelease mode detected"
           fi
 
-      # Changesets tracks the single root `group-service` package, so there
-      # is one CHANGELOG.md at the repo root and a single release per version.
+      # Changesets tracks both the private root `group-service` package and
+      # public workspace packages under `packages/` (such as `@hypercerts-org/certified-group-service`).
       #
       # On each run:
-      #   1. If pending changesets exist, opens/updates a "Version Packages"
-      #      PR that bumps the root package.json and updates CHANGELOG.md.
-      #   2. If the previous Version Packages PR has been merged (no pending
-      #      changesets, version ahead of tag), runs `pnpm release` which
-      #      calls `changeset tag`. Because the root package is private,
-      #      nothing is published to any registry; `changesets/action` then
-      #      creates the `v<version>` git tag and the single GitHub Release
-      #      whose body is the CHANGELOG entry for this version.
-      - name: Create Release Pull Request or Tag Release
+      #   1. If pending changesets exist, opens/updates a Release PR that bumps
+      #      the affected package versions and updates their CHANGELOG.md files.
+      #   2. If the Release PR has been merged, runs `pnpm release`
+      #      (`changeset publish`), which publishes public packages to npm with
+      #      Trusted Publishing + provenance and creates per-package git tags
+      #      and GitHub Releases (`group-service@X.Y.Z`, `@hypercerts-org/certified-group-service@X.Y.Z`).
+      - name: Create Release Pull Request or Publish Releases
         id: changesets
         uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
         with:
@@ -151,14 +160,11 @@ jobs:
           createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          NPM_CONFIG_PROVENANCE: true
 
-      # changesets/action does not support templating the version into the
-      # PR title (see changesets/action#388). As a workaround, rename the
-      # Release PR to include the version number after the action has run
-      # the version bump. The commit message on the release branch is left
-      # as the static "chore: release" value — it gets rewritten on every
-      # re-run of this workflow, and the merge commit title on main is
-      # controlled by the person merging the PR.
+      # changesets/action does not support templating versions into the PR
+      # title (see changesets/action#388). Rename the Release PR to name every
+      # package bumped on `changeset-release/main` compared to `main`.
       - name: Rename Release PR with version
         if: steps.changesets.outputs.pullRequestNumber != ''
         env:
@@ -166,24 +172,24 @@ jobs:
           PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
         run: |
           set -o pipefail
-          if ! PACKAGE_JSON=$(gh api \
-              "repos/${{ github.repository }}/contents/package.json?ref=changeset-release/main" \
-              -H "Accept: application/vnd.github.raw"); then
-            echo "::warning::Could not fetch package.json from changeset-release/main; leaving PR title unchanged."
+          BUMPED=()
+          for manifest in package.json packages/certified-group-service/package.json; do
+            BASE_VER=$(node -p "JSON.parse(require('node:fs').readFileSync('$manifest', 'utf8')).version")
+            HEAD_JSON=$(gh api \
+              "repos/${{ github.repository }}/contents/${manifest}?ref=changeset-release/main" \
+              -H "Accept: application/vnd.github.raw" 2>/dev/null || true)
+            if [ -z "$HEAD_JSON" ]; then continue; fi
+            HEAD_NAME=$(node -e "process.stdout.write(JSON.parse(process.argv[1]).name || '')" "$HEAD_JSON" || true)
+            HEAD_VER=$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version || '')" "$HEAD_JSON" || true)
+            if [ -n "$HEAD_VER" ] && [ "$HEAD_VER" != "$BASE_VER" ]; then
+              BUMPED+=("${HEAD_NAME}@${HEAD_VER}")
+            fi
+          done
+          if [ "${#BUMPED[@]}" -eq 0 ]; then
+            echo "::warning::Could not determine bumped package versions; leaving PR title unchanged."
             exit 0
           fi
-          VERSION=$(node -e "
-            try {
-              const v = JSON.parse(process.argv[1]).version;
-              if (!v) process.exit(1);
-              process.stdout.write(v);
-            } catch (e) { process.exit(1); }
-          " "$PACKAGE_JSON" || true)
-          if [ -z "$VERSION" ]; then
-            echo "::warning::Could not parse version from package.json; leaving PR title unchanged."
-            exit 0
-          fi
-          NEW_TITLE="prepare for release v$VERSION"
+          NEW_TITLE="prepare for release $(IFS=', '; echo "${BUMPED[*]}")"
           echo "Renaming PR #$PR_NUMBER to: $NEW_TITLE"
           if ! gh pr edit "$PR_NUMBER" --title "$NEW_TITLE"; then
             echo "::warning::Failed to rename PR #$PR_NUMBER; leaving title unchanged."
@@ -192,6 +198,7 @@ jobs:
 
       - name: Log release
         if: steps.changesets.outputs.published == 'true'
+        env:
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "Released group-service v${VERSION}"
+          echo "Released packages: ${PUBLISHED_PACKAGES}"
