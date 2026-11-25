@@ -1,4 +1,6 @@
 dist/
+packages/*/dist/
+packages/cgs/src/
 node_modules/
 *.sqlite
 pnpm-lock.yaml

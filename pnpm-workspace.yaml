@@ -1,3 +1,8 @@
+packages:
+  - .
+  - packages/*
+
 allowBuilds:
   better-sqlite3: true
+  core-js: false
   esbuild: true
