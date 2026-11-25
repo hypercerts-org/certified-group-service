@@ -170,11 +170,16 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           PR_NUMBER: ${{ steps.changesets.outputs.pullRequestNumber }}
+          # The commit this run started from. changesets/action leaves the
+          # working tree on `changeset-release/main` with the bumps applied, so
+          # the base versions must be read from this commit, not the checkout.
+          BASE_SHA: ${{ github.sha }}
         run: |
           set -o pipefail
           BUMPED=()
           for manifest in package.json packages/certified-group-service/package.json; do
-            BASE_VER=$(node -p "JSON.parse(require('node:fs').readFileSync('$manifest', 'utf8')).version")
+            BASE_VER=$(git show "${BASE_SHA}:${manifest}" 2>/dev/null \
+              | node -p "JSON.parse(require('node:fs').readFileSync(0, 'utf8')).version" 2>/dev/null || true)
             HEAD_JSON=$(gh api \
               "repos/${{ github.repository }}/contents/${manifest}?ref=changeset-release/main" \
               -H "Accept: application/vnd.github.raw" 2>/dev/null || true)
@@ -189,7 +194,7 @@ jobs:
             echo "::warning::Could not determine bumped package versions; leaving PR title unchanged."
             exit 0
           fi
-          NEW_TITLE="prepare for release $(IFS=', '; echo "${BUMPED[*]}")"
+          NEW_TITLE="prepare for release $(printf '%s, ' "${BUMPED[@]}" | sed 's/, $//')"
           echo "Renaming PR #$PR_NUMBER to: $NEW_TITLE"
           if ! gh pr edit "$PR_NUMBER" --title "$NEW_TITLE"; then
             echo "::warning::Failed to rename PR #$PR_NUMBER; leaving title unchanged."
