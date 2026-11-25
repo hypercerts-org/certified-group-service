@@ -66,10 +66,20 @@ the change. Omit audiences that are not affected.
 
 ## Format
 
-The group service is a single-package repository. Changesets is
-configured to track the root `group-service` package, so every
-changeset has a single frontmatter entry and the resulting CHANGELOG
-is a single file at the repo root.
+Changesets tracks two independently versioned packages in this workspace:
+
+- `'group-service'` (root `package.json` / root `CHANGELOG.md`) — the
+  server itself. Every `'group-service'` changeset **must** include an
+  `**Affects:**` line (enforced by
+  `scripts/changelog-audience-summary.mjs`).
+- `'@hypercerts-org/certified-group-service'`
+  (`packages/certified-group-service/`) — the published npm bindings
+  package. Target it when a change alters the generated client
+  definitions, types, peer dependencies, or packaging. When a PR changes
+  a lexicon under `lexicons/app/`, target both packages (in one
+  changeset file if the same note fits both, or in two separate files
+  when the server note includes operator details that don't apply to npm
+  consumers).
 
 Create a file in `.changeset/` with a descriptive kebab-case name
 (e.g. `cross-author-mutation-gate.md`, `profile-edit-admin-only.md`).
@@ -90,7 +100,8 @@ Longer explanation with enough concrete detail that each listed audience can ada
 
 ### Frontmatter
 
-The frontmatter is always just `"group-service": <bump>`.
+List only the package(s) affected: `'group-service'`,
+`'@hypercerts-org/certified-group-service'`, or both.
 
 Bump types:
 

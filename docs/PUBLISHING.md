@@ -1,38 +1,43 @@
 # Publishing Guide for Maintainers
 
-This document describes how the group service versions itself and
-produces release notes using
-[Changesets](https://github.com/changesets/changesets) and a GitHub
-Actions workflow.
+This document describes how this repository versions and releases its
+packages using [Changesets](https://github.com/changesets/changesets)
+and GitHub Actions.
 
-Like the [ePDS](https://github.com/hypercerts-org/ePDS) repository,
-**the group service does not publish to any registry** (not npm, not
-GitHub Packages). The release workflow is purely version-only: it
-bumps the root `group-service` version, generates a changelog,
-creates a git tag, and publishes a GitHub Release. The deployable
-artifact is the container image built by
-`.github/workflows/publish-image.yml`; registry publishing of the
-package itself could be added later without changing the authoring
-workflow.
+The repository is a pnpm workspace with two independently versioned
+packages:
+
+- **`group-service`** (private, repo root): the group service itself. It
+  is **not** published to npm; its deployable artifact is the container
+  image built by `.github/workflows/publish-image.yml` when a
+  `group-service@<version>` tag is pushed.
+- **`@hypercerts-org/certified-group-service`** (public,
+  `packages/certified-group-service/`): TypeScript XRPC definitions and
+  types generated from `lexicons/app/`. It is published to npm with
+  Trusted Publishing and provenance when a Release PR that bumps it is
+  merged.
 
 ## Versioning model
 
-The group service is a single-package repository and is versioned
-and released as a **single product**.
+Both packages are versioned independently:
 
-Concretely:
-
-- There is one version number, stored in the root `package.json`.
-- There is one `CHANGELOG.md`, at the repo root.
-- There is one git tag per release, of the form `v<major>.<minor>.<patch>`.
-- There is one GitHub Release per tag.
-- Every changeset has a single frontmatter entry: `"group-service": minor`
-  (or `patch` / `major`).
+- **`group-service`** has its version in the root `package.json`, its
+  changelog in the root `CHANGELOG.md`, and tags of the form
+  `group-service@<version>` (historical releases through `0.7.0` used
+  `v<version>`).
+- **`@hypercerts-org/certified-group-service`** has its version in
+  `packages/certified-group-service/package.json`, its changelog in
+  `packages/certified-group-service/CHANGELOG.md`, and tags of the form
+  `@hypercerts-org/certified-group-service@<version>`.
+- Each released package version gets its own git tag and GitHub Release.
+- Changesets target `'group-service'`,
+  `'@hypercerts-org/certified-group-service'`, or both (when a lexicon or
+  public XRPC interface changes).
 
 The `demo/` directory is a standalone example app with its own
 `package.json` and is **not** tracked by Changesets — changes to the
-demo do not on their own warrant a group-service changeset unless
-they reflect an observable change in the service.
+demo do not on their own warrant a changeset unless they reflect an
+observable change in the service.
 
 ## Branch strategy
 
@@ -58,8 +63,8 @@ pnpm changeset
 
 The CLI will:
 
-1. Detect that there is only one tracked package (`group-service`)
-   and bump it automatically without asking which packages changed.
+1. Prompt you to select which package(s) changed (`group-service`,
+   `@hypercerts-org/certified-group-service`, or both).
 2. Ask for the bump type (`major` / `minor` / `patch`). When
    multiple changesets accumulate, the largest bump wins (one
    `minor` + three `patch` changesets → one `minor` release).
@@ -160,17 +165,25 @@ Releases happen in two phases:
      notes.
    - If there are no pending changesets and the tag is up to date,
      phase 1 is a no-op.
-4. **Phase 2 — automatic tag + GitHub Release:**
+4. **Phase 2 — automatic publish, tag, and GitHub Release:**
    - Review and merge the Release PR when you're happy with the
-     generated changelog and version number. This is the checkpoint
-     where you verify them before they become permanent.
+     generated changelog(s) and version number(s). This is the
+     checkpoint where you verify them before they become permanent.
    - When the Release PR (head branch `changeset-release/main`)
      merges into `main`, the workflow re-runs automatically via its
-     `pull_request: closed` trigger. There are no pending changesets
-     at this point but the git tag is behind the `package.json`
-     version, so the action runs `pnpm release` (`changeset tag`),
-     creates a `v<version>` git tag, and publishes a single GitHub
-     Release whose body is the matching section of `CHANGELOG.md`.
+     `push` trigger (filtered by the `detect` job). It runs
+     `pnpm release` (`changeset publish`), which publishes any bumped
+     public packages (`@hypercerts-org/certified-group-service`) to npm
+     with Trusted Publishing and provenance, creates per-package git
+     tags (`group-service@<version>`,
+     `@hypercerts-org/certified-group-service@<version>`), and
+     publishes a GitHub Release for each bumped package.
+   - For the very first release of
+     `@hypercerts-org/certified-group-service`, configure a Trusted
+     Publisher on npmjs.com (repository
+     `hypercerts-org/certified-group-service`, workflow `release.yml`);
+     if npm requires the package to exist first, an owner of the
+     `@hypercerts-org` scope publishes the initial version manually.
    - The auto-trigger only fires for PRs whose head ref is
      `changeset-release/main`. Merging any other PR into `main` does
      **not** start a release run.
