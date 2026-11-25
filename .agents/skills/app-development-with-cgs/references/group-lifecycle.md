@@ -40,8 +40,9 @@ Destroy is **lossy and irreversible.** More traps:
   group's audit log (deleted in the same step) — only the service's operational
   log.
 - **Re-import ≠ resurrection.** The account can be re-imported, but authorship is
-  gone: surviving PDS records become unowned, so the first member to `putRecord`
-  a known `rkey` becomes its recorded author and can overwrite it.
+  gone. Surviving PDS records are untracked. `putRecord` needs create access for
+  untracked keys and is create-only unless the caller also has `putAnyRecord`
+  access.
 - **DID doc + app password linger.** For `register`ed groups the `certified_group`
   DID-doc entry stays (route still points at CGS); the PDS app password is not
   revoked (CGS can't). Both are the DID/account controller's job to clean up.

@@ -97,7 +97,7 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 | `deleteOwnRecord`   | member       | Delete records you authored                                  |
 | `putOwnRecord`      | member       | Edit records you authored                                    |
 | `member.list`       | member       | List group members                                           |
-| `putAnyRecord`      | admin        | Edit any member's records                                    |
+| `putAnyRecord`      | admin        | Edit another member's record or write at an untracked key    |
 | `deleteAnyRecord`   | admin        | Delete any member's records                                  |
 | `putRecord:profile` | admin        | Edit the group's profile (`app.bsky.actor.profile` / `self`) |
 | `member.add`        | admin        | Add new members                                              |
@@ -112,7 +112,7 @@ Roles are compared numerically. A higher level grants all permissions of lower l
 - **Cannot assign roles above assignable set**: `member.add` only allows assigning `member` or `admin` — not `owner`
 - **Self-removal succeeds for non-owners**: Any non-owner member can remove themselves regardless of role. The owner cannot self-remove — the `CannotRemoveOwner` guard fires before the self-removal path; transfer ownership away first.
 - **Owner role is immutable**: `role.set` rejects both promoting a member to owner (`CannotPromoteToOwner`) and changing an existing owner's role (`CannotModifyOwner`); `member.remove` rejects removing an owner (`CannotRemoveOwner`). Each group has exactly one owner (initially the registrant). Ownership moves only through the dedicated two-phase [`ownershipTransfer.*`](api-reference.md#ownership-transfer) handshake (owner proposes, proposed member accepts) or the operator-only [`admin.setOwner`](api-reference.md#post-xrpcappcertifiedgroupadminsetowner) break-glass endpoint — never through `role.set`.
-- **Author-based record ownership**: `putRecord` and `deleteRecord` check the `group_record_authors` table to determine if the caller authored the record, then select the appropriate operation (`putOwnRecord` / `putAnyRecord` vs `putRecord:profile`, `deleteOwnRecord` vs `deleteAnyRecord`). Members can only edit or delete their own records; editing or deleting another member's record requires admin.
+- **Author-based record ownership**: `putRecord` and `deleteRecord` check the `group_record_authors` table to determine if the caller authored the record, then select the appropriate operation (`putOwnRecord` / `putAnyRecord` vs `putRecord:profile`, `deleteOwnRecord` vs `deleteAnyRecord`). Members can only edit or delete their own records. Writing at an untracked key first requires create access. Without `putAnyRecord` access (including the matching collection `update` scope for API keys), the write is create-only.
 
 ### RBAC enforcement
 
@@ -373,7 +373,7 @@ sequenceDiagram
 
 `group.destroy` is the service-level inverse: an owner removes the group **from the service** while leaving the underlying PDS account intact (it is not account deletion). It deletes the group's `groups` row and `member_index` entries in a single global-DB transaction, then unlinks the per-group SQLite file; doing the file unlink only after the transaction commits means an interrupted destroy leaves at worst an orphaned file rather than inconsistent global state. Because the per-group audit log is deleted with it, the destroy is recorded in the service's operational log instead.
 
-Destroy is lossy: the per-group DB — including the `group_record_authors` table and the audit log — is gone. The account can be re-imported afterward, but the re-imported group has an empty authorship table, so surviving PDS records are treated as unowned and a member can claim authorship by `putRecord`ing a known `rkey` (see `putRecord.ts`: no author row ⇒ `createRecord`, which members may perform). Destroy also leaves the `certified_group` DID-document entry (for `register`ed groups) and the PDS app password in place — the service cannot revoke either. These are the DID/account controller's responsibility. User-facing consequences are spelled out in [api-reference.md](./api-reference.md#post-xrpcappcertifiedgroupdestroy).
+Destroy is lossy: the per-group DB — including the `group_record_authors` table and the audit log — is gone. The account can be re-imported afterward, but the re-imported group has an empty authorship table, so surviving PDS records are untracked. A caller needs both create and `putAnyRecord` access to update one via `putRecord`. Destroy also leaves the `certified_group` DID-document entry (for `register`ed groups) and the PDS app password in place — the service cannot revoke either. These are the DID/account controller's responsibility. User-facing consequences are spelled out in [api-reference.md](./api-reference.md#post-xrpcappcertifiedgroupdestroy).
 
 ## Startup sequence
 

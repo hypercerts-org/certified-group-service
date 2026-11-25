@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import request from 'supertest'
+import type { Agent } from '@atproto/api'
 import {
   createTestContext,
   seedMember,
@@ -13,6 +14,7 @@ import {
   createTestApp,
 } from './helpers/mock-server.js'
 import createRecordHandler from '../src/api/repo/createRecord.js'
+import putRecordHandler from '../src/api/repo/putRecord.js'
 import deleteRecordHandler from '../src/api/repo/deleteRecord.js'
 import uploadBlobHandler from '../src/api/repo/uploadBlob.js'
 import type { AppContext } from '../src/context.js'
@@ -50,6 +52,7 @@ const feedPost = () => ({
   collection: POST,
   record: { $type: POST, text: 'hi', createdAt: '2026-01-01T00:00:00.000Z' },
 })
+type PutRecordInput = NonNullable<Parameters<Agent['com']['atproto']['repo']['putRecord']>[0]>
 
 describe('API-key writes — createRecord', () => {
   let ctx: AppContext
@@ -90,6 +93,120 @@ describe('API-key writes — createRecord', () => {
       .post(`/xrpc/com.atproto.repo.createRecord?repo=${GROUP}`)
       .send(feedPost())
     expect(res.status).toBe(403)
+  })
+})
+
+describe('API-key writes — putRecord without tracked authorship', () => {
+  let ctx: AppContext
+  let groupDb: Kysely<GroupDatabase>
+  const putCalls: PutRecordInput[] = []
+  const createPost = `repo:${POST}?action=create`
+  const updatePost = `repo:${POST}?action=update`
+
+  beforeEach(async () => {
+    const test = await createTestContext()
+    ctx = test.ctx
+    groupDb = test.groupDb
+    putCalls.length = 0
+    await seedMember(groupDb, 'did:plc:owner', 'owner')
+  })
+
+  function app() {
+    const upstreamAgent = {
+      com: {
+        atproto: {
+          repo: {
+            putRecord: async (input: PutRecordInput) => {
+              putCalls.push(input)
+              return {
+                data: {
+                  uri: `at://${GROUP}/${input.collection}/${input.rkey}`,
+                  cid: 'bafytest',
+                },
+              }
+            },
+          },
+        },
+      },
+    } as unknown as Agent
+    const pdsAgents = {
+      withAgent: async <T>(_groupDid: string, run: (agent: Agent) => Promise<T>) =>
+        run(upstreamAgent),
+    }
+    const appCtx = {
+      ...ctx,
+      pdsAgents: pdsAgents as unknown as AppContext['pdsAgents'],
+    }
+    return createTestApp(appCtx, (s, c) => putRecordHandler(s, c))
+  }
+
+  function put(scopes: string[], callerDid: string, extraFields: Record<string, unknown> = {}) {
+    ctx.authVerifier = apiKeyAuth(scopes, callerDid)
+    return request(app())
+      .post(`/xrpc/com.atproto.repo.putRecord?repo=${GROUP}`)
+      .send({ ...feedPost(), rkey: 'key1', ...extraFields })
+  }
+
+  it('requires the caller role to allow putAnyRecord even when the key has update scope', async () => {
+    await seedMember(groupDb, 'did:plc:member', 'member')
+    const res = await put([createPost, updatePost], 'did:plc:member', {
+      swapRecord: 'bafy-caller-condition',
+    })
+
+    expect(res.status).toBe(200)
+    expect(putCalls[0]?.swapRecord).toBeNull()
+    const auditRows = await groupDb
+      .selectFrom('group_audit_log')
+      .select(['action', 'result'])
+      .execute()
+    expect(auditRows).toEqual([{ action: 'createRecord', result: 'permitted' }])
+  })
+
+  it('requires update scope for the target collection before using putAnyRecord', async () => {
+    await seedMember(groupDb, 'did:plc:admin', 'admin')
+    const res = await put(
+      [createPost, 'repo:app.bsky.actor.profile?action=update'],
+      'did:plc:admin',
+      { swapRecord: 'bafy-caller-condition' },
+    )
+
+    expect(res.status).toBe(200)
+    expect(putCalls[0]?.swapRecord).toBeNull()
+    const auditRows = await groupDb
+      .selectFrom('group_audit_log')
+      .select(['action', 'result'])
+      .execute()
+    expect(auditRows).toEqual([{ action: 'createRecord', result: 'permitted' }])
+  })
+
+  it('uses putAnyRecord when both role and collection update scope allow it', async () => {
+    await seedMember(groupDb, 'did:plc:admin', 'admin')
+    const res = await put([createPost, updatePost], 'did:plc:admin', {
+      swapRecord: 'bafy-caller-condition',
+    })
+
+    expect(res.status).toBe(200)
+    expect(putCalls[0]?.swapRecord).toBe('bafy-caller-condition')
+    const auditRows = await groupDb
+      .selectFrom('group_audit_log')
+      .select(['action', 'result'])
+      .execute()
+    expect(auditRows).toEqual([{ action: 'putAnyRecord', result: 'permitted' }])
+  })
+
+  it('keeps create scope as a prerequisite when update scope is present', async () => {
+    await seedMember(groupDb, 'did:plc:admin', 'admin')
+    const res = await put([updatePost], 'did:plc:admin', {
+      swapRecord: 'bafy-caller-condition',
+    })
+
+    expect(res.status).toBe(403)
+    expect(putCalls).toEqual([])
+    const auditRows = await groupDb
+      .selectFrom('group_audit_log')
+      .select(['action', 'result'])
+      .execute()
+    expect(auditRows).toEqual([{ action: 'createRecord', result: 'denied' }])
   })
 })
 

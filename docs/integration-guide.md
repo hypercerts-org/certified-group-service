@@ -552,7 +552,7 @@ This is the service-level inverse of `register` / `import`: it drops the group's
 Destroy is **lossy and irreversible** — plan for it before calling:
 
 - **Export the audit log first if you need it.** `app.certified.group.audit.query` works only while the group lives; destroy deletes the audit log along with the rest of the per-group data. The destroy itself is not written to that log (it is deleted in the same step) — only to the service's operational log.
-- **Re-import resurrects the account, not the group's history.** Because the account survives, you can `app.certified.group.import` it later, but the re-imported group starts with an empty authorship table. Records still on the PDS become unowned, so the first member to `putRecord` a surviving `rkey` is recorded as its author and can overwrite it.
+- **Re-import resurrects the account, not the group's history.** You can `app.certified.group.import` the surviving account, but the group starts with no authorship history. Records still on the group's PDS are untracked. A `putRecord` caller with create access but without `putAnyRecord` access can only write at an unused key. Updating a surviving record requires both permissions.
 - **Clean up the DID document and app password yourself.** For `register`-created groups the `certified_group` entry in the DID document is left in place — remove it as the DID controller if you no longer want requests routed to the service. The stored app password is likewise not revoked at the PDS (the service cannot); revoke it directly against the account if that matters.
 
 ## Error handling
