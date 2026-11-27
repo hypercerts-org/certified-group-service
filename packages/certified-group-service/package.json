@@ -1,6 +1,6 @@
 {
   "name": "@hypercerts-org/certified-group-service",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript XRPC definitions and types for the Certified Group Service (CGS), for use with @atproto/lex",
   "license": "MIT OR Apache-2.0",
   "repository": {
