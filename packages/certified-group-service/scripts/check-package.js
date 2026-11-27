@@ -94,9 +94,10 @@ function createConsumer(dir, tarball) {
 
 /** @param {string} consumer */
 function checkNode(consumer) {
-  const script = `import { app } from "@hypercerts-org/certified-group-service";
+  const script = `import { app, com } from "@hypercerts-org/certified-group-service";
 if (app.certified.groups.membership.list.main.nsid !== "app.certified.groups.membership.list") throw new Error("membership.list");
-if (app.certified.group.repo.putRecord.main.nsid !== "app.certified.group.repo.putRecord") throw new Error("repo.putRecord");`
+if (app.certified.group.repo.putRecord.main.nsid !== "app.certified.group.repo.putRecord") throw new Error("repo.putRecord");
+if (com.atproto.server.getServiceAuth.main.nsid !== "com.atproto.server.getServiceAuth") throw new Error("server.getServiceAuth");`
   run('node', ['--input-type=module', '-e', script], consumer)
   console.log('check-package: Node imports the package')
 }
@@ -106,8 +107,16 @@ function checkTypes(consumer) {
   writeFileSync(
     path.join(consumer, 'src', 'types.ts'),
     `import { Client } from "@atproto/lex";
-import { app } from "@hypercerts-org/certified-group-service";
+import { app, com } from "@hypercerts-org/certified-group-service";
 const cgs = new Client("https://groups.example");
+const pds = new Client("https://pds.example");
+export async function serviceAuthToken(): Promise<string> {
+  const { token } = await pds.call(com.atproto.server.getServiceAuth, {
+    aud: "did:web:groups.example",
+    lxm: app.certified.groups.membership.list.main.nsid,
+  });
+  return token;
+}
 export async function memberships(): Promise<app.certified.groups.membership.list.GroupMembership[]> {
   const { groups } = await cgs.call(app.certified.groups.membership.list, { limit: 50 });
   return groups;

@@ -8,9 +8,14 @@ npm install @hypercerts-org/certified-group-service @atproto/lex
 
 ```ts
 import { Client } from '@atproto/lex'
-import { app } from '@hypercerts-org/certified-group-service'
+import { app, com } from '@hypercerts-org/certified-group-service'
 
 const cgs = new Client('https://groups.certified.app')
+
+const { token: serviceAuthToken } = await pdsClient.call(com.atproto.server.getServiceAuth, {
+  aud: 'did:web:groups.certified.app',
+  lxm: app.certified.groups.membership.list.main.nsid,
+})
 
 const { groups } = await cgs.call(
   app.certified.groups.membership.list,
@@ -35,10 +40,11 @@ type GroupMembership = app.certified.groups.membership.list.GroupMembership
 
 ## What it contains
 
-The package exports [lex's NSID namespace tree](https://www.npmjs.com/package/@atproto/lex) (`app`) for every CGS-owned Lexicon under [`lexicons/app/`](../../lexicons/app/):
+The package exports [lex's NSID namespace tree](https://www.npmjs.com/package/@atproto/lex) (`app` and `com`) for every CGS-owned Lexicon under [`lexicons/app/`](../../lexicons/app/) plus `com.atproto.server.getServiceAuth`:
 
 - Group endpoints live under `app.certified.group.*` (`register`, `import`, `destroy`, `repo.*`, `member.*`, `role.set`, `keys.*`, `audit.query`, `ownershipTransfer.*`, `admin.setOwner`).
 - Cross-group membership lookup lives at `app.certified.groups.membership.list`.
+- Service-auth token minting lives at `com.atproto.server.getServiceAuth` (generated from the upstream AT Protocol Lexicon in [`lexicons/com.atproto.server.getServiceAuth.json`](lexicons/com.atproto.server.getServiceAuth.json)), so consumers can mint CGS service-auth tokens from a user's PDS without running a separate local `lex install` / `lex build` pipeline.
 - Deprecated `com.atproto.repo.*` proxy stubs are excluded.
 
 ESM only. `@atproto/lex` is a peer dependency; install a version in the declared range (`^0.4.2`, matching `@hypercerts-org/api` and `@hypercerts-org/lexicon` so consumers share a single `@atproto/lex` installation).
