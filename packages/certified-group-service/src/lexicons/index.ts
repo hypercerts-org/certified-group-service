@@ -3,3 +3,4 @@
  */
 
 export * as app from "./app.js";
+export * as com from "./com.js";

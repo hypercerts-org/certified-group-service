@@ -1,10 +1,19 @@
 // Type-level tests for the built package: compiled by `pnpm test`
 // (tsconfig.test.json), never run. Each @ts-expect-error must stay an error.
 import { Client } from '@atproto/lex'
-import { app } from '@hypercerts-org/certified-group-service'
+import { app, com } from '@hypercerts-org/certified-group-service'
 
 const cgs = new Client('https://groups.example')
+const pds = new Client('https://pds.example')
 const groupDid = 'did:plc:aaaaaaaaaaaaaaaaaaaaaaaa' as const
+
+export async function mintServiceAuth(): Promise<string> {
+  const { token } = await pds.call(com.atproto.server.getServiceAuth, {
+    aud: 'did:web:groups.example',
+    lxm: app.certified.groups.membership.list.main.nsid,
+  })
+  return token
+}
 
 export type GroupMembership = app.certified.groups.membership.list.GroupMembership
 export type GroupMember = app.certified.group.member.list.Member
@@ -57,3 +66,9 @@ export const missingPutFields = () => cgs.call(app.certified.group.repo.putRecor
 export const missingSetOwnerFields = () =>
   // @ts-expect-error newOwner is required on admin.setOwner
   cgs.call(app.certified.group.admin.setOwner, { repo: groupDid })
+
+export const missingServiceAuthAud = () =>
+  // @ts-expect-error aud is required on com.atproto.server.getServiceAuth
+  pds.call(com.atproto.server.getServiceAuth, {
+    lxm: app.certified.groups.membership.list.main.nsid,
+  })

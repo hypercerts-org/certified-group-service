@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, URL } from 'node:url'
 import { Client, XrpcResponseValidationError } from '@atproto/lex'
 import * as cgs from '@hypercerts-org/certified-group-service'
 
@@ -45,8 +45,34 @@ test('every CGS-owned Lexicon under lexicons/app/ is at its NSID path', async ()
     )
   }
 
-  // Deprecated com.atproto.repo.* proxy stubs must not be exported.
-  assert.equal('com' in cgs, false)
+  // Companion com.atproto.server.getServiceAuth is exported for minting service-auth JWTs,
+  // while deprecated com.atproto.repo.* proxy stubs must stay excluded.
+  assert.equal(
+    lookup(cgs, 'com.atproto.server.getServiceAuth')?.main?.nsid,
+    'com.atproto.server.getServiceAuth',
+  )
+  assert.equal('repo' in cgs.com.atproto, false)
+})
+
+test('com.atproto.server.getServiceAuth mints a service-auth token for a CGS method', async () => {
+  /** @type {Request | undefined} */
+  let seen
+  const pds = new Client({
+    service: 'https://pds.example',
+    fetch: stubFetch({ token: 'eyJ.service.jwt' }, (req) => {
+      seen = req
+    }),
+  })
+  const { token } = await pds.call(cgs.com.atproto.server.getServiceAuth, {
+    aud: 'did:web:groups.example#certified_group_service',
+    lxm: cgs.app.certified.groups.membership.list.main.nsid,
+  })
+  assert.equal(token, 'eyJ.service.jwt')
+  assert.equal(seen?.method, 'GET')
+  const url = new URL(seen?.url ?? '')
+  assert.equal(url.pathname, '/xrpc/com.atproto.server.getServiceAuth')
+  assert.equal(url.searchParams.get('aud'), 'did:web:groups.example#certified_group_service')
+  assert.equal(url.searchParams.get('lxm'), 'app.certified.groups.membership.list')
 })
 
 test('membership.list validates responses against the Lexicon', async () => {
